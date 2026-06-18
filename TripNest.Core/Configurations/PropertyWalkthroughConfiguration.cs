@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using TripNest.Core.Enums;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Configurations;
@@ -28,6 +29,18 @@ public class PropertyConfiguration : IEntityTypeConfiguration<Property>
         builder.Property(p => p.CreatedAt).IsRequired();
         builder.Property(p => p.UpdatedAt).IsRequired();
 
+        builder.Property(p => p.WalkthroughVideoPath).HasMaxLength(500);
+        builder.Property(p => p.WalkthroughStatus)
+            .IsRequired()
+            .HasDefaultValue(WalkthroughStatus.NotSubmitted);
+        builder.Property(p => p.WalkthroughReviewedById).HasMaxLength(36);
+        builder.Property(p => p.WalkthroughRejectionReason).HasColumnType("text");
+
+        builder.HasOne(p => p.WalkthroughReviewedBy)
+            .WithMany()
+            .HasForeignKey(p => p.WalkthroughReviewedById)
+            .OnDelete(DeleteBehavior.SetNull);
+
         builder.HasOne(p => p.User)
             .WithMany()
             .HasForeignKey(p => p.UserId)
@@ -54,7 +67,7 @@ public class WalkthroughConfiguration : IEntityTypeConfiguration<Walkthrough>
 
         builder.Property(w => w.PropertyId).IsRequired().HasMaxLength(36);
         builder.Property(w => w.Title).IsRequired().HasMaxLength(200);
-        builder.Property(w => w.VideoUrl).IsRequired().HasMaxLength(500);
+        builder.Property(w => w.VideoPath).IsRequired().HasMaxLength(500);
         builder.Property(w => w.ThumbnailUrl).HasMaxLength(500);
         builder.Property(w => w.DurationSeconds).IsRequired();
         builder.Property(w => w.CreatedAt).IsRequired();

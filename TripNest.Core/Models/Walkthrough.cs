@@ -6,7 +6,7 @@ public class Walkthrough
     public required string PropertyId { get; set; }
     public Property? Property { get; set; }
     public required string Title { get; set; }
-    public required string VideoUrl { get; set; }
+    public required string VideoPath { get; set; }
     public string? ThumbnailUrl { get; set; }
     public int DurationSeconds { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
