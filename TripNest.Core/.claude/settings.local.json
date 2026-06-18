@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /home/x/TripNest.Core -maxdepth 3 -type d | sort)",
+      "Read(//home/x/TripNest.Core/**)",
+      "Bash(dotnet ef *)",
+      "Bash(dotnet build *)",
+      "Bash(git config *)"
+    ]
+  }
+}

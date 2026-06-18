@@ -1,0 +1,191 @@
+using TripNest.Core.DTOs.Properties;
+using TripNest.Core.Enums;
+using TripNest.Core.Interfaces.Repositories;
+using TripNest.Core.Interfaces.Services;
+using TripNest.Core.Models;
+
+namespace TripNest.Core.Services;
+
+public class PropertyService : IPropertyService
+{
+    private readonly IPropertyRepository _propertyRepository;
+    private readonly ILogger<PropertyService> _logger;
+
+    public PropertyService(IPropertyRepository propertyRepository, ILogger<PropertyService> logger)
+    {
+        _propertyRepository = propertyRepository;
+        _logger = logger;
+    }
+
+    public async Task<PropertyResponse> CreatePropertyAsync(string userId, CreatePropertyRequest request)
+    {
+        try
+        {
+            var property = new Property
+            {
+                UserId = userId,
+                Title = request.Title,
+                Description = request.Description,
+                Location = request.Location,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                Bedrooms = request.Bedrooms,
+                Bathrooms = request.Bathrooms,
+                MonthlyRent = request.MonthlyRent,
+                DailyRate = request.DailyRate,
+                PropertyType = request.PropertyType,
+                Amenities = request.Amenities,
+                Status = PropertyStatus.Draft
+            };
+
+            await _propertyRepository.AddAsync(property);
+            await _propertyRepository.SaveChangesAsync();
+
+            _logger.LogInformation("Property created: {PropertyId} for user {UserId}", property.Id, userId);
+
+            return MapToResponse(property);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating property");
+            throw;
+        }
+    }
+
+    public async Task<PropertyResponse> UpdatePropertyAsync(string propertyId, CreatePropertyRequest request)
+    {
+        try
+        {
+            var property = await _propertyRepository.GetByIdAsync(propertyId);
+            if (property == null)
+                throw new InvalidOperationException("Property not found");
+
+            property.Title = request.Title;
+            property.Description = request.Description;
+            property.Location = request.Location;
+            property.Latitude = request.Latitude;
+            property.Longitude = request.Longitude;
+            property.Bedrooms = request.Bedrooms;
+            property.Bathrooms = request.Bathrooms;
+            property.MonthlyRent = request.MonthlyRent;
+            property.DailyRate = request.DailyRate;
+            property.PropertyType = request.PropertyType;
+            property.Amenities = request.Amenities;
+            property.UpdatedAt = DateTime.UtcNow;
+
+            await _propertyRepository.UpdateAsync(property);
+            await _propertyRepository.SaveChangesAsync();
+
+            _logger.LogInformation("Property updated: {PropertyId}", propertyId);
+
+            return MapToResponse(property);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating property");
+            throw;
+        }
+    }
+
+    public async Task<PropertyResponse> GetPropertyAsync(string propertyId)
+    {
+        try
+        {
+            var property = await _propertyRepository.GetByIdAsync(propertyId);
+            if (property == null)
+                throw new InvalidOperationException("Property not found");
+
+            return MapToResponse(property);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving property");
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<PropertyResponse>> GetUserPropertiesAsync(string userId)
+    {
+        try
+        {
+            var properties = await _propertyRepository.GetByUserIdAsync(userId);
+            return properties.Select(MapToResponse);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving user properties");
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<PropertyResponse>> GetAllActivePropertiesAsync()
+    {
+        try
+        {
+            var properties = await _propertyRepository.GetAllActiveAsync();
+            return properties.Select(MapToResponse);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving active properties");
+            throw;
+        }
+    }
+
+    public async Task<IEnumerable<PropertyResponse>> SearchPropertiesAsync(string location, int minBedrooms, int maxBedrooms)
+    {
+        try
+        {
+            var properties = await _propertyRepository.SearchAsync(location, minBedrooms, maxBedrooms);
+            return properties.Select(MapToResponse);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error searching properties");
+            throw;
+        }
+    }
+
+    public async Task DeletePropertyAsync(string propertyId)
+    {
+        try
+        {
+            var property = await _propertyRepository.GetByIdAsync(propertyId);
+            if (property == null)
+                throw new InvalidOperationException("Property not found");
+
+            await _propertyRepository.DeleteAsync(property);
+            await _propertyRepository.SaveChangesAsync();
+
+            _logger.LogInformation("Property deleted: {PropertyId}", propertyId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting property");
+            throw;
+        }
+    }
+
+    private PropertyResponse MapToResponse(Property property)
+    {
+        return new PropertyResponse
+        {
+            PropertyId = property.Id,
+            Title = property.Title,
+            Description = property.Description,
+            Location = property.Location,
+            Latitude = property.Latitude,
+            Longitude = property.Longitude,
+            Bedrooms = property.Bedrooms,
+            Bathrooms = property.Bathrooms,
+            MonthlyRent = property.MonthlyRent,
+            DailyRate = property.DailyRate,
+            PropertyType = property.PropertyType,
+            Amenities = property.Amenities,
+            PhotoPaths = property.PhotoPaths,
+            Status = property.Status,
+            CreatedAt = property.CreatedAt,
+            UpdatedAt = property.UpdatedAt
+        };
+    }
+}

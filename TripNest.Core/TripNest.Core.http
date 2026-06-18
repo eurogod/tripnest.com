@@ -1,0 +1,6 @@
+@TripNest.Core_HostAddress = http://localhost:5091
+
+GET {{TripNest.Core_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
