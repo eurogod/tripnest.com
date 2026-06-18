@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Reviews;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 
@@ -26,28 +27,27 @@ public class ReviewsController : ControllerBase
     /// Submit a review for a completed booking
     /// </summary>
     [HttpPost]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> CreateReview([FromBody] CreateReviewRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ReviewResponse>>> CreateReview([FromBody] CreateReviewRequest request)
     {
         try
         {
             var reviewerId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(reviewerId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ReviewResponse>.UnAuthorized());
 
             var review = await _reviewService.CreateReviewAsync(request.BookingId, request.PropertyId, reviewerId, request.Rating, request.Comment);
-            var reviewId = ((dynamic)review).Id;
-            return Created($"api/reviews/{reviewId}", ApiResponse<object>.Created("Review", review));
+            return Created($"api/reviews/{review.ReviewId}", ApiResponse<ReviewResponse>.Created("Review", review));
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+            return BadRequest(ApiResponse<ReviewResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating review");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ReviewResponse>.InternalServerError());
         }
     }
 
@@ -56,18 +56,18 @@ public class ReviewsController : ControllerBase
     /// </summary>
     [HttpGet("property/{propertyId}")]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetPropertyReviews(string propertyId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ReviewResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ReviewResponse>>>> GetPropertyReviews(string propertyId, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
         try
         {
             var reviews = await _reviewService.GetPropertyReviewsAsync(propertyId, page, pageSize);
-            return Ok(ApiResponse<object>.Ok("Reviews retrieved", reviews));
+            return Ok(ApiResponse<PagedResult<ReviewResponse>>.Ok("Reviews retrieved", reviews));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving reviews");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<PagedResult<ReviewResponse>>.InternalServerError());
         }
     }
 
@@ -76,22 +76,22 @@ public class ReviewsController : ControllerBase
     /// </summary>
     [HttpGet("mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetMyReviews()
+    [ProducesResponseType(typeof(ApiResponse<List<ReviewResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<ReviewResponse>>>> GetMyReviews()
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<List<ReviewResponse>>.UnAuthorized());
 
             var reviews = await _reviewService.GetUserReviewsAsync(userId);
-            return Ok(ApiResponse<object>.Ok("Reviews retrieved", reviews));
+            return Ok(ApiResponse<List<ReviewResponse>>.Ok("Reviews retrieved", reviews));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving reviews");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<List<ReviewResponse>>.InternalServerError());
         }
     }
 
@@ -100,22 +100,22 @@ public class ReviewsController : ControllerBase
     /// </summary>
     [HttpGet("{id}")]
     [AllowAnonymous]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object>>> GetReview(string id)
+    [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ReviewResponse>>> GetReview(string id)
     {
         try
         {
             var review = await _reviewService.GetReviewAsync(id);
             if (review == null)
-                return NotFound(ApiResponse<object>.NotFound("Review"));
+                return NotFound(ApiResponse<ReviewResponse>.NotFound("Review"));
 
-            return Ok(ApiResponse<object>.Ok("Review retrieved", review));
+            return Ok(ApiResponse<ReviewResponse>.Ok("Review retrieved", review));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving review");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ReviewResponse>.InternalServerError());
         }
     }
 
@@ -124,27 +124,27 @@ public class ReviewsController : ControllerBase
     /// </summary>
     [HttpDelete("{id}")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<ApiResponse<object>>> DeleteReview(string id)
+    [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ApiResponse<ReviewResponse>>> DeleteReview(string id)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ReviewResponse>.UnAuthorized());
 
             await _reviewService.DeleteReviewAsync(id, userId);
-            return Ok(ApiResponse<object>.Ok("Review deleted", null));
+            return Ok(ApiResponse<ReviewResponse>.Ok("Review deleted", null));
         }
         catch (InvalidOperationException ex)
         {
-            return StatusCode(403, ApiResponse<object>.BadRequest(ex.Message));
+            return StatusCode(403, ApiResponse<ReviewResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting review");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ReviewResponse>.InternalServerError());
         }
     }
 }

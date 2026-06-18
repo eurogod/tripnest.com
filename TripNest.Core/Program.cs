@@ -6,6 +6,7 @@ using Microsoft.OpenApi.Models;
 using TripNest.Core.Context;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
+using TripNest.Core.Models;
 using TripNest.Core.Repositories;
 using TripNest.Core.Services;
 
@@ -145,6 +146,27 @@ builder.Services.AddLogging(config =>
 
 // Register DatabaseSeeder
 builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
+
+// Module service implementations
+builder.Services.AddScoped<IEscrowService, EscrowService>();
+builder.Services.AddScoped<IAgreementService, AgreementService>();
+builder.Services.AddScoped<ICaretakerService, CaretakerService>();
+builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
+builder.Services.AddScoped<IAgentService, AgentService>();
+builder.Services.AddScoped<IReviewService, ReviewService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IReceiptService, ReceiptService>();
+builder.Services.AddScoped<IChatService, ChatService>();
+
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 524_288_000; // 500 MB
+});
+
+builder.Services.AddScoped<IRepository<ServiceRequest>, Repository<ServiceRequest>>();
+builder.Services.AddScoped<IRepository<ViewingRequest>, Repository<ViewingRequest>>();
+builder.Services.AddScoped<IRepository<PropertyBlockedDate>, Repository<PropertyBlockedDate>>();
+builder.Services.AddScoped<IRepository<WishlistItem>, Repository<WishlistItem>>();
 
 // Register background services
 builder.Services.AddHostedService<EscrowAutoReleaseService>();

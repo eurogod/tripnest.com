@@ -26,24 +26,24 @@ public class EscrowController : ControllerBase
     /// Initiate escrow payment for a booking
     /// </summary>
     [HttpPost("initiate")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<ApiResponse<object>>> InitiatePayment([FromBody] InitiateEscrowRequest request)
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<EscrowResponse>>> InitiatePayment([FromBody] InitiateEscrowRequest request)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
 
             var result = await _escrowService.InitiatePaymentAsync(request.BookingId, request.Amount);
-            return Ok(ApiResponse<object>.Ok("Payment initiated", result));
+            return Ok(ApiResponse<EscrowResponse>.Ok("Payment initiated", result));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error initiating payment");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
         }
     }
 
@@ -71,26 +71,26 @@ public class EscrowController : ControllerBase
     /// Get escrow transaction details
     /// </summary>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object>>> GetEscrow(string id)
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<EscrowResponse>>> GetEscrow(string id)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
 
             var escrow = await _escrowService.GetEscrowAsync(id, userId);
             if (escrow == null)
-                return NotFound(ApiResponse<object>.NotFound("Escrow"));
+                return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
 
-            return Ok(ApiResponse<object>.Ok("Escrow retrieved", escrow));
+            return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving escrow");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
         }
     }
 
