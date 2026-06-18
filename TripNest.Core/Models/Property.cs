@@ -22,5 +22,14 @@ public class Property
     public PropertyStatus Status { get; set; } = PropertyStatus.Draft;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    // Walkthrough approval gate — property cannot go Active until WalkthroughStatus == Approved
+    public string? WalkthroughVideoPath { get; set; }
+    public WalkthroughStatus WalkthroughStatus { get; set; } = WalkthroughStatus.NotSubmitted;
+    public string? WalkthroughReviewedById { get; set; }
+    public User? WalkthroughReviewedBy { get; set; }
+    public DateTime? WalkthroughReviewedAt { get; set; }
+    public string? WalkthroughRejectionReason { get; set; }
+
     public ICollection<Walkthrough> Walkthroughs { get; set; } = new List<Walkthrough>();
 }
