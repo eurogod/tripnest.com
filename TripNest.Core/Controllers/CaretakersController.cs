@@ -25,18 +25,18 @@ public class CaretakersController : ControllerBase
     /// Get available caretakers, optionally filtered by service type and area
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetCaretakers([FromQuery] string? serviceType, [FromQuery] string? area)
+    [ProducesResponseType(typeof(ApiResponse<List<CaretakerResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<CaretakerResponse>>>> GetCaretakers([FromQuery] string? serviceType, [FromQuery] string? area)
     {
         try
         {
             var caretakers = await _caretakerService.GetAvailableCaretakersAsync(serviceType, area);
-            return Ok(ApiResponse<object>.Ok("Caretakers retrieved", caretakers));
+            return Ok(ApiResponse<List<CaretakerResponse>>.Ok("Caretakers retrieved", caretakers));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving caretakers");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<List<CaretakerResponse>>.InternalServerError());
         }
     }
 
@@ -44,22 +44,22 @@ public class CaretakersController : ControllerBase
     /// Get caretaker profile with ratings
     /// </summary>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object>>> GetCaretaker(string id)
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<CaretakerResponse>>> GetCaretaker(string id)
     {
         try
         {
             var caretaker = await _caretakerService.GetCaretakerProfileAsync(id);
             if (caretaker == null)
-                return NotFound(ApiResponse<object>.NotFound("Caretaker"));
+                return NotFound(ApiResponse<CaretakerResponse>.NotFound("Caretaker"));
 
-            return Ok(ApiResponse<object>.Ok("Caretaker retrieved", caretaker));
+            return Ok(ApiResponse<CaretakerResponse>.Ok("Caretaker retrieved", caretaker));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving caretaker");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<CaretakerResponse>.InternalServerError());
         }
     }
 
@@ -68,27 +68,27 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPost("assign")]
     [Authorize(Roles = "Landlord")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> AssignCaretaker([FromBody] AssignCaretakerRequest request)
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<CaretakerResponse>>> AssignCaretaker([FromBody] AssignCaretakerRequest request)
     {
         try
         {
             var landlordId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(landlordId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<CaretakerResponse>.UnAuthorized());
 
             await _caretakerService.AssignCaretakerToPropertyAsync(request.PropertyId, request.CaretakerId, landlordId);
-            return Ok(ApiResponse<object>.Ok("Caretaker assigned", null));
+            return Ok(ApiResponse<CaretakerResponse>.Ok("Caretaker assigned", null));
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+            return BadRequest(ApiResponse<CaretakerResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error assigning caretaker");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<CaretakerResponse>.InternalServerError());
         }
     }
 
@@ -97,23 +97,23 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPost("service-requests")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> CreateServiceRequest([FromBody] CreateServiceRequestRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> CreateServiceRequest([FromBody] CreateServiceRequestRequest request)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
             var serviceRequest = await _caretakerService.CreateServiceRequestAsync(request, userId);
-            return StatusCode(201, ApiResponse<object>.Created("Service Request", serviceRequest));
+            return StatusCode(201, ApiResponse<ServiceRequestResponse>.Created("Service Request", serviceRequest));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating service request");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ServiceRequestResponse>.InternalServerError());
         }
     }
 
@@ -122,22 +122,22 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpGet("service-requests/mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetMyServiceRequests()
+    [ProducesResponseType(typeof(ApiResponse<List<ServiceRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<ServiceRequestResponse>>>> GetMyServiceRequests()
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
 
             var requests = await _caretakerService.GetServiceRequestsAsync(userId);
-            return Ok(ApiResponse<object>.Ok("Service requests retrieved", requests));
+            return Ok(ApiResponse<List<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving service requests");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<List<ServiceRequestResponse>>.InternalServerError());
         }
     }
 
@@ -146,23 +146,23 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPatch("service-requests/{id}/accept")]
     [Authorize(Roles = "Caretaker")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> AcceptServiceRequest(string id)
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> AcceptServiceRequest(string id)
     {
         try
         {
             var caretakerId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(caretakerId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
             await _caretakerService.AcceptServiceRequestAsync(id, caretakerId);
-            return Ok(ApiResponse<object>.Ok("Service request accepted", null));
+            return Ok(ApiResponse<ServiceRequestResponse>.Ok("Service request accepted", null));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error accepting service request");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ServiceRequestResponse>.InternalServerError());
         }
     }
 
@@ -171,23 +171,23 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPatch("service-requests/{id}/status")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> UpdateServiceRequestStatus(string id, [FromBody] UpdateServiceRequestStatusRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> UpdateServiceRequestStatus(string id, [FromBody] UpdateServiceRequestStatusRequest request)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
             await _caretakerService.UpdateServiceRequestStatusAsync(id, request.Status, userId);
-            return Ok(ApiResponse<object>.Ok("Status updated", null));
+            return Ok(ApiResponse<ServiceRequestResponse>.Ok("Status updated", null));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating status");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ServiceRequestResponse>.InternalServerError());
         }
     }
 
@@ -196,22 +196,22 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPost("service-requests/{id}/review")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
-    public async Task<ActionResult<ApiResponse<object>>> ReviewService(string id, [FromBody] SubmitServiceReviewRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status201Created)]
+    public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> ReviewService(string id, [FromBody] SubmitServiceReviewRequest request)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
             await _caretakerService.SubmitServiceReviewAsync(id, userId, request.Rating, request.Comment);
-            return StatusCode(201, ApiResponse<object>.Ok("Review submitted successfully"));
+            return StatusCode(201, ApiResponse<ServiceRequestResponse>.Ok("Review submitted successfully"));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error submitting review");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ServiceRequestResponse>.InternalServerError());
         }
     }
 }

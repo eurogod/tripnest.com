@@ -28,6 +28,10 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<TrustScoreSnapshot> TrustScoreSnapshots { get; set; }
     public DbSet<StayFeedback> StayFeedbacks { get; set; }
+    public DbSet<ServiceRequest> ServiceRequests { get; set; }
+    public DbSet<ViewingRequest> ViewingRequests { get; set; }
+    public DbSet<PropertyBlockedDate> PropertyBlockedDates { get; set; }
+    public DbSet<WishlistItem> WishlistItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

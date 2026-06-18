@@ -25,18 +25,18 @@ public class AgentsController : ControllerBase
     /// Get list of verified agents, optionally filtered by service area
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetAgents([FromQuery] string? serviceArea)
+    [ProducesResponseType(typeof(ApiResponse<List<AgentResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<AgentResponse>>>> GetAgents([FromQuery] string? serviceArea)
     {
         try
         {
             var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea);
-            return Ok(ApiResponse<object>.Ok("Agents retrieved", agents));
+            return Ok(ApiResponse<List<AgentResponse>>.Ok("Agents retrieved", agents));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving agents");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<List<AgentResponse>>.InternalServerError());
         }
     }
 
@@ -44,22 +44,22 @@ public class AgentsController : ControllerBase
     /// Get agent profile with rating
     /// </summary>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object>>> GetAgent(string id)
+    [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<AgentResponse>>> GetAgent(string id)
     {
         try
         {
             var agent = await _agentService.GetAgentProfileAsync(id);
             if (agent == null)
-                return NotFound(ApiResponse<object>.NotFound("Agent"));
+                return NotFound(ApiResponse<AgentResponse>.NotFound("Agent"));
 
-            return Ok(ApiResponse<object>.Ok("Agent retrieved", agent));
+            return Ok(ApiResponse<AgentResponse>.Ok("Agent retrieved", agent));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving agent");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<AgentResponse>.InternalServerError());
         }
     }
 
@@ -68,28 +68,27 @@ public class AgentsController : ControllerBase
     /// </summary>
     [HttpPost("{id}/viewing-requests")]
     [Authorize(Roles = "Tenant")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> CreateViewingRequest(string id, [FromBody] CreateViewingRequestRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> CreateViewingRequest(string id, [FromBody] CreateViewingRequestRequest request)
     {
         try
         {
             var tenantId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
 
             var viewingRequest = await _agentService.CreateViewingRequestAsync(id, request.PropertyId, request.ScheduledAt, tenantId, request.Notes);
-            var viewingId = ((dynamic)viewingRequest).Id;
-            return Created($"api/viewing-requests/{viewingId}", ApiResponse<object>.Created("Viewing Request", viewingRequest));
+            return Created($"api/viewing-requests/{viewingRequest.ViewingRequestId}", ApiResponse<ViewingRequestResponse>.Created("Viewing Request", viewingRequest));
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+            return BadRequest(ApiResponse<ViewingRequestResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating viewing request");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ViewingRequestResponse>.InternalServerError());
         }
     }
 
@@ -98,23 +97,23 @@ public class AgentsController : ControllerBase
     /// </summary>
     [HttpPatch("viewing-requests/{id}/status")]
     [Authorize(Roles = "Agent,Tenant")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> UpdateViewingRequestStatus(string id, [FromBody] UpdateViewingRequestStatusRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> UpdateViewingRequestStatus(string id, [FromBody] UpdateViewingRequestStatusRequest request)
     {
         try
         {
             var userId = User.FindFirst("sub")?.Value;
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
 
             await _agentService.UpdateViewingRequestStatusAsync(id, request.Status, userId);
-            return Ok(ApiResponse<object>.Ok("Status updated", null));
+            return Ok(ApiResponse<ViewingRequestResponse>.Ok("Status updated", null));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating status");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ViewingRequestResponse>.InternalServerError());
         }
     }
 }
