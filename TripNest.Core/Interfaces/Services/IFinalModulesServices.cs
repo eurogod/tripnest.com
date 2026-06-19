@@ -2,7 +2,14 @@ namespace TripNest.Core.Interfaces.Services;
 
 public interface ISmsSender
 {
-    Task SendSmsAsync(string phoneNumber, string message);
+    /// <summary>Sends an SMS; returns true on success, false if not configured or the send failed.</summary>
+    Task<bool> SendSmsAsync(string phoneNumber, string message);
+}
+
+public interface IEmailSender
+{
+    /// <summary>Sends an email; returns true on success, false if not configured or the send failed.</summary>
+    Task<bool> SendAsync(string toEmail, string subject, string htmlBody);
 }
 
 public interface ITrustScoreService

@@ -17,16 +17,45 @@ public class SettingsController : ControllerBase
 {
     private readonly IUserRepository _userRepository;
     private readonly IAuthService _authService;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<SettingsController> _logger;
 
     public SettingsController(
         IUserRepository userRepository,
         IAuthService authService,
+        INotificationService notificationService,
         ILogger<SettingsController> logger)
     {
         _userRepository = userRepository;
         _authService = authService;
+        _notificationService = notificationService;
         _logger = logger;
+    }
+
+    /// <summary>Notification preferences (pass-through to the Communications module).</summary>
+    [HttpGet("notifications")]
+    [ProducesResponseType(typeof(ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>>> GetNotificationSettings()
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var prefs = await _notificationService.GetPreferenceAsync(userId);
+        return Ok(ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>.Ok("Notification settings retrieved", prefs));
+    }
+
+    [HttpPut("notifications")]
+    [ProducesResponseType(typeof(ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>>> UpdateNotificationSettings([FromBody] DTOs.Notifications.UpdateCommunicationPreferenceRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var prefs = await _notificationService.UpdatePreferenceAsync(userId, request.SmsEnabled, request.EmailEnabled);
+        return Ok(ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>.Ok(
+            "Notification settings updated. Emergency safety alerts will still be sent regardless.", prefs));
     }
 
     [HttpPut("password")]

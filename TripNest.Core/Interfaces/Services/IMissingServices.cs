@@ -8,6 +8,7 @@ using TripNest.Core.DTOs.Notifications;
 using TripNest.Core.DTOs.Receipts;
 using TripNest.Core.DTOs.Reviews;
 using TripNest.Core.DTOs.Shared;
+using TripNest.Core.Enums;
 
 namespace TripNest.Core.Interfaces.Services;
 
@@ -73,6 +74,21 @@ public interface INotificationService
 {
     /// <summary>Creates and persists a notification for a user (e.g. verification outcome / retry prompt).</summary>
     Task CreateAsync(string userId, string title, string message, string? relatedEntityId = null, string? relatedEntityType = null);
+
+    /// <summary>
+    /// Central notification dispatch. Always records an in-app notification, then sends SMS/email
+    /// per the user's CommunicationPreference — UNLESS <paramref name="isEmergency"/> is true, in
+    /// which case both channels are sent regardless of the opt-out and the record is flagged as an
+    /// emergency override. Sender failures are logged, never thrown.
+    /// </summary>
+    Task NotifyAsync(string userId, NotificationType type, string title, string body, bool isEmergency = false);
+
+    /// <summary>Returns the user's communication preference, creating an all-enabled default if none exists.</summary>
+    Task<CommunicationPreferenceResponse> GetPreferenceAsync(string userId);
+
+    /// <summary>Updates the user's SMS/email opt-out preference.</summary>
+    Task<CommunicationPreferenceResponse> UpdatePreferenceAsync(string userId, bool smsEnabled, bool emailEnabled);
+
     Task<PagedResult<NotificationResponse>> GetUserNotificationsAsync(string userId, int page, int pageSize);
     Task MarkAsReadAsync(string notificationId, string userId);
     Task MarkAllAsReadAsync(string userId);

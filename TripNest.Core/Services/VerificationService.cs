@@ -156,21 +156,19 @@ public class VerificationService : IVerificationService
                 await _userRepository.SaveChangesAsync();
             }
 
-            await _notificationService.CreateAsync(
+            await _notificationService.NotifyAsync(
                 verification.UserId,
+                Enums.NotificationType.VerificationStatusChanged,
                 "Identity verified",
-                "Your Ghana Card has been verified — your account is now fully verified.",
-                verification.Id,
-                "Verification");
+                "Your Ghana Card has been verified — your account is now fully verified.");
         }
         else
         {
-            await _notificationService.CreateAsync(
+            await _notificationService.NotifyAsync(
                 verification.UserId,
+                Enums.NotificationType.VerificationStatusChanged,
                 "Verification failed",
-                "We couldn't verify your identity. Tap to try again.",
-                verification.Id,
-                "Verification");
+                "We couldn't verify your identity. Tap to try again.");
         }
 
         _logger.LogInformation("Verification {VerificationId} resolved — score: {Score}, status: {Status}",
