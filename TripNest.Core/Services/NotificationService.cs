@@ -1,5 +1,6 @@
 using TripNest.Core.DTOs.Notifications;
 using TripNest.Core.DTOs.Shared;
+using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -9,15 +10,110 @@ namespace TripNest.Core.Services;
 public class NotificationService : INotificationService
 {
     private readonly INotificationRepository _notificationRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IRepository<CommunicationPreference> _preferenceRepository;
+    private readonly ISmsSender _smsSender;
+    private readonly IEmailSender _emailSender;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
         INotificationRepository notificationRepository,
+        IUserRepository userRepository,
+        IRepository<CommunicationPreference> preferenceRepository,
+        ISmsSender smsSender,
+        IEmailSender emailSender,
         ILogger<NotificationService> logger)
     {
         _notificationRepository = notificationRepository;
+        _userRepository = userRepository;
+        _preferenceRepository = preferenceRepository;
+        _smsSender = smsSender;
+        _emailSender = emailSender;
         _logger = logger;
     }
+
+    public async Task NotifyAsync(string userId, NotificationType type, string title, string body, bool isEmergency = false)
+    {
+        var preference = await GetOrCreatePreferenceAsync(userId);
+        var user = await _userRepository.GetByIdAsync(userId);
+
+        var sentViaSms = false;
+        var sentViaEmail = false;
+
+        // Emergency alerts ignore the opt-out entirely; otherwise honour each channel's preference.
+        var shouldSms = isEmergency || preference.SmsEnabled;
+        var shouldEmail = isEmergency || preference.EmailEnabled;
+
+        if (shouldSms && user != null && !string.IsNullOrWhiteSpace(user.Phone))
+            sentViaSms = await SafeSendSmsAsync(user.Phone, $"{title}: {body}");
+
+        if (shouldEmail && user != null && !string.IsNullOrWhiteSpace(user.Email))
+            sentViaEmail = await SafeSendEmailAsync(user.Email, title, $"<p>{body}</p>");
+
+        var notification = new Notification
+        {
+            UserId = userId,
+            Type = type,
+            Title = title,
+            Message = body,
+            SentViaSms = sentViaSms,
+            SentViaEmail = sentViaEmail,
+            IsEmergencyOverride = isEmergency
+        };
+
+        await _notificationRepository.AddAsync(notification);
+        await _notificationRepository.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Notified user {UserId} ({Type}) — sms:{Sms} email:{Email} emergency:{Emergency}",
+            userId, type, sentViaSms, sentViaEmail, isEmergency);
+    }
+
+    public async Task<CommunicationPreferenceResponse> GetPreferenceAsync(string userId)
+        => ToResponse(await GetOrCreatePreferenceAsync(userId));
+
+    public async Task<CommunicationPreferenceResponse> UpdatePreferenceAsync(string userId, bool smsEnabled, bool emailEnabled)
+    {
+        var preference = await GetOrCreatePreferenceAsync(userId);
+        preference.SmsEnabled = smsEnabled;
+        preference.EmailEnabled = emailEnabled;
+        preference.UpdatedAt = DateTime.UtcNow;
+        await _preferenceRepository.UpdateAsync(preference);
+        await _preferenceRepository.SaveChangesAsync();
+        return ToResponse(preference);
+    }
+
+    private async Task<CommunicationPreference> GetOrCreatePreferenceAsync(string userId)
+    {
+        var existing = (await _preferenceRepository.GetAllAsync())
+            .FirstOrDefault(p => p.UserId == userId);
+        if (existing != null)
+            return existing;
+
+        var preference = new CommunicationPreference { UserId = userId };
+        await _preferenceRepository.AddAsync(preference);
+        await _preferenceRepository.SaveChangesAsync();
+        return preference;
+    }
+
+    private async Task<bool> SafeSendSmsAsync(string phone, string message)
+    {
+        try { return await _smsSender.SendSmsAsync(phone, message); }
+        catch (Exception ex) { _logger.LogError(ex, "SMS dispatch failed for {Phone}", phone); return false; }
+    }
+
+    private async Task<bool> SafeSendEmailAsync(string email, string subject, string html)
+    {
+        try { return await _emailSender.SendAsync(email, subject, html); }
+        catch (Exception ex) { _logger.LogError(ex, "Email dispatch failed for {Email}", email); return false; }
+    }
+
+    private static CommunicationPreferenceResponse ToResponse(CommunicationPreference p) => new()
+    {
+        UserId = p.UserId,
+        SmsEnabled = p.SmsEnabled,
+        EmailEnabled = p.EmailEnabled
+    };
 
     public async Task CreateAsync(string userId, string title, string message, string? relatedEntityId = null, string? relatedEntityType = null)
     {

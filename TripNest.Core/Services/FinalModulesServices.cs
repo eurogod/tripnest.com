@@ -201,18 +201,4 @@ public class AuditService : IAuditService
     }
 }
 
-public class SmsSender : ISmsSender
-{
-    private readonly ILogger<SmsSender> _logger;
-
-    public SmsSender(ILogger<SmsSender> logger)
-    {
-        _logger = logger;
-    }
-
-    public Task SendSmsAsync(string phoneNumber, string message)
-    {
-        _logger.LogInformation("SMS would be sent to {PhoneNumber}: {Message}", phoneNumber, message);
-        return Task.CompletedTask;
-    }
-}
+// SMS sending lives in Services/TwilioSmsSender.cs (real Twilio integration, graceful fallback).

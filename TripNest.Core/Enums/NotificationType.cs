@@ -8,5 +8,6 @@ public enum NotificationType
     MaintenanceUpdate,
     ServiceRequestUpdate,
     SafetyAlert,
+    VerificationStatusChanged,
     General
 }

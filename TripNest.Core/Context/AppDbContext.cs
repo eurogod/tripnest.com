@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<ViewingRequest> ViewingRequests { get; set; }
     public DbSet<PropertyBlockedDate> PropertyBlockedDates { get; set; }
     public DbSet<WishlistItem> WishlistItems { get; set; }
+    public DbSet<CommunicationPreference> CommunicationPreferences { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

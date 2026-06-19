@@ -6,6 +6,7 @@ public class SafetyCheckIn
     public required string BookingId { get; set; }
     public Booking? Booking { get; set; }
     public string? EmergencyContactPhone { get; set; }
+    public string? EmergencyContactEmail { get; set; }
     public DateTime? CheckedInAt { get; set; }
     public DateTime? AlertSentAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Safety;
+using TripNest.Core.Enums;
+using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -17,17 +19,23 @@ public class SafetyController : ControllerBase
     private readonly ISafetyCheckInRepository _checkInRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly ISmsSender _smsSender;
+    private readonly IEmailSender _emailSender;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<SafetyController> _logger;
 
     public SafetyController(
         ISafetyCheckInRepository checkInRepository,
         IBookingRepository bookingRepository,
         ISmsSender smsSender,
+        IEmailSender emailSender,
+        INotificationService notificationService,
         ILogger<SafetyController> logger)
     {
         _checkInRepository = checkInRepository;
         _bookingRepository = bookingRepository;
         _smsSender = smsSender;
+        _emailSender = emailSender;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -83,14 +91,31 @@ public class SafetyController : ControllerBase
     {
         try
         {
-            var checkIn = await _checkInRepository.GetByBookingIdAsync(request.BookingId);
-            if (checkIn?.EmergencyContactPhone == null)
-                return BadRequest(ApiResponse<object>.BadRequest("No emergency contact configured"));
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            await _smsSender.SendSmsAsync(checkIn.EmergencyContactPhone, "Emergency alert from TripNest tenant. Immediate assistance may be needed.");
-            checkIn.AlertSentAt = DateTime.UtcNow;
-            await _checkInRepository.UpdateAsync(checkIn);
-            await _checkInRepository.SaveChangesAsync();
+            const string alertText = "Emergency alert from TripNest. Immediate assistance may be needed.";
+
+            // Auditable emergency notification to the tenant — bypasses their opt-out (SMS + email)
+            // and records IsEmergencyOverride = true. This is the one path that ignores preferences.
+            await _notificationService.NotifyAsync(userId, NotificationType.SafetyAlert,
+                "Emergency alert", alertText, isEmergency: true);
+
+            // Also alert the saved emergency contact directly (they may not be a TripNest user, so
+            // there's no in-app record / preference to attach to).
+            var checkIn = await _checkInRepository.GetByBookingIdAsync(request.BookingId);
+            if (checkIn != null)
+            {
+                if (!string.IsNullOrWhiteSpace(checkIn.EmergencyContactPhone))
+                    await _smsSender.SendSmsAsync(checkIn.EmergencyContactPhone, alertText);
+                if (!string.IsNullOrWhiteSpace(checkIn.EmergencyContactEmail))
+                    await _emailSender.SendAsync(checkIn.EmergencyContactEmail, "Emergency alert", $"<p>{alertText}</p>");
+
+                checkIn.AlertSentAt = DateTime.UtcNow;
+                await _checkInRepository.UpdateAsync(checkIn);
+                await _checkInRepository.SaveChangesAsync();
+            }
 
             return Ok(ApiResponse<object>.Ok("Emergency alert sent", new { }));
         }

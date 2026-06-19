@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TripNest.Core.Context;
 using TripNest.Core.DTOs.Auth;
 using TripNest.Core.Enums;
+using TripNest.Core.Interfaces.Services;
 
 namespace TripNest.Core.Tests;
 
@@ -32,6 +34,15 @@ public class TestFixture : WebApplicationFactory<Program>
             services.AddDbContext<AppDbContext>(options =>
                 options.UseInMemoryDatabase(_dbName)
             );
+
+            // Replace the real Twilio/SendGrid senders with recording doubles (singletons so
+            // tests can resolve the same instance and inspect what was dispatched).
+            services.RemoveAll<ISmsSender>();
+            services.RemoveAll<IEmailSender>();
+            services.AddSingleton<RecordingSmsSender>();
+            services.AddSingleton<RecordingEmailSender>();
+            services.AddSingleton<ISmsSender>(sp => sp.GetRequiredService<RecordingSmsSender>());
+            services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<RecordingEmailSender>());
         });
 
         builder.UseEnvironment("Testing");
