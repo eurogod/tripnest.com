@@ -1,0 +1,60 @@
+name: Deploy to Azure
+
+# Deploys TripNest.Core to Azure App Service on every push to main.
+# Requires repo secret AZURE_WEBAPP_PUBLISH_PROFILE (see deploy notes).
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}   # allow manual runs from the Actions tab
+
+env:
+  AZURE_WEBAPP_NAME: tripnest-core        # <-- change to your App Service name
+  DOTNET_VERSION: '8.0.x'
+  PUBLISH_DIR: ./publish
+
+jobs:
+  build:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (zero warnings)
+        run: dotnet build --no-restore --configuration Release -warnaserror
+
+      - name: Publish
+        run: dotnet publish TripNest.Core/TripNest.Core.csproj --no-build --configuration Release --output ${{ env.PUBLISH_DIR }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webapp
+          path: ${{ env.PUBLISH_DIR }}
+
+  deploy:
+    name: Deploy to App Service
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webapp
+          path: ${{ env.PUBLISH_DIR }}
+
+      - name: Deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ env.PUBLISH_DIR }}

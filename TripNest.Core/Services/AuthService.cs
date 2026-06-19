@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
+using System.Text;
 using TripNest.Core.DTOs.Auth;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
+using TripNest.Core.Security;
 
 namespace TripNest.Core.Services;
 
@@ -27,6 +29,8 @@ public class AuthService : IAuthService
 
         if (request.Password != request.ConfirmPassword)
             throw new InvalidOperationException("Passwords do not match");
+
+        PasswordPolicy.Validate(request.Password);
 
         if (await _userRepository.EmailExistsAsync(request.Email))
             throw new InvalidOperationException("Email already registered");
@@ -71,7 +75,8 @@ public class AuthService : IAuthService
             user.Id, user.Email, user.FullName, user.Role.ToString());
         var refreshToken = await _tokenService.GenerateRefreshTokenAsync();
 
-        user.RefreshToken = refreshToken;
+        // Store only a hash of the refresh token so a database read cannot leak usable tokens.
+        user.RefreshToken = HashRefreshToken(refreshToken);
         user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
 
         await _userRepository.UpdateAsync(user);
@@ -94,7 +99,7 @@ public class AuthService : IAuthService
 
     public async Task<LoginResponse> RefreshTokenAsync(string refreshToken)
     {
-        var user = await _userRepository.GetByRefreshTokenAsync(refreshToken);
+        var user = await _userRepository.GetByRefreshTokenAsync(HashRefreshToken(refreshToken));
 
         if (user == null)
             throw new InvalidOperationException("Invalid or expired refresh token");
@@ -103,7 +108,7 @@ public class AuthService : IAuthService
             user.Id, user.Email, user.FullName, user.Role.ToString());
         var newRefreshToken = await _tokenService.GenerateRefreshTokenAsync();
 
-        user.RefreshToken = newRefreshToken;
+        user.RefreshToken = HashRefreshToken(newRefreshToken);
         user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
 
         await _userRepository.UpdateAsync(user);
@@ -129,6 +134,8 @@ public class AuthService : IAuthService
         if (request.NewPassword != request.ConfirmNewPassword)
             throw new InvalidOperationException("New passwords do not match");
 
+        PasswordPolicy.Validate(request.NewPassword);
+
         var user = await _userRepository.GetByIdAsync(userId)
             ?? throw new InvalidOperationException("User not found");
 
@@ -143,10 +150,17 @@ public class AuthService : IAuthService
         _logger.LogInformation("Password changed for user: {Email}", user.Email);
     }
 
-    public async Task<(User User, string ResetToken)> ForgotPasswordAsync(string email)
+    public async Task<(User? User, string? ResetToken)> ForgotPasswordAsync(string email)
     {
-        var user = await _userRepository.GetByEmailAsync(email)
-            ?? throw new InvalidOperationException("User not found");
+        var user = await _userRepository.GetByEmailAsync(email);
+
+        // Do not reveal whether the email is registered — the controller always responds
+        // with the same generic message regardless of the outcome here.
+        if (user == null)
+        {
+            _logger.LogInformation("Password reset requested for unknown email: {Email}", email);
+            return (null, null);
+        }
 
         var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         user.PasswordResetToken = BCrypt.Net.BCrypt.HashPassword(rawToken);
@@ -172,6 +186,8 @@ public class AuthService : IAuthService
         if (!BCrypt.Net.BCrypt.Verify(resetToken, user.PasswordResetToken))
             throw new InvalidOperationException("Reset token is invalid or has expired");
 
+        PasswordPolicy.Validate(newPassword);
+
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
         user.PasswordResetToken = null;
         user.PasswordResetTokenExpiry = null;
@@ -181,4 +197,12 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("Password reset for user: {Email}", email);
     }
+
+    /// <summary>
+    /// Deterministic SHA-256 hash (hex) of a refresh token. Refresh tokens are
+    /// high-entropy random values, so a fast hash is sufficient and keeps the
+    /// stored value non-reversible while remaining queryable by equality.
+    /// </summary>
+    private static string HashRefreshToken(string token)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 }

@@ -15,4 +15,7 @@ public class Booking
     public BookingStatus Status { get; set; } = BookingStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CancelledAt { get; set; }
+
+    /// <summary>Optimistic-concurrency token, mapped to Postgres' xmin system column.</summary>
+    public uint Version { get; set; }
 }

@@ -10,6 +10,13 @@ public class VerificationRequest
     public required string GhanaCardNumber { get; set; }
     public required string SelfiePhotoPath { get; set; }
     public required string NiaPhotoUrl { get; set; }
+
+    // Claimed identity captured at submission so the background processor can run the
+    // authority cross-check (and resume after a restart) without the original request body.
+    public string? ClaimedFirstName { get; set; }
+    public string? ClaimedLastName { get; set; }
+    public DateOnly? ClaimedDateOfBirth { get; set; }
+
     public double? FaceMatchScore { get; set; }
     public string? FailureReason { get; set; }
     public VerificationStatus Status { get; set; } = VerificationStatus.NotStarted;

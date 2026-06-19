@@ -6,5 +6,8 @@ public enum UserRole
     Landlord,
     Agent,
     Caretaker,
-    Admin
+    Admin,
+    // Appended last so existing persisted role integers are not renumbered.
+    // A Guest browses/books without identity verification and is never gated.
+    Guest
 }

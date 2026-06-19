@@ -4,6 +4,8 @@ using System.Security.Claims;
 using TripNest.Core.DTOs.Properties;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
+using TripNest.Core.Filters;
 
 namespace TripNest.Core.Controllers;
 
@@ -23,6 +25,7 @@ public class PropertiesController : ControllerBase
 
     [HttpPost]
     [Authorize]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<PropertyResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
@@ -30,7 +33,7 @@ public class PropertiesController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
 
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
@@ -51,6 +54,7 @@ public class PropertiesController : ControllerBase
 
     [HttpPut("{propertyId}")]
     [Authorize]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<PropertyResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
@@ -58,7 +62,7 @@ public class PropertiesController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
 
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
@@ -110,7 +114,7 @@ public class PropertiesController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
 
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
@@ -159,13 +163,14 @@ public class PropertiesController : ControllerBase
 
     [HttpDelete("{propertyId}")]
     [Authorize]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteProperty(string propertyId)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
 
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());

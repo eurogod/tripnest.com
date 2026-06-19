@@ -12,6 +12,8 @@ public class VerificationService : IVerificationService
     private readonly IUserRepository _userRepository;
     private readonly INiaClient _niaClient;
     private readonly IFaceMatchClient _faceMatchClient;
+    private readonly INotificationService _notificationService;
+    private readonly IVerificationQueue _verificationQueue;
     private readonly IConfiguration _configuration;
     private readonly ILogger<VerificationService> _logger;
 
@@ -20,6 +22,8 @@ public class VerificationService : IVerificationService
         IUserRepository userRepository,
         INiaClient niaClient,
         IFaceMatchClient faceMatchClient,
+        INotificationService notificationService,
+        IVerificationQueue verificationQueue,
         IConfiguration configuration,
         ILogger<VerificationService> logger)
     {
@@ -27,101 +31,201 @@ public class VerificationService : IVerificationService
         _userRepository = userRepository;
         _niaClient = niaClient;
         _faceMatchClient = faceMatchClient;
+        _notificationService = notificationService;
+        _verificationQueue = verificationQueue;
         _configuration = configuration;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Accepts a verification submission, persists it as <see cref="VerificationStatus.Pending"/>,
+    /// queues it for background processing, and returns immediately. The slow NIA + face-match
+    /// work happens off the request path (see <see cref="ProcessVerificationAsync"/>), so the
+    /// client can advance to the next page and poll <c>GetVerificationStatus</c> for the outcome.
+    /// </summary>
     public async Task<VerificationStatusResponse> StartVerificationAsync(string userId, StartVerificationRequest request)
     {
+        // Guard: an already-verified user should not re-run verification.
+        var latest = await _verificationRepository.GetLatestByUserIdAsync(userId);
+        if (latest?.Status == VerificationStatus.Verified)
+            throw new InvalidOperationException("This account is already verified");
+
+        // Guard: a submission is already in flight — don't queue duplicates.
+        if (latest?.Status == VerificationStatus.Pending)
+            return MapToResponse(latest);
+
+        // Rate limit: cap attempts per user per hour to protect the paid NIA / face-match calls from abuse.
+        var maxAttemptsPerHour = _configuration.GetValue<int>("Verification:MaxAttemptsPerHour", 5);
+        var attemptsLastHour = await _verificationRepository.CountAttemptsSinceAsync(userId, DateTime.UtcNow.AddHours(-1));
+        if (attemptsLastHour >= maxAttemptsPerHour)
+            throw new InvalidOperationException("Too many verification attempts. Please try again later.");
+
+        var verification = new VerificationRequest
+        {
+            UserId = userId,
+            GhanaCardNumber = request.GhanaCardNumber,
+            SelfiePhotoPath = request.SelfiePhotoPath,
+            NiaPhotoUrl = string.Empty, // resolved by the background processor from the NIA lookup
+            ClaimedFirstName = request.FirstName,
+            ClaimedLastName = request.LastName,
+            ClaimedDateOfBirth = request.DateOfBirth,
+            Status = VerificationStatus.Pending
+        };
+
+        await _verificationRepository.AddAsync(verification);
+        await _verificationRepository.SaveChangesAsync();
+
+        _verificationQueue.Enqueue(verification.Id);
+
+        _logger.LogInformation("Verification {VerificationId} queued for user {UserId}", verification.Id, userId);
+
+        return MapToResponse(verification);
+    }
+
+    /// <summary>
+    /// Background work: resolve a Pending verification by calling the NIA authority and the
+    /// face-match sidecar, then mark it Verified/Rejected. On completion the user is notified
+    /// (success, or failure with a retry prompt). Runs inside a dedicated DI scope created by
+    /// the hosted processor.
+    /// </summary>
+    public async Task ProcessVerificationAsync(string verificationId)
+    {
+        var verification = await _verificationRepository.GetByIdAsync(verificationId);
+        if (verification == null)
+        {
+            _logger.LogWarning("Verification {VerificationId} not found for processing", verificationId);
+            return;
+        }
+
+        if (verification.Status != VerificationStatus.Pending)
+        {
+            _logger.LogInformation("Verification {VerificationId} already resolved ({Status}); skipping", verificationId, verification.Status);
+            return;
+        }
+
+        var threshold = _configuration.GetValue<double>("Verification:FaceMatchThreshold", 80.0);
+        string? failureReason = null;
+        double? faceMatchScore = null;
+        var isVerified = false;
+
         try
         {
-            var threshold = _configuration.GetValue<double>("Verification:FaceMatchThreshold", 80.0);
+            var nia = await _niaClient.VerifyGhanaCardAsync(verification.GhanaCardNumber);
 
-            var (isValid, photoUrl) = await _niaClient.VerifyGhanaCardAsync(
-                request.GhanaCardNumber,
-                request.FirstName,
-                request.LastName,
-                request.DateOfBirth);
-
-            if (!isValid)
-                throw new InvalidOperationException("Ghana card verification failed with NIA service");
-
-            var (faceMatchScore, failureReason) = await _faceMatchClient.CompareFacesAsync(request.SelfiePhotoPath, photoUrl);
-
-            var isVerified = string.IsNullOrEmpty(failureReason) && faceMatchScore >= threshold;
-
-            var verification = new VerificationRequest
+            if (!nia.IsValid)
             {
-                UserId = userId,
-                GhanaCardNumber = request.GhanaCardNumber,
-                SelfiePhotoPath = request.SelfiePhotoPath,
-                NiaPhotoUrl = photoUrl,
-                FaceMatchScore = faceMatchScore,
-                FailureReason = failureReason,
-                Status = isVerified ? VerificationStatus.Verified : VerificationStatus.Rejected,
-                ReviewedAt = DateTime.UtcNow
-            };
-
-            await _verificationRepository.AddAsync(verification);
-            await _verificationRepository.SaveChangesAsync();
-
-            if (isVerified)
-            {
-                var user = await _userRepository.GetByIdAsync(userId);
-                if (user != null && !user.IsVerified)
-                {
-                    var sequence = await _verificationRepository.GetVerifiedCountAsync();
-                    user.IsVerified = true;
-                    user.TripNestId = $"TN-GH-{DateTime.UtcNow.Year}-{sequence:D6}";
-                    await _userRepository.UpdateAsync(user);
-                    await _userRepository.SaveChangesAsync();
-                }
+                failureReason = $"Ghana card could not be verified (status: {nia.Status})";
             }
-
-            _logger.LogInformation("Verification completed for user {UserId} — score: {Score}, status: {Status}", userId, faceMatchScore, verification.Status);
-
-            return new VerificationStatusResponse
+            else if (!IdentityMatches(nia, verification))
             {
-                VerificationId = verification.Id,
-                GhanaCardNumber = verification.GhanaCardNumber,
-                Status = verification.Status,
-                FaceMatchScore = verification.FaceMatchScore,
-                FailureReason = verification.FailureReason,
-                SubmittedAt = verification.SubmittedAt,
-                ReviewedAt = verification.ReviewedAt
-            };
+                failureReason = "The card details do not match the provided identity";
+            }
+            else
+            {
+                verification.NiaPhotoUrl = nia.PhotoUrl ?? string.Empty;
+                var (score, matchFailure) = await _faceMatchClient.CompareFacesAsync(verification.SelfiePhotoPath, nia.PhotoUrl ?? string.Empty);
+                faceMatchScore = score;
+                failureReason = matchFailure;
+                isVerified = string.IsNullOrEmpty(matchFailure) && score >= threshold;
+                if (!isVerified && string.IsNullOrEmpty(failureReason))
+                    failureReason = $"Face match score {score:F0} is below the required {threshold:F0}";
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error starting verification for user {UserId}", userId);
-            throw;
+            _logger.LogError(ex, "Verification {VerificationId} failed during processing", verificationId);
+            failureReason = "Verification could not be completed. Please try again.";
         }
+
+        verification.FaceMatchScore = faceMatchScore;
+        verification.FailureReason = failureReason;
+        verification.Status = isVerified ? VerificationStatus.Verified : VerificationStatus.Rejected;
+        verification.ReviewedAt = DateTime.UtcNow;
+        await _verificationRepository.UpdateAsync(verification);
+        await _verificationRepository.SaveChangesAsync();
+
+        if (isVerified)
+        {
+            var user = await _userRepository.GetByIdAsync(verification.UserId);
+            if (user != null && !user.IsVerified)
+            {
+                var sequence = await _verificationRepository.GetVerifiedCountAsync();
+                user.IsVerified = true;
+                user.TripNestId = $"TN-GH-{DateTime.UtcNow.Year}-{sequence:D6}";
+                await _userRepository.UpdateAsync(user);
+                await _userRepository.SaveChangesAsync();
+            }
+
+            await _notificationService.CreateAsync(
+                verification.UserId,
+                "Identity verified",
+                "Your Ghana Card has been verified — your account is now fully verified.",
+                verification.Id,
+                "Verification");
+        }
+        else
+        {
+            await _notificationService.CreateAsync(
+                verification.UserId,
+                "Verification failed",
+                "We couldn't verify your identity. Tap to try again.",
+                verification.Id,
+                "Verification");
+        }
+
+        _logger.LogInformation("Verification {VerificationId} resolved — score: {Score}, status: {Status}",
+            verificationId, faceMatchScore, verification.Status);
     }
 
     public async Task<VerificationStatusResponse> GetVerificationStatusAsync(string userId)
     {
-        try
-        {
-            var verification = await _verificationRepository.GetLatestByUserIdAsync(userId);
+        var verification = await _verificationRepository.GetLatestByUserIdAsync(userId)
+            ?? throw new InvalidOperationException("No verification request found for this user");
 
-            if (verification == null)
-                throw new InvalidOperationException("No verification request found for this user");
+        return MapToResponse(verification);
+    }
 
-            return new VerificationStatusResponse
-            {
-                VerificationId = verification.Id,
-                GhanaCardNumber = verification.GhanaCardNumber,
-                Status = verification.Status,
-                FaceMatchScore = verification.FaceMatchScore,
-                FailureReason = verification.FailureReason,
-                SubmittedAt = verification.SubmittedAt,
-                ReviewedAt = verification.ReviewedAt
-            };
-        }
-        catch (Exception ex)
+    /// <summary>
+    /// Confirms the authority's record matches the claimed identity: DOB exact (when known)
+    /// and both the first and last name appearing in the registered full name.
+    /// </summary>
+    private static bool IdentityMatches(NiaVerificationResult nia, VerificationRequest verification)
+    {
+        if (nia.DateOfBirth.HasValue && verification.ClaimedDateOfBirth.HasValue
+            && nia.DateOfBirth.Value != verification.ClaimedDateOfBirth.Value)
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(nia.FullName))
         {
-            _logger.LogError(ex, "Error retrieving verification status for user {UserId}", userId);
-            throw;
+            var fullName = nia.FullName!.ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(verification.ClaimedFirstName)
+                && !fullName.Contains(verification.ClaimedFirstName!.Trim().ToLowerInvariant()))
+                return false;
+            if (!string.IsNullOrWhiteSpace(verification.ClaimedLastName)
+                && !fullName.Contains(verification.ClaimedLastName!.Trim().ToLowerInvariant()))
+                return false;
         }
+
+        return true;
+    }
+
+    private static VerificationStatusResponse MapToResponse(VerificationRequest verification) => new()
+    {
+        VerificationId = verification.Id,
+        GhanaCardNumber = MaskCardNumber(verification.GhanaCardNumber),
+        Status = verification.Status,
+        FaceMatchScore = verification.FaceMatchScore,
+        FailureReason = verification.FailureReason,
+        SubmittedAt = verification.SubmittedAt,
+        ReviewedAt = verification.ReviewedAt
+    };
+
+    /// <summary>Masks all but the last 4 characters of the card number so PII is not echoed back in full.</summary>
+    private static string MaskCardNumber(string cardNumber)
+    {
+        if (string.IsNullOrEmpty(cardNumber) || cardNumber.Length <= 4)
+            return "****";
+
+        return string.Concat(new string('*', cardNumber.Length - 4), cardNumber.AsSpan(cardNumber.Length - 4));
     }
 }

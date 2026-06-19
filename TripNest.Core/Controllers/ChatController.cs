@@ -1,9 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Chat;
+using TripNest.Core.DTOs.Shared;
+using TripNest.Core.Hubs;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -14,11 +18,13 @@ namespace TripNest.Core.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
+    private readonly IHubContext<ChatHub> _hubContext;
     private readonly ILogger<ChatController> _logger;
 
-    public ChatController(IChatService chatService, ILogger<ChatController> logger)
+    public ChatController(IChatService chatService, IHubContext<ChatHub> hubContext, ILogger<ChatController> logger)
     {
         _chatService = chatService;
+        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -26,22 +32,22 @@ public class ChatController : ControllerBase
     /// Get current user's conversations
     /// </summary>
     [HttpGet("conversations/mine")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetMyConversations()
+    [ProducesResponseType(typeof(ApiResponse<List<ConversationResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<ConversationResponse>>>> GetMyConversations()
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<List<ConversationResponse>>.UnAuthorized());
 
             var conversations = await _chatService.GetUserConversationsAsync(userId);
-            return Ok(ApiResponse<object>.Ok("Conversations retrieved", conversations));
+            return Ok(ApiResponse<List<ConversationResponse>>.Ok("Conversations retrieved", conversations));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving conversations");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<List<ConversationResponse>>.InternalServerError());
         }
     }
 
@@ -49,28 +55,27 @@ public class ChatController : ControllerBase
     /// Start a new conversation
     /// </summary>
     [HttpPost("conversations")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> StartConversation([FromBody] StartConversationRequest request)
+    [ProducesResponseType(typeof(ApiResponse<ConversationResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ConversationResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ConversationResponse>>> StartConversation([FromBody] StartConversationRequest request)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
             var conversation = await _chatService.StartConversationAsync(userId, request.OtherUserId, request.PropertyId);
-            var convId = ((dynamic)conversation).Id;
-            return Created($"api/conversations/{convId}", ApiResponse<object>.Created("Conversation", conversation));
+            return Created($"api/conversations/{conversation.ConversationId}", ApiResponse<ConversationResponse>.Created("Conversation", conversation));
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+            return BadRequest(ApiResponse<ConversationResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting conversation");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ConversationResponse>.InternalServerError());
         }
     }
 
@@ -78,26 +83,26 @@ public class ChatController : ControllerBase
     /// Get conversation details and participants
     /// </summary>
     [HttpGet("conversations/{id}")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<object>>> GetConversation(string id)
+    [ProducesResponseType(typeof(ApiResponse<ConversationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ConversationResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ConversationResponse>>> GetConversation(string id)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
             var conversation = await _chatService.GetConversationAsync(id, userId);
             if (conversation == null)
-                return NotFound(ApiResponse<object>.NotFound("Conversation"));
+                return NotFound(ApiResponse<ConversationResponse>.NotFound("Conversation"));
 
-            return Ok(ApiResponse<object>.Ok("Conversation retrieved", conversation));
+            return Ok(ApiResponse<ConversationResponse>.Ok("Conversation retrieved", conversation));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving conversation");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ConversationResponse>.InternalServerError());
         }
     }
 
@@ -105,22 +110,22 @@ public class ChatController : ControllerBase
     /// Get message history for a conversation
     /// </summary>
     [HttpGet("conversations/{id}/messages")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> GetConversationMessages(string id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<MessageResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<MessageResponse>>>> GetConversationMessages(string id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<PagedResult<MessageResponse>>.UnAuthorized());
 
             var messages = await _chatService.GetConversationMessagesAsync(id, userId, page, pageSize);
-            return Ok(ApiResponse<object>.Ok("Messages retrieved", messages));
+            return Ok(ApiResponse<PagedResult<MessageResponse>>.Ok("Messages retrieved", messages));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving messages");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<PagedResult<MessageResponse>>.InternalServerError());
         }
     }
 
@@ -128,28 +133,32 @@ public class ChatController : ControllerBase
     /// Send a message (REST endpoint - for non-realtime clients)
     /// </summary>
     [HttpPost("conversations/{id}/messages")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ApiResponse<object>>> SendMessage(string id, [FromBody] SendMessageRequest request)
+    [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<MessageResponse>>> SendMessage(string id, [FromBody] SendMessageRequest request)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
 
             var message = await _chatService.SendMessageAsync(id, userId, request.Body);
-            var msgId = ((dynamic)message).Id;
-            return Created($"api/messages/{msgId}", ApiResponse<object>.Created("Message", message));
+
+            // Push to any connected SignalR clients so REST-sent messages appear in real time,
+            // matching the payload the hub broadcasts on the same event.
+            await _hubContext.Clients.Group(id).SendAsync("ReceiveMessage", message);
+
+            return Created($"api/messages/{message.MessageId}", ApiResponse<MessageResponse>.Created("Message", message));
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+            return BadRequest(ApiResponse<MessageResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error sending message");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<MessageResponse>.InternalServerError());
         }
     }
 
@@ -157,22 +166,22 @@ public class ChatController : ControllerBase
     /// Mark message as read
     /// </summary>
     [HttpPatch("messages/{id}/read")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> MarkMessageAsRead(string id)
+    [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<MessageResponse>>> MarkMessageAsRead(string id)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
 
             await _chatService.MarkMessageAsReadAsync(id, userId);
-            return Ok(ApiResponse<object>.Ok("Message marked as read", null));
+            return Ok(ApiResponse<MessageResponse>.Ok("Message marked as read", null));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error marking message as read");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<MessageResponse>.InternalServerError());
         }
     }
 
@@ -180,22 +189,22 @@ public class ChatController : ControllerBase
     /// Mark all messages in conversation as read
     /// </summary>
     [HttpPatch("conversations/{id}/mark-read")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> MarkConversationAsRead(string id)
+    [ProducesResponseType(typeof(ApiResponse<ConversationResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<ConversationResponse>>> MarkConversationAsRead(string id)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
             await _chatService.MarkConversationAsReadAsync(id, userId);
-            return Ok(ApiResponse<object>.Ok("Conversation marked as read", null));
+            return Ok(ApiResponse<ConversationResponse>.Ok("Conversation marked as read", null));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error marking conversation as read");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ConversationResponse>.InternalServerError());
         }
     }
 
@@ -203,22 +212,22 @@ public class ChatController : ControllerBase
     /// Delete a conversation
     /// </summary>
     [HttpDelete("conversations/{id}")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> DeleteConversation(string id)
+    [ProducesResponseType(typeof(ApiResponse<ConversationResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<ConversationResponse>>> DeleteConversation(string id)
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+                return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
             await _chatService.DeleteConversationAsync(id, userId);
-            return Ok(ApiResponse<object>.Ok("Conversation deleted", null));
+            return Ok(ApiResponse<ConversationResponse>.Ok("Conversation deleted", null));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting conversation");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            return StatusCode(500, ApiResponse<ConversationResponse>.InternalServerError());
         }
     }
 }

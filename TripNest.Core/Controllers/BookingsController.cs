@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TripNest.Core.DTOs.Bookings;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -28,26 +29,13 @@ public class BookingsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<BookingResponse>>> CreateBooking([FromBody] CreateBookingRequest request)
     {
-        try
-        {
-            var tenantId = User.FindFirst("sub")?.Value;
+        var tenantId = User.GetUserId();
+        if (string.IsNullOrEmpty(tenantId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            var response = await _bookingService.CreateBookingAsync(tenantId, request);
-
-            return Created($"api/bookings/{response.BookingId}", ApiResponse<BookingResponse>.Created("Booking", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating booking");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        // Domain failures (validation/not-found/conflict) are translated by ExceptionHandlingMiddleware.
+        var response = await _bookingService.CreateBookingAsync(tenantId, request);
+        return Created($"api/bookings/{response.BookingId}", ApiResponse<BookingResponse>.Created("Booking", response));
     }
 
     [HttpGet("{bookingId}")]
@@ -55,20 +43,8 @@ public class BookingsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<BookingResponse>>> GetBooking(string bookingId)
     {
-        try
-        {
-            var response = await _bookingService.GetBookingAsync(bookingId);
-            return Ok(ApiResponse<BookingResponse>.Ok("Booking retrieved", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving booking");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _bookingService.GetBookingAsync(bookingId);
+        return Ok(ApiResponse<BookingResponse>.Ok("Booking retrieved", response));
     }
 
     [HttpGet("user/my-bookings")]
@@ -77,21 +53,12 @@ public class BookingsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<BookingResponse>>>> GetUserBookings()
     {
-        try
-        {
-            var tenantId = User.FindFirst("sub")?.Value;
+        var tenantId = User.GetUserId();
+        if (string.IsNullOrEmpty(tenantId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            var response = await _bookingService.GetUserBookingsAsync(tenantId);
-            return Ok(ApiResponse<IEnumerable<BookingResponse>>.Ok("User bookings retrieved", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving user bookings");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _bookingService.GetUserBookingsAsync(tenantId);
+        return Ok(ApiResponse<IEnumerable<BookingResponse>>.Ok("User bookings retrieved", response));
     }
 
     [HttpPost("{bookingId}/cancel")]
@@ -101,24 +68,11 @@ public class BookingsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<BookingResponse>>> CancelBooking(string bookingId)
     {
-        try
-        {
-            var userId = User.FindFirst("sub")?.Value;
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            var response = await _bookingService.CancelBookingAsync(bookingId);
-            return Ok(ApiResponse<BookingResponse>.Ok("Booking cancelled successfully", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cancelling booking");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _bookingService.CancelBookingAsync(bookingId);
+        return Ok(ApiResponse<BookingResponse>.Ok("Booking cancelled successfully", response));
     }
 }

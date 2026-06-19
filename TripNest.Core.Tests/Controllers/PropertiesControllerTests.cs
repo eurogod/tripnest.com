@@ -52,7 +52,9 @@ public class PropertiesControllerTests : TestBase
     [Fact]
     public async Task CreateProperty_WithValidData_ShouldReturnCreated()
     {
-        // Arrange
+        // Arrange — a landlord must be identity-verified before they can list a property.
+        await MarkUserVerifiedAsync(_landlordId!);
+
         var createRequest = new CreatePropertyRequest
         {
             Title = "Test Property",
@@ -83,6 +85,32 @@ public class PropertiesControllerTests : TestBase
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateProperty_UnverifiedLandlord_ShouldReturnForbidden()
+    {
+        // Arrange — the landlord from InitializeAsync is not verified.
+        var createRequest = new CreatePropertyRequest
+        {
+            Title = "Test Property",
+            Description = "A test property listing",
+            Location = "Tarkwa, Ghana",
+            Latitude = 5.2802,
+            Longitude = -1.5857,
+            Bedrooms = 2,
+            Bathrooms = 1,
+            MonthlyRent = 2000m,
+            DailyRate = 100m,
+            PropertyType = "Apartment",
+            Amenities = "WiFi,TV"
+        };
+
+        // Act
+        var response = await _httpClient.PostAsJsonAsync("/api/properties", createRequest);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

@@ -199,6 +199,12 @@ namespace TripNest.Core.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PropertyId");
@@ -305,6 +311,12 @@ namespace TripNest.Core.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("HeldAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentReference")
+                        .HasColumnType("text");
+
                     b.Property<string>("ReleaseReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -314,6 +326,12 @@ namespace TripNest.Core.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -522,6 +540,25 @@ namespace TripNest.Core.Migrations
                         .HasMaxLength(36)
                         .HasColumnType("character varying(36)");
 
+                    b.Property<string>("WalkthroughRejectionReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("WalkthroughReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WalkthroughReviewedById")
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)");
+
+                    b.Property<int>("WalkthroughStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("WalkthroughVideoPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");
@@ -530,9 +567,47 @@ namespace TripNest.Core.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("WalkthroughReviewedById");
+
                     b.HasIndex("Latitude", "Longitude");
 
                     b.ToTable("Properties");
+                });
+
+            modelBuilder.Entity("TripNest.Core.Models.PropertyBlockedDate", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("BlockedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PropertyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlockedByUserId");
+
+                    b.HasIndex("PropertyId");
+
+                    b.ToTable("PropertyBlockedDates");
                 });
 
             modelBuilder.Entity("TripNest.Core.Models.Receipt", b =>
@@ -649,6 +724,60 @@ namespace TripNest.Core.Migrations
                         .IsUnique();
 
                     b.ToTable("SafetyCheckIns");
+                });
+
+            modelBuilder.Entity("TripNest.Core.Models.ServiceRequest", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CaretakerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PropertyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RequestedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReviewComment")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ServiceType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CaretakerId");
+
+                    b.HasIndex("PropertyId");
+
+                    b.HasIndex("RequestedByUserId");
+
+                    b.ToTable("ServiceRequests");
                 });
 
             modelBuilder.Entity("TripNest.Core.Models.StayFeedback", b =>
@@ -842,6 +971,15 @@ namespace TripNest.Core.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<DateOnly?>("ClaimedDateOfBirth")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ClaimedFirstName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ClaimedLastName")
+                        .HasColumnType("text");
+
                     b.Property<double?>("FaceMatchScore")
                         .HasColumnType("double precision");
 
@@ -873,7 +1011,7 @@ namespace TripNest.Core.Migrations
                     b.Property<DateTime>("SubmittedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValue(new DateTime(2026, 6, 18, 14, 46, 42, 118, DateTimeKind.Utc).AddTicks(9158));
+                        .HasDefaultValueSql("now()");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -892,6 +1030,49 @@ namespace TripNest.Core.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("VerificationRequests");
+                });
+
+            modelBuilder.Entity("TripNest.Core.Models.ViewingRequest", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AgentId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PropertyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("ScheduledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("PropertyId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("ViewingRequests");
                 });
 
             modelBuilder.Entity("TripNest.Core.Models.Walkthrough", b =>
@@ -919,7 +1100,7 @@ namespace TripNest.Core.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<string>("VideoUrl")
+                    b.Property<string>("VideoPath")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -931,6 +1112,34 @@ namespace TripNest.Core.Migrations
                     b.HasIndex("PropertyId");
 
                     b.ToTable("Walkthroughs");
+                });
+
+            modelBuilder.Entity("TripNest.Core.Models.WishlistItem", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("AddedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<string>("PropertyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PropertyId");
+
+                    b.HasIndex("UserId", "PropertyId")
+                        .IsUnique();
+
+                    b.ToTable("WishlistItems");
                 });
 
             modelBuilder.Entity("TripNest.Core.Models.Agent", b =>
@@ -1087,7 +1296,33 @@ namespace TripNest.Core.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("TripNest.Core.Models.User", "WalkthroughReviewedBy")
+                        .WithMany()
+                        .HasForeignKey("WalkthroughReviewedById")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("User");
+
+                    b.Navigation("WalkthroughReviewedBy");
+                });
+
+            modelBuilder.Entity("TripNest.Core.Models.PropertyBlockedDate", b =>
+                {
+                    b.HasOne("TripNest.Core.Models.User", "BlockedByUser")
+                        .WithMany()
+                        .HasForeignKey("BlockedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TripNest.Core.Models.Property", "Property")
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("BlockedByUser");
+
+                    b.Navigation("Property");
                 });
 
             modelBuilder.Entity("TripNest.Core.Models.Receipt", b =>
@@ -1147,6 +1382,33 @@ namespace TripNest.Core.Migrations
                     b.Navigation("Booking");
                 });
 
+            modelBuilder.Entity("TripNest.Core.Models.ServiceRequest", b =>
+                {
+                    b.HasOne("TripNest.Core.Models.Caretaker", "Caretaker")
+                        .WithMany()
+                        .HasForeignKey("CaretakerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TripNest.Core.Models.Property", "Property")
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TripNest.Core.Models.User", "RequestedByUser")
+                        .WithMany()
+                        .HasForeignKey("RequestedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Caretaker");
+
+                    b.Navigation("Property");
+
+                    b.Navigation("RequestedByUser");
+                });
+
             modelBuilder.Entity("TripNest.Core.Models.StayFeedback", b =>
                 {
                     b.HasOne("TripNest.Core.Models.Booking", "Booking")
@@ -1193,6 +1455,33 @@ namespace TripNest.Core.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("TripNest.Core.Models.ViewingRequest", b =>
+                {
+                    b.HasOne("TripNest.Core.Models.Agent", "Agent")
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TripNest.Core.Models.Property", "Property")
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TripNest.Core.Models.User", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Agent");
+
+                    b.Navigation("Property");
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("TripNest.Core.Models.Walkthrough", b =>
                 {
                     b.HasOne("TripNest.Core.Models.Property", "Property")
@@ -1202,6 +1491,25 @@ namespace TripNest.Core.Migrations
                         .IsRequired();
 
                     b.Navigation("Property");
+                });
+
+            modelBuilder.Entity("TripNest.Core.Models.WishlistItem", b =>
+                {
+                    b.HasOne("TripNest.Core.Models.Property", "Property")
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("TripNest.Core.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Property");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("TripNest.Core.Models.Conversation", b =>

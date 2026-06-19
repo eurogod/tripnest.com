@@ -31,4 +31,10 @@ public class VerificationRepository : Repository<VerificationRequest>, IVerifica
         return await _context.Set<VerificationRequest>()
             .CountAsync(v => v.Status == VerificationStatus.Verified);
     }
+
+    public async Task<int> CountAttemptsSinceAsync(string userId, DateTime since)
+    {
+        return await _context.Set<VerificationRequest>()
+            .CountAsync(v => v.UserId == userId && v.SubmittedAt >= since);
+    }
 }

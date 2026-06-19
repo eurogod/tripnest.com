@@ -6,6 +6,7 @@ using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -81,7 +82,7 @@ public class TrustScoreController : ControllerBase
     {
         try
         {
-            var tenantId = User.FindFirst("sub")?.Value;
+            var tenantId = User.GetUserId();
             if (string.IsNullOrEmpty(tenantId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 

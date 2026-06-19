@@ -23,7 +23,8 @@ public class Repository<T> : IRepository<T> where T : class
 
     public async Task<IEnumerable<T>> GetAllAsync()
     {
-        return await _dbSet.ToListAsync();
+        // Read-only listing — skip change tracking for less overhead.
+        return await _dbSet.AsNoTracking().ToListAsync();
     }
 
     public async Task<T> AddAsync(T entity)

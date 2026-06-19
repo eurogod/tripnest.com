@@ -48,3 +48,26 @@ jobs:
           Jwt__Key: "ci-test-secret-key-must-be-at-least-32-chars-long"
           Jwt__Issuer: "TripNest.Core"
           Jwt__Audience: "TripNest.Core"
+
+  facematch-tests:
+    name: Face-match sidecar (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: TripNest.Core/FaceMatchService
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test deps
+        # DeepFace is mocked in the tests and imported lazily in main.py, so the heavy
+        # tensorflow/deepface stack isn't needed here — install only what the tests touch.
+        run: pip install fastapi==0.111.0 pydantic==2.7.4 httpx==0.28.1 requests==2.32.3 python-multipart==0.0.9 pytest==8.2.2
+
+      - name: Run pytest
+        run: python -m pytest tests/ -v
