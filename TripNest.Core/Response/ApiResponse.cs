@@ -29,6 +29,9 @@ public class ApiResponse<T> where T : class
     public static ApiResponse<T> UnAuthorized()
         => new("UnAuthorized", 401, null);
 
+    public static ApiResponse<T> Forbidden(string message = "Forbidden")
+        => new(message, 403, null);
+
     public static ApiResponse<T> FailedDependency()
         => new("Failed to connect please try again later", 424, null);
 

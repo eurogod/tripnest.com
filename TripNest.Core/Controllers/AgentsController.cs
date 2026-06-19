@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Agents;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.Filters;
 
 namespace TripNest.Core.Controllers;
 
@@ -98,6 +99,7 @@ public class AgentsController : ControllerBase
     /// </summary>
     [HttpPatch("viewing-requests/{id}/status")]
     [Authorize(Roles = "Agent,Tenant")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> UpdateViewingRequestStatus(string id, [FromBody] UpdateViewingRequestStatusRequest request)

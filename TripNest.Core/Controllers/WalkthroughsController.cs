@@ -4,6 +4,7 @@ using TripNest.Core.DTOs.Properties;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.Filters;
 
 namespace TripNest.Core.Controllers;
 
@@ -29,6 +30,7 @@ public class WalkthroughsController : ControllerBase
     /// </summary>
     [HttpPost("{propertyId}/walkthrough")]
     [Authorize(Roles = "Landlord")]
+    [RequireVerified]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(524_288_000)] // 500 MB
     [ProducesResponseType(typeof(ApiResponse<WalkthroughResponse>), StatusCodes.Status201Created)]
@@ -69,6 +71,7 @@ public class WalkthroughsController : ControllerBase
     /// </summary>
     [HttpPatch("{propertyId}/walkthrough/review")]
     [Authorize(Roles = "Agent,Admin")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<PropertyWalkthroughStatusResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
@@ -163,6 +166,7 @@ public class WalkthroughsController : ControllerBase
     /// <summary>Delete a walkthrough video (Landlord or Admin only).</summary>
     [HttpDelete("{propertyId}/walkthroughs/{walkthroughId}")]
     [Authorize(Roles = "Landlord,Admin")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteWalkthrough(string propertyId, string walkthroughId)
     {

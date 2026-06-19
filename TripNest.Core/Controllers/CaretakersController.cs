@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.Filters;
 
 namespace TripNest.Core.Controllers;
 
@@ -69,6 +70,7 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPost("assign")]
     [Authorize(Roles = "Landlord")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<CaretakerResponse>>> AssignCaretaker([FromBody] AssignCaretakerRequest request)
@@ -147,6 +149,7 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpPatch("service-requests/{id}/accept")]
     [Authorize(Roles = "Caretaker")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> AcceptServiceRequest(string id)

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using TripNest.Core.Enums;
 
 namespace TripNest.Core.Tests.Controllers;
@@ -116,6 +117,23 @@ public class VerificationControllerTests : TestBase
         // No verification exists yet -> a 4xx (the service reports "not found").
         Assert.True((int)response.StatusCode >= 400 && (int)response.StatusCode < 500,
             $"expected a 4xx, got {(int)response.StatusCode}");
+    }
+
+    [Fact]
+    public async Task Start_ShouldReturnPendingImmediately()
+    {
+        await RegisterAndLoginAsync(UserRole.Tenant);
+
+        // The submission is queued for background processing (NIA + face match) and must
+        // return immediately so the client can advance — it should NOT block on the sidecars.
+        var response = await _httpClient.PostAsJsonAsync("/api/Verification/start",
+            new { ghanaCardNumber = "GHA-1234-567890", selfiePhotoPath = "/tmp/selfie.jpg", firstName = "Test", lastName = "User", dateOfBirth = "1990-01-01" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("data");
+        // VerificationStatus.Pending == 1 (enums serialize as integers here).
+        Assert.Equal((int)VerificationStatus.Pending, data.GetProperty("status").GetInt32());
     }
 }
 

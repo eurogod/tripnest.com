@@ -19,6 +19,23 @@ public class NotificationService : INotificationService
         _logger = logger;
     }
 
+    public async Task CreateAsync(string userId, string title, string message, string? relatedEntityId = null, string? relatedEntityType = null)
+    {
+        var notification = new Notification
+        {
+            UserId = userId,
+            Title = title,
+            Message = message,
+            RelatedEntityId = relatedEntityId,
+            RelatedEntityType = relatedEntityType
+        };
+
+        await _notificationRepository.AddAsync(notification);
+        await _notificationRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Notification created for user {UserId}: {Title}", userId, title);
+    }
+
     public async Task<PagedResult<NotificationResponse>> GetUserNotificationsAsync(string userId, int page, int pageSize)
     {
         try

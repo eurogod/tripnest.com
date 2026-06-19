@@ -6,6 +6,7 @@ using TripNest.Core.DTOs.Maintenance;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.Filters;
 
 namespace TripNest.Core.Controllers;
 
@@ -134,6 +135,7 @@ public class MaintenanceController : ControllerBase
     /// </summary>
     [HttpPost("{id}/convert-to-service-request")]
     [Authorize(Roles = "Landlord,Admin")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> ConvertToServiceRequest(string id, [FromBody] ConvertToServiceRequestRequest request)

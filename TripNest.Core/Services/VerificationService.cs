@@ -12,6 +12,8 @@ public class VerificationService : IVerificationService
     private readonly IUserRepository _userRepository;
     private readonly INiaClient _niaClient;
     private readonly IFaceMatchClient _faceMatchClient;
+    private readonly INotificationService _notificationService;
+    private readonly IVerificationQueue _verificationQueue;
     private readonly IConfiguration _configuration;
     private readonly ILogger<VerificationService> _logger;
 
@@ -20,6 +22,8 @@ public class VerificationService : IVerificationService
         IUserRepository userRepository,
         INiaClient niaClient,
         IFaceMatchClient faceMatchClient,
+        INotificationService notificationService,
+        IVerificationQueue verificationQueue,
         IConfiguration configuration,
         ILogger<VerificationService> logger)
     {
@@ -27,18 +31,28 @@ public class VerificationService : IVerificationService
         _userRepository = userRepository;
         _niaClient = niaClient;
         _faceMatchClient = faceMatchClient;
+        _notificationService = notificationService;
+        _verificationQueue = verificationQueue;
         _configuration = configuration;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Accepts a verification submission, persists it as <see cref="VerificationStatus.Pending"/>,
+    /// queues it for background processing, and returns immediately. The slow NIA + face-match
+    /// work happens off the request path (see <see cref="ProcessVerificationAsync"/>), so the
+    /// client can advance to the next page and poll <c>GetVerificationStatus</c> for the outcome.
+    /// </summary>
     public async Task<VerificationStatusResponse> StartVerificationAsync(string userId, StartVerificationRequest request)
     {
-        var threshold = _configuration.GetValue<double>("Verification:FaceMatchThreshold", 80.0);
-
         // Guard: an already-verified user should not re-run verification.
         var latest = await _verificationRepository.GetLatestByUserIdAsync(userId);
         if (latest?.Status == VerificationStatus.Verified)
             throw new InvalidOperationException("This account is already verified");
+
+        // Guard: a submission is already in flight — don't queue duplicates.
+        if (latest?.Status == VerificationStatus.Pending)
+            return MapToResponse(latest);
 
         // Rate limit: cap attempts per user per hour to protect the paid NIA / face-match calls from abuse.
         var maxAttemptsPerHour = _configuration.GetValue<int>("Verification:MaxAttemptsPerHour", 5);
@@ -46,37 +60,93 @@ public class VerificationService : IVerificationService
         if (attemptsLastHour >= maxAttemptsPerHour)
             throw new InvalidOperationException("Too many verification attempts. Please try again later.");
 
-        var nia = await _niaClient.VerifyGhanaCardAsync(request.GhanaCardNumber);
-
-        if (!nia.IsValid)
-            throw new InvalidOperationException($"Ghana card could not be verified (status: {nia.Status})");
-
-        // Defense in depth: ensure the card actually belongs to the person claiming it.
-        if (!IdentityMatches(nia, request))
-            throw new InvalidOperationException("The card details do not match the provided identity");
-
-        var (faceMatchScore, failureReason) = await _faceMatchClient.CompareFacesAsync(request.SelfiePhotoPath, nia.PhotoUrl ?? string.Empty);
-
-        var isVerified = string.IsNullOrEmpty(failureReason) && faceMatchScore >= threshold;
-
         var verification = new VerificationRequest
         {
             UserId = userId,
             GhanaCardNumber = request.GhanaCardNumber,
             SelfiePhotoPath = request.SelfiePhotoPath,
-            NiaPhotoUrl = nia.PhotoUrl ?? string.Empty,
-            FaceMatchScore = faceMatchScore,
-            FailureReason = failureReason,
-            Status = isVerified ? VerificationStatus.Verified : VerificationStatus.Rejected,
-            ReviewedAt = DateTime.UtcNow
+            NiaPhotoUrl = string.Empty, // resolved by the background processor from the NIA lookup
+            ClaimedFirstName = request.FirstName,
+            ClaimedLastName = request.LastName,
+            ClaimedDateOfBirth = request.DateOfBirth,
+            Status = VerificationStatus.Pending
         };
 
         await _verificationRepository.AddAsync(verification);
         await _verificationRepository.SaveChangesAsync();
 
+        _verificationQueue.Enqueue(verification.Id);
+
+        _logger.LogInformation("Verification {VerificationId} queued for user {UserId}", verification.Id, userId);
+
+        return MapToResponse(verification);
+    }
+
+    /// <summary>
+    /// Background work: resolve a Pending verification by calling the NIA authority and the
+    /// face-match sidecar, then mark it Verified/Rejected. On completion the user is notified
+    /// (success, or failure with a retry prompt). Runs inside a dedicated DI scope created by
+    /// the hosted processor.
+    /// </summary>
+    public async Task ProcessVerificationAsync(string verificationId)
+    {
+        var verification = await _verificationRepository.GetByIdAsync(verificationId);
+        if (verification == null)
+        {
+            _logger.LogWarning("Verification {VerificationId} not found for processing", verificationId);
+            return;
+        }
+
+        if (verification.Status != VerificationStatus.Pending)
+        {
+            _logger.LogInformation("Verification {VerificationId} already resolved ({Status}); skipping", verificationId, verification.Status);
+            return;
+        }
+
+        var threshold = _configuration.GetValue<double>("Verification:FaceMatchThreshold", 80.0);
+        string? failureReason = null;
+        double? faceMatchScore = null;
+        var isVerified = false;
+
+        try
+        {
+            var nia = await _niaClient.VerifyGhanaCardAsync(verification.GhanaCardNumber);
+
+            if (!nia.IsValid)
+            {
+                failureReason = $"Ghana card could not be verified (status: {nia.Status})";
+            }
+            else if (!IdentityMatches(nia, verification))
+            {
+                failureReason = "The card details do not match the provided identity";
+            }
+            else
+            {
+                verification.NiaPhotoUrl = nia.PhotoUrl ?? string.Empty;
+                var (score, matchFailure) = await _faceMatchClient.CompareFacesAsync(verification.SelfiePhotoPath, nia.PhotoUrl ?? string.Empty);
+                faceMatchScore = score;
+                failureReason = matchFailure;
+                isVerified = string.IsNullOrEmpty(matchFailure) && score >= threshold;
+                if (!isVerified && string.IsNullOrEmpty(failureReason))
+                    failureReason = $"Face match score {score:F0} is below the required {threshold:F0}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Verification {VerificationId} failed during processing", verificationId);
+            failureReason = "Verification could not be completed. Please try again.";
+        }
+
+        verification.FaceMatchScore = faceMatchScore;
+        verification.FailureReason = failureReason;
+        verification.Status = isVerified ? VerificationStatus.Verified : VerificationStatus.Rejected;
+        verification.ReviewedAt = DateTime.UtcNow;
+        await _verificationRepository.UpdateAsync(verification);
+        await _verificationRepository.SaveChangesAsync();
+
         if (isVerified)
         {
-            var user = await _userRepository.GetByIdAsync(userId);
+            var user = await _userRepository.GetByIdAsync(verification.UserId);
             if (user != null && !user.IsVerified)
             {
                 var sequence = await _verificationRepository.GetVerifiedCountAsync();
@@ -85,11 +155,26 @@ public class VerificationService : IVerificationService
                 await _userRepository.UpdateAsync(user);
                 await _userRepository.SaveChangesAsync();
             }
+
+            await _notificationService.CreateAsync(
+                verification.UserId,
+                "Identity verified",
+                "Your Ghana Card has been verified — your account is now fully verified.",
+                verification.Id,
+                "Verification");
+        }
+        else
+        {
+            await _notificationService.CreateAsync(
+                verification.UserId,
+                "Verification failed",
+                "We couldn't verify your identity. Tap to try again.",
+                verification.Id,
+                "Verification");
         }
 
-        _logger.LogInformation("Verification completed for user {UserId} — score: {Score}, status: {Status}", userId, faceMatchScore, verification.Status);
-
-        return MapToResponse(verification);
+        _logger.LogInformation("Verification {VerificationId} resolved — score: {Score}, status: {Status}",
+            verificationId, faceMatchScore, verification.Status);
     }
 
     public async Task<VerificationStatusResponse> GetVerificationStatusAsync(string userId)
@@ -104,16 +189,20 @@ public class VerificationService : IVerificationService
     /// Confirms the authority's record matches the claimed identity: DOB exact (when known)
     /// and both the first and last name appearing in the registered full name.
     /// </summary>
-    private static bool IdentityMatches(NiaVerificationResult nia, StartVerificationRequest request)
+    private static bool IdentityMatches(NiaVerificationResult nia, VerificationRequest verification)
     {
-        if (nia.DateOfBirth.HasValue && nia.DateOfBirth.Value != request.DateOfBirth)
+        if (nia.DateOfBirth.HasValue && verification.ClaimedDateOfBirth.HasValue
+            && nia.DateOfBirth.Value != verification.ClaimedDateOfBirth.Value)
             return false;
 
         if (!string.IsNullOrWhiteSpace(nia.FullName))
         {
             var fullName = nia.FullName!.ToLowerInvariant();
-            if (!fullName.Contains(request.FirstName.Trim().ToLowerInvariant())
-                || !fullName.Contains(request.LastName.Trim().ToLowerInvariant()))
+            if (!string.IsNullOrWhiteSpace(verification.ClaimedFirstName)
+                && !fullName.Contains(verification.ClaimedFirstName!.Trim().ToLowerInvariant()))
+                return false;
+            if (!string.IsNullOrWhiteSpace(verification.ClaimedLastName)
+                && !fullName.Contains(verification.ClaimedLastName!.Trim().ToLowerInvariant()))
                 return false;
         }
 

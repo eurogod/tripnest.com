@@ -114,6 +114,8 @@ builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
+// Singleton so the request path (enqueue) and the hosted processor (dequeue) share one queue.
+builder.Services.AddSingleton<IVerificationQueue, VerificationQueue>();
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IWalkthroughService, WalkthroughService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
@@ -194,6 +196,7 @@ builder.Services.AddScoped<IRepository<WishlistItem>, Repository<WishlistItem>>(
 // Register background services
 builder.Services.AddHostedService<EscrowAutoReleaseService>();
 builder.Services.AddHostedService<TrustScoreDailySnapshotService>();
+builder.Services.AddHostedService<VerificationProcessingService>();
 
 // Register SignalR. A Redis backplane is required to scale the chat hub beyond a single
 // instance (Groups/Clients are per-server otherwise); enable it by setting Redis:ConnectionString.

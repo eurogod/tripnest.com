@@ -71,6 +71,8 @@ public interface IReviewService
 
 public interface INotificationService
 {
+    /// <summary>Creates and persists a notification for a user (e.g. verification outcome / retry prompt).</summary>
+    Task CreateAsync(string userId, string title, string message, string? relatedEntityId = null, string? relatedEntityType = null);
     Task<PagedResult<NotificationResponse>> GetUserNotificationsAsync(string userId, int page, int pageSize);
     Task MarkAsReadAsync(string notificationId, string userId);
     Task MarkAllAsReadAsync(string userId);

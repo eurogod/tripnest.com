@@ -98,4 +98,21 @@ public class TestBase : IAsyncLifetime
     }
 
     protected void ClearAuth() => _httpClient.DefaultRequestHeaders.Authorization = null;
+
+    /// <summary>
+    /// Flags a user as identity-verified directly in the database — used to exercise the
+    /// gated Landlord/Agent/Caretaker actions that <c>[RequireVerified]</c> protects, since
+    /// real verification runs asynchronously against external sidecars.
+    /// </summary>
+    protected async Task MarkUserVerifiedAsync(string userId)
+    {
+        using var scope = _fixture.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = await dbContext.Users.FindAsync(userId);
+        if (user != null)
+        {
+            user.IsVerified = true;
+            await dbContext.SaveChangesAsync();
+        }
+    }
 }

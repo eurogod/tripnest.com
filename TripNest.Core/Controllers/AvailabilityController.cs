@@ -5,6 +5,7 @@ using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Models;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.Filters;
 
 namespace TripNest.Core.Controllers;
 
@@ -69,6 +70,7 @@ public class AvailabilityController : ControllerBase
 
     [HttpPost("blocked-dates")]
     [Authorize(Roles = "Landlord")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
@@ -125,6 +127,7 @@ public class AvailabilityController : ControllerBase
 
     [HttpDelete("blocked-dates/{blockedDateId}")]
     [Authorize(Roles = "Landlord")]
+    [RequireVerified]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
