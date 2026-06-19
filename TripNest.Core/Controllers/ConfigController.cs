@@ -11,10 +11,12 @@ namespace TripNest.Core.Controllers;
 [Produces("application/json")]
 public class ConfigController : ControllerBase
 {
+    private readonly IConfiguration _configuration;
     private readonly ILogger<ConfigController> _logger;
 
-    public ConfigController(ILogger<ConfigController> logger)
+    public ConfigController(IConfiguration configuration, ILogger<ConfigController> logger)
     {
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -29,7 +31,14 @@ public class ConfigController : ControllerBase
                 AppName = "TripNest",
                 StayTypes = new[] { "ShortTerm", "LongTerm", "Student" },
                 ServiceTypes = new[] { "Cleaning", "Plumbing", "Electrical", "GeneralMaintenance", "Other" },
-                MaintenanceCategories = new[] { "Plumbing", "Electrical", "Structural", "Appliance", "Other" }
+                MaintenanceCategories = new[] { "Plumbing", "Electrical", "Structural", "Appliance", "Other" },
+                Map = new MapConfig
+                {
+                    Provider = _configuration["Map:Provider"] ?? "OpenStreetMap",
+                    TileUrl = _configuration["Map:TileUrl"] ?? "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                    Attribution = _configuration["Map:Attribution"] ?? "© OpenStreetMap contributors",
+                    MaxZoom = _configuration.GetValue<int>("Map:MaxZoom", 19)
+                }
             };
 
             return Ok(ApiResponse<AppConfigResponse>.Ok("App config retrieved", config));

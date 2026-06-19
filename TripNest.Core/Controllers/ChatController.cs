@@ -1,10 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Chat;
 using TripNest.Core.DTOs.Shared;
+using TripNest.Core.Hubs;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -15,11 +18,13 @@ namespace TripNest.Core.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
+    private readonly IHubContext<ChatHub> _hubContext;
     private readonly ILogger<ChatController> _logger;
 
-    public ChatController(IChatService chatService, ILogger<ChatController> logger)
+    public ChatController(IChatService chatService, IHubContext<ChatHub> hubContext, ILogger<ChatController> logger)
     {
         _chatService = chatService;
+        _hubContext = hubContext;
         _logger = logger;
     }
 
@@ -32,7 +37,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<List<ConversationResponse>>.UnAuthorized());
 
@@ -56,7 +61,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
@@ -84,7 +89,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
@@ -110,7 +115,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<PagedResult<MessageResponse>>.UnAuthorized());
 
@@ -134,11 +139,16 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
 
             var message = await _chatService.SendMessageAsync(id, userId, request.Body);
+
+            // Push to any connected SignalR clients so REST-sent messages appear in real time,
+            // matching the payload the hub broadcasts on the same event.
+            await _hubContext.Clients.Group(id).SendAsync("ReceiveMessage", message);
+
             return Created($"api/messages/{message.MessageId}", ApiResponse<MessageResponse>.Created("Message", message));
         }
         catch (InvalidOperationException ex)
@@ -161,7 +171,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
 
@@ -184,7 +194,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 
@@ -207,7 +217,7 @@ public class ChatController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ConversationResponse>.UnAuthorized());
 

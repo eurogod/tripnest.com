@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TripNest.Core.DTOs.Auth;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -116,7 +117,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             var email = User.FindFirst(ClaimTypes.Email)?.Value;
             var fullName = User.FindFirst(ClaimTypes.Name)?.Value;
             var role = User.FindFirst(ClaimTypes.Role)?.Value;
@@ -150,7 +151,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
 
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());

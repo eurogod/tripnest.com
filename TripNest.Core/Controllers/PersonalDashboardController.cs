@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -45,7 +46,7 @@ public class PersonalDashboardController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value
+            var userId = User.GetUserId()
                 ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
@@ -90,7 +91,7 @@ public class PersonalDashboardController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value
+            var userId = User.GetUserId()
                 ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
@@ -144,7 +145,7 @@ public class PersonalDashboardController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value
+            var userId = User.GetUserId()
                 ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
@@ -184,7 +185,7 @@ public class PersonalDashboardController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value
+            var userId = User.GetUserId()
                 ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (string.IsNullOrEmpty(userId))
                 return Task.FromResult<ActionResult<ApiResponse<object>>>(Unauthorized(ApiResponse<object>.UnAuthorized()));

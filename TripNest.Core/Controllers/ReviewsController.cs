@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Reviews;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -33,7 +34,7 @@ public class ReviewsController : ControllerBase
     {
         try
         {
-            var reviewerId = User.FindFirst("sub")?.Value;
+            var reviewerId = User.GetUserId();
             if (string.IsNullOrEmpty(reviewerId))
                 return Unauthorized(ApiResponse<ReviewResponse>.UnAuthorized());
 
@@ -81,7 +82,7 @@ public class ReviewsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<List<ReviewResponse>>.UnAuthorized());
 
@@ -130,7 +131,7 @@ public class ReviewsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ReviewResponse>.UnAuthorized());
 

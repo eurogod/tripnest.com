@@ -3,7 +3,6 @@ namespace TripNest.Core.DTOs.Escrow;
 public class InitiateEscrowRequest
 {
     public required string BookingId { get; set; }
-    public decimal Amount { get; set; }
 }
 
 public class WebhookCallbackRequest

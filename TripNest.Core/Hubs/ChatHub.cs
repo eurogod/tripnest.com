@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Models;
+using TripNest.Core.Extensions;
+using TripNest.Core.DTOs.Chat;
 
 namespace TripNest.Core.Hubs;
 
@@ -33,7 +35,7 @@ public class ChatHub : Hub
     {
         try
         {
-            var userId = Context.User?.FindFirst("sub")?.Value;
+            var userId = Context.User.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
                 await Clients.Caller.SendAsync("Error", "Unauthorized");
@@ -67,7 +69,7 @@ public class ChatHub : Hub
     {
         try
         {
-            var userId = Context.User?.FindFirst("sub")?.Value;
+            var userId = Context.User.GetUserId();
             if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(body?.Trim()))
             {
                 await Clients.Caller.SendAsync("Error", "Invalid message");
@@ -102,15 +104,18 @@ public class ChatHub : Hub
             await _conversationRepository.UpdateAsync(conversation);
             await _conversationRepository.SaveChangesAsync();
 
-            // Broadcast to conversation group
-            await Clients.Group(conversationId).SendAsync("ReceiveMessage", new
+            // Broadcast to conversation group using the same MessageResponse shape the
+            // REST endpoint and message history return, so clients see one consistent payload.
+            await Clients.Group(conversationId).SendAsync("ReceiveMessage", new MessageResponse
             {
-                message.Id,
-                message.ConversationId,
-                message.SenderId,
-                message.Content,
-                message.CreatedAt,
-                message.IsRead
+                MessageId = message.Id,
+                ConversationId = message.ConversationId,
+                SenderId = message.SenderId,
+                Content = message.Content,
+                Type = message.Type,
+                CreatedAt = message.CreatedAt,
+                IsRead = message.IsRead,
+                ReadAt = message.ReadAt
             });
 
             _logger.LogInformation("Message sent in conversation {ConversationId} by user {UserId}",
@@ -130,7 +135,7 @@ public class ChatHub : Hub
     {
         try
         {
-            var userId = Context.User?.FindFirst("sub")?.Value;
+            var userId = Context.User.GetUserId();
             if (string.IsNullOrEmpty(userId))
             {
                 await Clients.Caller.SendAsync("Error", "Unauthorized");
@@ -176,6 +181,41 @@ public class ChatHub : Hub
     }
 
     /// <summary>
+    /// Signals that the caller has started typing in a conversation.
+    /// Broadcast to the other participant(s) only — never echoed to the sender.
+    /// </summary>
+    public async Task Typing(string conversationId)
+    {
+        var userId = Context.User.GetUserId();
+        if (string.IsNullOrEmpty(userId) || !await IsParticipantAsync(conversationId, userId))
+            return;
+
+        await Clients.OthersInGroup(conversationId).SendAsync("UserTyping", new { conversationId, userId });
+    }
+
+    /// <summary>
+    /// Signals that the caller has stopped typing in a conversation.
+    /// </summary>
+    public async Task StopTyping(string conversationId)
+    {
+        var userId = Context.User.GetUserId();
+        if (string.IsNullOrEmpty(userId) || !await IsParticipantAsync(conversationId, userId))
+            return;
+
+        await Clients.OthersInGroup(conversationId).SendAsync("UserStoppedTyping", new { conversationId, userId });
+    }
+
+    /// <summary>
+    /// Returns true if the user is one of the two participants in the conversation.
+    /// </summary>
+    private async Task<bool> IsParticipantAsync(string conversationId, string userId)
+    {
+        var conversation = await _conversationRepository.GetByIdAsync(conversationId);
+        return conversation != null &&
+            (conversation.User1Id == userId || conversation.User2Id == userId);
+    }
+
+    /// <summary>
     /// Handles client disconnect.
     /// </summary>
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -185,7 +225,7 @@ public class ChatHub : Hub
             _logger.LogError(exception, "Client disconnected with error");
         }
 
-        var userId = Context.User?.FindFirst("sub")?.Value;
+        var userId = Context.User.GetUserId();
         _logger.LogInformation("User {UserId} disconnected from chat", userId ?? "unknown");
 
         await base.OnDisconnectedAsync(exception);

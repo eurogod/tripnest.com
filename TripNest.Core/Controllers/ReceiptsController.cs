@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Receipts;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -32,7 +33,7 @@ public class ReceiptsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<PagedResult<ReceiptResponse>>.UnAuthorized());
 
@@ -56,7 +57,7 @@ public class ReceiptsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ReceiptResponse>.UnAuthorized());
 
@@ -83,7 +84,7 @@ public class ReceiptsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized();
 
@@ -92,6 +93,11 @@ public class ReceiptsController : ControllerBase
                 return NotFound();
 
             return File(pdf, "application/pdf", filename);
+        }
+        catch (InvalidOperationException)
+        {
+            // Service throws this when the receipt doesn't exist / isn't the user's — that's a 404, not a 500.
+            return NotFound();
         }
         catch (Exception ex)
         {
@@ -110,7 +116,7 @@ public class ReceiptsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ReceiptResponse>.UnAuthorized());
 

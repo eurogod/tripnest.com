@@ -13,7 +13,7 @@ public interface IAuthService
 
     Task ChangePasswordAsync(string userId, ChangePasswordRequest request);
 
-    Task<(User User, string ResetToken)> ForgotPasswordAsync(string email);
+    Task<(User? User, string? ResetToken)> ForgotPasswordAsync(string email);
 
     Task ResetPasswordAsync(string email, string resetToken, string newPassword);
 }

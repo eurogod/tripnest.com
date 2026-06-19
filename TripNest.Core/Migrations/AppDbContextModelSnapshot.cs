@@ -199,6 +199,12 @@ namespace TripNest.Core.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PropertyId");
@@ -305,6 +311,12 @@ namespace TripNest.Core.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("HeldAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentReference")
+                        .HasColumnType("text");
+
                     b.Property<string>("ReleaseReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -314,6 +326,12 @@ namespace TripNest.Core.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -984,7 +1002,7 @@ namespace TripNest.Core.Migrations
                     b.Property<DateTime>("SubmittedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasDefaultValue(new DateTime(2026, 6, 18, 15, 39, 39, 627, DateTimeKind.Utc).AddTicks(2990));
+                        .HasDefaultValueSql("now()");
 
                     b.Property<string>("UserId")
                         .IsRequired()

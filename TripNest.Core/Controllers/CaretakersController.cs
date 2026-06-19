@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -74,7 +75,7 @@ public class CaretakersController : ControllerBase
     {
         try
         {
-            var landlordId = User.FindFirst("sub")?.Value;
+            var landlordId = User.GetUserId();
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<CaretakerResponse>.UnAuthorized());
 
@@ -103,7 +104,7 @@ public class CaretakersController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
@@ -127,7 +128,7 @@ public class CaretakersController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
 
@@ -152,7 +153,7 @@ public class CaretakersController : ControllerBase
     {
         try
         {
-            var caretakerId = User.FindFirst("sub")?.Value;
+            var caretakerId = User.GetUserId();
             if (string.IsNullOrEmpty(caretakerId))
                 return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
@@ -177,7 +178,7 @@ public class CaretakersController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
@@ -201,7 +202,7 @@ public class CaretakersController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 

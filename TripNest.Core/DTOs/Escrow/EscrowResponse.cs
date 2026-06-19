@@ -9,6 +9,7 @@ public class EscrowResponse
     public decimal Amount { get; set; }
     public EscrowStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime? HeldAt { get; set; }
     public DateTime? ReleasedAt { get; set; }
     public string? ReleaseReason { get; set; }
 }

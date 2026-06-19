@@ -18,7 +18,9 @@ public class VerificationConfiguration : IEntityTypeConfiguration<VerificationRe
         builder.Property(v => v.FaceMatchScore).IsRequired(false);
         builder.Property(v => v.FailureReason).IsRequired(false).HasMaxLength(500);
         builder.Property(v => v.Status).IsRequired();
-        builder.Property(v => v.SubmittedAt).IsRequired().HasDefaultValue(DateTime.UtcNow);
+        // Use the DB clock as the default, not a constant baked at model-build time
+        // (the old HasDefaultValue(DateTime.UtcNow) drifted on every migration).
+        builder.Property(v => v.SubmittedAt).IsRequired().HasDefaultValueSql("now()");
         builder.Property(v => v.ReviewedAt).IsRequired(false);
 
         builder.HasOne(v => v.User)

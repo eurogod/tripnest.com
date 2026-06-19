@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Notifications;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -32,7 +33,7 @@ public class NotificationsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<PagedResult<NotificationResponse>>.UnAuthorized());
 
@@ -56,7 +57,7 @@ public class NotificationsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
 
@@ -83,7 +84,7 @@ public class NotificationsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
 
@@ -106,7 +107,7 @@ public class NotificationsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
@@ -129,7 +130,7 @@ public class NotificationsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
 

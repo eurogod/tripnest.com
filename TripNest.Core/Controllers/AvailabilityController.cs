@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Models;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -78,7 +79,7 @@ public class AvailabilityController : ControllerBase
     {
         try
         {
-            var landlordId = User.FindFirst("sub")?.Value;
+            var landlordId = User.GetUserId();
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
@@ -133,7 +134,7 @@ public class AvailabilityController : ControllerBase
     {
         try
         {
-            var landlordId = User.FindFirst("sub")?.Value;
+            var landlordId = User.GetUserId();
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 

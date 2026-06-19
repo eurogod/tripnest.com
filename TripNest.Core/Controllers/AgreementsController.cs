@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TripNest.Core.DTOs.Agreements;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -32,7 +33,7 @@ public class AgreementsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<AgreementResponse>.UnAuthorized());
 
@@ -59,7 +60,7 @@ public class AgreementsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<List<AgreementResponse>>.UnAuthorized());
 
@@ -83,7 +84,7 @@ public class AgreementsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<AgreementResponse>.UnAuthorized());
 
@@ -110,7 +111,7 @@ public class AgreementsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
@@ -138,7 +139,7 @@ public class AgreementsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized();
 
@@ -147,6 +148,11 @@ public class AgreementsController : ControllerBase
                 return NotFound();
 
             return File(pdf, "application/pdf", filename);
+        }
+        catch (InvalidOperationException)
+        {
+            // Service throws this when the agreement doesn't exist / isn't the user's — that's a 404, not a 500.
+            return NotFound();
         }
         catch (Exception ex)
         {

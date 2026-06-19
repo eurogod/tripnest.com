@@ -13,7 +13,7 @@ namespace TripNest.Core.Interfaces.Services;
 
 public interface IEscrowService
 {
-    Task<EscrowResponse> InitiatePaymentAsync(string bookingId, decimal amount);
+    Task<EscrowResponse> InitiatePaymentAsync(string bookingId, string userId);
     Task VerifyAndHoldPaymentAsync(string bookingId, string reference);
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
     Task ReleaseEscrowAsync(string escrowId, string userId);

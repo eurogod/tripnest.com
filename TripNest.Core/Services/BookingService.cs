@@ -1,5 +1,6 @@
 using TripNest.Core.DTOs.Bookings;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -27,63 +28,61 @@ public class BookingService : IBookingService
 
     public async Task<BookingResponse> CreateBookingAsync(string tenantId, CreateBookingRequest request)
     {
-        try
+        // Validate the date range before touching the database.
+        if (request.CheckOutDate.Date <= request.CheckInDate.Date)
+            throw new ValidationException("Check-out date must be after the check-in date");
+        if (request.CheckInDate.Date < DateTime.UtcNow.Date)
+            throw new ValidationException("Check-in date cannot be in the past");
+
+        var property = await _propertyRepository.GetByIdAsync(request.PropertyId)
+            ?? throw new NotFoundException("Property");
+
+        // Friendly pre-check. The authoritative guard against double-booking is the
+        // Postgres exclusion constraint on confirmed bookings (see migration), which closes
+        // the race this in-memory check cannot.
+        var existingBookings = await _bookingRepository.GetByPropertyIdAsync(request.PropertyId);
+        var hasOverlap = existingBookings.Any(b =>
+            b.Status == BookingStatus.Confirmed &&
+            b.CheckInDate < request.CheckOutDate &&
+            b.CheckOutDate > request.CheckInDate);
+
+        if (hasOverlap)
+            throw new ConflictException("The selected dates are not available for this property");
+
+        var totalAmount = CalculateTotalAmount(property, request.CheckInDate, request.CheckOutDate);
+
+        var booking = new Booking
         {
-            var property = await _propertyRepository.GetByIdAsync(request.PropertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+            TenantId = tenantId,
+            PropertyId = request.PropertyId,
+            CheckInDate = request.CheckInDate,
+            CheckOutDate = request.CheckOutDate,
+            TotalAmount = totalAmount,
+            Status = BookingStatus.Pending
+        };
 
-            // Inline overlap check — Module 19 will extract this into IAvailabilityService and add blocked-dates support
-            var existingBookings = await _bookingRepository.GetByPropertyIdAsync(request.PropertyId);
-            var hasOverlap = existingBookings.Any(b =>
-                b.Status == BookingStatus.Confirmed &&
-                b.CheckInDate < request.CheckOutDate &&
-                b.CheckOutDate > request.CheckInDate);
-
-            if (hasOverlap)
-                throw new InvalidOperationException("The selected dates are not available for this property");
-
-            var totalAmount = CalculateTotalAmount(property, request.CheckInDate, request.CheckOutDate);
-
-            var booking = new Booking
-            {
-                TenantId = tenantId,
-                PropertyId = request.PropertyId,
-                CheckInDate = request.CheckInDate,
-                CheckOutDate = request.CheckOutDate,
-                TotalAmount = totalAmount,
-                Status = BookingStatus.Pending
-            };
-
-            await _bookingRepository.AddAsync(booking);
-            await _bookingRepository.SaveChangesAsync();
-
-            var escrow = new Escrow
-            {
-                BookingId = booking.Id,
-                Amount = totalAmount,
-                Status = EscrowStatus.Pending
-            };
-
-            await _escrowRepository.AddAsync(escrow);
-            await _escrowRepository.SaveChangesAsync();
-
-            _logger.LogInformation("Booking created: {BookingId}", booking.Id);
-
-            return MapToResponse(booking);
-        }
-        catch (Exception ex)
+        var escrow = new Escrow
         {
-            _logger.LogError(ex, "Error creating booking");
-            throw;
-        }
+            BookingId = booking.Id,
+            Amount = totalAmount,
+            Status = EscrowStatus.Pending
+        };
+
+        // Both repositories share the scoped DbContext, so a single SaveChanges commits the
+        // booking and its escrow atomically (EF wraps it in one transaction).
+        await _bookingRepository.AddAsync(booking);
+        await _escrowRepository.AddAsync(escrow);
+        await _bookingRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Booking created: {BookingId}", booking.Id);
+
+        return MapToResponse(booking);
     }
 
     public async Task<BookingResponse> GetBookingAsync(string bookingId)
     {
-        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId);
-        if (booking == null)
-            throw new InvalidOperationException("Booking not found");
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId)
+            ?? throw new NotFoundException("Booking");
 
         return MapToResponse(booking);
     }
@@ -102,24 +101,21 @@ public class BookingService : IBookingService
 
     public async Task<BookingResponse> CancelBookingAsync(string bookingId)
     {
-        var booking = await _bookingRepository.GetByIdAsync(bookingId);
-        if (booking == null)
-            throw new InvalidOperationException("Booking not found");
+        var booking = await _bookingRepository.GetByIdAsync(bookingId)
+            ?? throw new NotFoundException("Booking");
 
         booking.Status = BookingStatus.Cancelled;
         booking.CancelledAt = DateTime.UtcNow;
-
-        await _bookingRepository.UpdateAsync(booking);
-        await _bookingRepository.SaveChangesAsync();
 
         var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
         if (escrow != null)
         {
             // TODO: Module 19 — replace always-100% refund with ICancellationPolicyService.CalculateRefundPercentage(bookingId)
             escrow.Status = EscrowStatus.Refunded;
-            await _escrowRepository.UpdateAsync(escrow);
-            await _escrowRepository.SaveChangesAsync();
         }
+
+        // Single atomic commit for the booking + its escrow (shared DbContext).
+        await _bookingRepository.SaveChangesAsync();
 
         return MapToResponse(booking);
     }

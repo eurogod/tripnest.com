@@ -32,6 +32,9 @@ public class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.HasIndex(b => b.TenantId);
         builder.HasIndex(b => b.PropertyId);
         builder.HasIndex(b => b.Status);
+
+        // Optimistic concurrency via Postgres' system xmin column — no real column added.
+        builder.Property(b => b.Version).IsRowVersion();
     }
 }
 
@@ -55,5 +58,9 @@ public class EscrowConfiguration : IEntityTypeConfiguration<Escrow>
 
         builder.HasIndex(e => e.BookingId);
         builder.HasIndex(e => e.Status);
+
+        // Optimistic concurrency: prevents two requests (e.g. release vs refund) from both
+        // acting on the same escrow row — the second SaveChanges throws DbUpdateConcurrencyException.
+        builder.Property(e => e.Version).IsRowVersion();
     }
 }

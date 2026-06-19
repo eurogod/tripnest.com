@@ -55,8 +55,11 @@ public class AuthControllerTests : TestBase
         // Act - Register second user with same email
         var response = await _httpClient.PostAsJsonAsync("/api/auth/register", registerRequest);
 
-        // Assert
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        // Assert — the API surfaces business-rule violations as 400 + success:false
+        // (consistent across the auth controller), not 409.
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(body.GetProperty("success").GetBoolean());
     }
 
     [Fact]
@@ -121,7 +124,10 @@ public class AuthControllerTests : TestBase
         // Act
         var response = await _httpClient.PostAsJsonAsync("/api/auth/login", loginRequest);
 
-        // Assert
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        // Assert — invalid credentials surface as 400 + success:false (the auth
+        // controller maps the service's InvalidOperationException to BadRequest).
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(body.GetProperty("success").GetBoolean());
     }
 }

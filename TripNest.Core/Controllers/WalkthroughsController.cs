@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Properties;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -40,7 +41,7 @@ public class WalkthroughsController : ControllerBase
     {
         try
         {
-            var landlordId = User.FindFirst("sub")?.Value;
+            var landlordId = User.GetUserId();
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
@@ -77,7 +78,7 @@ public class WalkthroughsController : ControllerBase
     {
         try
         {
-            var reviewerId = User.FindFirst("sub")?.Value;
+            var reviewerId = User.GetUserId();
             if (string.IsNullOrEmpty(reviewerId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 

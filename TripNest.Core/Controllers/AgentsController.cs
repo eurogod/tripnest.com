@@ -4,6 +4,7 @@ using System.Security.Claims;
 using TripNest.Core.DTOs.Agents;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -74,7 +75,7 @@ public class AgentsController : ControllerBase
     {
         try
         {
-            var tenantId = User.FindFirst("sub")?.Value;
+            var tenantId = User.GetUserId();
             if (string.IsNullOrEmpty(tenantId))
                 return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
 
@@ -103,7 +104,7 @@ public class AgentsController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
 

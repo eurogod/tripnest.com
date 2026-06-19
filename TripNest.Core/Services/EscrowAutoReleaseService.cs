@@ -65,9 +65,12 @@ public class EscrowAutoReleaseService : BackgroundService
             var gracePeriodHours = int.Parse(_configuration["Escrow:GracePeriodHours"] ?? "24");
             var cutoffTime = DateTime.UtcNow.AddHours(-gracePeriodHours);
 
+            // Grace period is measured from when funds were actually held (HeldAt),
+            // not from when the escrow row was created.
             var escrowsToRelease = await context.Escrows
                 .Where(e => e.Status == EscrowStatus.HeldInEscrow &&
-                           e.CreatedAt < cutoffTime)
+                           e.HeldAt != null &&
+                           e.HeldAt < cutoffTime)
                 .Include(e => e.Booking)
                 .ToListAsync(cancellationToken);
 

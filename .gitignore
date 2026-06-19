@@ -64,3 +64,10 @@ desktop.ini
 ## Upload directory (user content — don't commit uploads)
 **/wwwroot/uploads/*
 !**/wwwroot/uploads/.gitkeep
+
+## Python face-match sidecar (venv + caches + downloaded model weights)
+**/FaceMatchService/venv/
+**/__pycache__/
+*.pyc
+.deepface/
+.pytest_cache/

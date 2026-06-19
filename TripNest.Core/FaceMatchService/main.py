@@ -13,7 +13,9 @@ Run with:
 import base64
 import io
 import logging
+import os
 import tempfile
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -21,6 +23,12 @@ from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("face-match-sidecar")
+
+# Each DeepFace inference loads a lot into memory; running several at once can
+# OOM the host. Sync endpoints run in FastAPI's threadpool, so without a cap
+# concurrent requests would all infer in parallel. Bound the heavy work to
+# MAX_CONCURRENT_INFERENCES (default 1) — extra requests queue instead of crashing.
+_inference_semaphore = threading.Semaphore(int(os.environ.get("MAX_CONCURRENT_INFERENCES", "1")))
 
 # DeepFace is imported lazily inside the lifespan handler so the API can
 # start fast and report a clear error if the model fails to load, instead
@@ -96,6 +104,7 @@ def _resolve_image(url: str | None, b64: str | None, label: str) -> str:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
     except Exception as exc:
+        logger.warning("%s: failed to fetch image from URL %s -> %r", label, url, exc)
         raise HTTPException(status_code=424, detail=f"{label}: failed to fetch image from URL") from exc
     tmp.write(resp.content)
     tmp.flush()
@@ -108,9 +117,15 @@ async def health():
 
 
 @app.post("/compare-faces", response_model=CompareFacesResponse)
-async def compare_faces(request: CompareFacesRequest):
+def compare_faces(request: CompareFacesRequest):
     """
     Compares two face photos and returns a similarity score.
+
+    Declared as a *sync* endpoint on purpose: the body does blocking work
+    (HTTP image fetch + a multi-second DeepFace inference). FastAPI runs sync
+    endpoints in a threadpool, so the event loop stays free and concurrent
+    requests don't starve each other — an async def here would block the loop
+    and make the 10s image fetch time out under load (seen as spurious 424s).
 
     similarity_score is derived from DeepFace's distance metric, scaled to
     0-100 so the .NET side can apply a simple ">= threshold" rule
@@ -123,13 +138,16 @@ async def compare_faces(request: CompareFacesRequest):
     path2 = _resolve_image(request.photo2_url, request.photo2_base64, "photo2")
 
     try:
-        result = _deepface.verify(
-            img1_path=path1,
-            img2_path=path2,
-            model_name=request.model_name,
-            detector_backend=request.detector_backend,
-            enforce_detection=True,
-        )
+        # Serialize the memory-heavy inference so concurrent requests queue
+        # rather than running in parallel and OOM-killing the process.
+        with _inference_semaphore:
+            result = _deepface.verify(
+                img1_path=path1,
+                img2_path=path2,
+                model_name=request.model_name,
+                detector_backend=request.detector_backend,
+                enforce_detection=True,
+            )
     except ValueError as exc:
         # DeepFace raises ValueError when no face is detected in one of the images
         raise HTTPException(status_code=422, detail=f"Face detection failed: {exc}") from exc

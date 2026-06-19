@@ -9,7 +9,7 @@ public class BookingsControllerTests : TestBase
     public async Task GetBookings_Unauthorized_ShouldReturnUnauthorized()
     {
         // Act
-        var response = await _httpClient.GetAsync("/api/bookings/mine");
+        var response = await _httpClient.GetAsync("/api/bookings/user/my-bookings");
 
         // Assert
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -22,7 +22,7 @@ public class BookingsControllerTests : TestBase
         await AuthenticateAsTenant();
 
         // Act
-        var response = await _httpClient.GetAsync("/api/bookings/mine");
+        var response = await _httpClient.GetAsync("/api/bookings/user/my-bookings");
 
         // Assert
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);

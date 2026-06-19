@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.DTOs.Maintenance;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.Extensions;
 
 namespace TripNest.Core.Controllers;
 
@@ -33,7 +34,7 @@ public class MaintenanceController : ControllerBase
     {
         try
         {
-            var tenantId = User.FindFirst("sub")?.Value;
+            var tenantId = User.GetUserId();
             if (string.IsNullOrEmpty(tenantId))
                 return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
 
@@ -61,12 +62,17 @@ public class MaintenanceController : ControllerBase
     {
         try
         {
-            var landlordId = User.FindFirst("sub")?.Value;
+            var landlordId = User.GetUserId();
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
 
             var requests = await _maintenanceService.GetPropertyMaintenanceAsync(propertyId, landlordId);
             return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
+        }
+        catch (InvalidOperationException)
+        {
+            // Service throws this when the property doesn't exist / isn't the landlord's — that's a 404, not a 500.
+            return NotFound(ApiResponse<List<MaintenanceResponse>>.NotFound("Property"));
         }
         catch (Exception ex)
         {
@@ -85,7 +91,7 @@ public class MaintenanceController : ControllerBase
     {
         try
         {
-            var tenantId = User.FindFirst("sub")?.Value;
+            var tenantId = User.GetUserId();
             if (string.IsNullOrEmpty(tenantId))
                 return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
 
@@ -109,7 +115,7 @@ public class MaintenanceController : ControllerBase
     {
         try
         {
-            var userId = User.FindFirst("sub")?.Value;
+            var userId = User.GetUserId();
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
 
@@ -134,7 +140,7 @@ public class MaintenanceController : ControllerBase
     {
         try
         {
-            var landlordId = User.FindFirst("sub")?.Value;
+            var landlordId = User.GetUserId();
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
