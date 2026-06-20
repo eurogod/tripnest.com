@@ -36,6 +36,23 @@ public class AuthControllerTests : TestBase
     }
 
     [Fact]
+    public async Task Register_WithInvalidPhone_ShouldReturnBadRequest()
+    {
+        var registerRequest = new RegisterRequest
+        {
+            FullName = "Bad Phone",
+            Email = "badphone@example.com",
+            Password = "Password@123",
+            ConfirmPassword = "Password@123",
+            Phone = "12345",
+            Role = Enums.UserRole.Tenant
+        };
+
+        var response = await _httpClient.PostAsJsonAsync("/api/auth/register", registerRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Register_WithDuplicateEmail_ShouldReturnConflict()
     {
         // Arrange

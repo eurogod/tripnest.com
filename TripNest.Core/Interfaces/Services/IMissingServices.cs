@@ -86,8 +86,8 @@ public interface INotificationService
     /// <summary>Returns the user's communication preference, creating an all-enabled default if none exists.</summary>
     Task<CommunicationPreferenceResponse> GetPreferenceAsync(string userId);
 
-    /// <summary>Updates the user's SMS/email opt-out preference.</summary>
-    Task<CommunicationPreferenceResponse> UpdatePreferenceAsync(string userId, bool smsEnabled, bool emailEnabled);
+    /// <summary>Updates the user's SMS/email/WhatsApp opt-out preference.</summary>
+    Task<CommunicationPreferenceResponse> UpdatePreferenceAsync(string userId, bool smsEnabled, bool emailEnabled, bool whatsAppEnabled);
 
     Task<PagedResult<NotificationResponse>> GetUserNotificationsAsync(string userId, int page, int pageSize);
     Task MarkAsReadAsync(string notificationId, string userId);

@@ -39,10 +39,13 @@ public class TestFixture : WebApplicationFactory<Program>
             // tests can resolve the same instance and inspect what was dispatched).
             services.RemoveAll<ISmsSender>();
             services.RemoveAll<IEmailSender>();
+            services.RemoveAll<IWhatsAppSender>();
             services.AddSingleton<RecordingSmsSender>();
             services.AddSingleton<RecordingEmailSender>();
+            services.AddSingleton<RecordingWhatsAppSender>();
             services.AddSingleton<ISmsSender>(sp => sp.GetRequiredService<RecordingSmsSender>());
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<RecordingEmailSender>());
+            services.AddSingleton<IWhatsAppSender>(sp => sp.GetRequiredService<RecordingWhatsAppSender>());
         });
 
         builder.UseEnvironment("Testing");

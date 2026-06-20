@@ -15,6 +15,7 @@ public class Notification
     // Which channels this notification was actually dispatched on (in addition to in-app).
     public bool SentViaSms { get; set; }
     public bool SentViaEmail { get; set; }
+    public bool SentViaWhatsApp { get; set; }
     // True only when a SafetyAlert bypassed the user's opt-out — auditable.
     public bool IsEmergencyOverride { get; set; }
 
