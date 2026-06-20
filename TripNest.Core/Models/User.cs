@@ -37,4 +37,10 @@ public class User
     public string? PasswordResetToken { get; set; }
 
     public DateTime? PasswordResetTokenExpiry { get; set; }
+
+    // Phone-ownership (OTP) verification.
+    public bool PhoneVerified { get; set; } = false;
+    public string? PhoneOtpHash { get; set; }
+    public DateTime? PhoneOtpExpiry { get; set; }
+    public int PhoneOtpAttempts { get; set; }
 }

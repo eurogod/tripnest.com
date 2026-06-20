@@ -34,7 +34,10 @@ they log and no-op (SMS/WhatsApp/email) or return a simulated reference (Paystac
 runs without credentials. Set real keys with `dotnet user-secrets set "<key>" "<value>"`.
 
 **Phone numbers** are validated offline (libphonenumber, default region `Phone:DefaultRegion`,
-GH) at registration and normalised to E.164 — invalid numbers are rejected with 400.
+GH) at registration and normalised to E.164 — invalid numbers are rejected with 400. Ownership
+can be confirmed via OTP: `POST /api/auth/phone/send-otp` texts/WhatsApps a single-use 6-digit
+code (hashed, 10-min expiry, 5-attempt cap), and `POST /api/auth/phone/verify-otp` sets the
+user's `PhoneVerified` flag.
 Notification opt-out covers SMS, email, and WhatsApp independently; emergency safety alerts
 ignore the opt-out on all three.
 
@@ -87,6 +90,8 @@ ignore the opt-out on all three.
 | POST | `/reset-password` | 🌐 |
 | GET | `/me` | 🔒 |
 | POST | `/change-password` | 🔒 |
+| POST | `/phone/send-otp` | 🔒 (body `{ channel: "sms" \| "whatsapp" }`) |
+| POST | `/phone/verify-otp` | 🔒 (body `{ code }` → marks phone verified) |
 
 ### Verification — `api/verification`
 | Method | Path | Access |

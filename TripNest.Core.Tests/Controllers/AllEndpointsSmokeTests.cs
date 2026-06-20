@@ -31,6 +31,8 @@ public class AllEndpointsSmokeTests : TestBase
     // Auth
     [InlineData("GET", "/api/auth/me")]
     [InlineData("POST", "/api/auth/change-password")]
+    [InlineData("POST", "/api/auth/phone/send-otp")]
+    [InlineData("POST", "/api/auth/phone/verify-otp")]
     // Verification
     [InlineData("POST", "/api/verification/start")]
     [InlineData("GET", "/api/verification/status")]
