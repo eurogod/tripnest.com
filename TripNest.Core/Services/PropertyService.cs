@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Properties;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -9,12 +10,58 @@ namespace TripNest.Core.Services;
 public class PropertyService : IPropertyService
 {
     private readonly IPropertyRepository _propertyRepository;
+    private readonly IRepository<PropertyPhoto> _photoRepository;
     private readonly ILogger<PropertyService> _logger;
 
-    public PropertyService(IPropertyRepository propertyRepository, ILogger<PropertyService> logger)
+    public PropertyService(
+        IPropertyRepository propertyRepository,
+        IRepository<PropertyPhoto> photoRepository,
+        ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
+        _photoRepository = photoRepository;
         _logger = logger;
+    }
+
+    public async Task<List<string>> AddPhotosAsync(string propertyId, string userId, IFormFileCollection files)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new InvalidOperationException("Property not found");
+        if (property.UserId != userId)
+            throw new InvalidOperationException("You are not authorised to add photos to this property");
+        if (files == null || files.Count == 0)
+            throw new InvalidOperationException("No photos were provided");
+
+        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "properties");
+        Directory.CreateDirectory(uploadDir);
+
+        var existing = (await _photoRepository.GetAllAsync()).Count(p => p.PropertyId == propertyId);
+        var savedPaths = new List<string>();
+        var index = existing;
+
+        foreach (var file in files)
+        {
+            if (file.Length == 0) continue;
+            var fileName = $"{Guid.NewGuid():N}{Path.GetExtension(file.FileName)}";
+            var fullPath = Path.Combine(uploadDir, fileName);
+            await using (var stream = new FileStream(fullPath, FileMode.Create))
+                await file.CopyToAsync(stream);
+
+            var relativePath = $"/uploads/properties/{fileName}";
+            await _photoRepository.AddAsync(new PropertyPhoto
+            {
+                PropertyId = propertyId,
+                PhotoPath = relativePath,
+                IsPrimary = index == 0,
+                SortOrder = index
+            });
+            savedPaths.Add(relativePath);
+            index++;
+        }
+
+        await _photoRepository.SaveChangesAsync();
+        _logger.LogInformation("Added {Count} photo(s) to property {PropertyId}", savedPaths.Count, propertyId);
+        return savedPaths;
     }
 
     public async Task<PropertyResponse> CreatePropertyAsync(string userId, CreatePropertyRequest request)
@@ -34,6 +81,8 @@ public class PropertyService : IPropertyService
                 MonthlyRent = request.MonthlyRent,
                 DailyRate = request.DailyRate,
                 PropertyType = request.PropertyType,
+                StayType = request.StayType,
+                CancellationPolicy = request.CancellationPolicy,
                 Amenities = request.Amenities,
                 Status = PropertyStatus.Draft
             };
@@ -70,6 +119,8 @@ public class PropertyService : IPropertyService
             property.MonthlyRent = request.MonthlyRent;
             property.DailyRate = request.DailyRate;
             property.PropertyType = request.PropertyType;
+            property.StayType = request.StayType;
+            property.CancellationPolicy = request.CancellationPolicy;
             property.Amenities = request.Amenities;
             property.UpdatedAt = DateTime.UtcNow;
 
@@ -181,6 +232,8 @@ public class PropertyService : IPropertyService
             MonthlyRent = property.MonthlyRent,
             DailyRate = property.DailyRate,
             PropertyType = property.PropertyType,
+            StayType = property.StayType,
+            CancellationPolicy = property.CancellationPolicy,
             Amenities = property.Amenities,
             PhotoPaths = property.PhotoPaths,
             Status = property.Status,

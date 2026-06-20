@@ -8,6 +8,10 @@ public class Agreement
     public required string BookingId { get; set; }
     public Booking? Booking { get; set; }
     public required string TermsContent { get; set; }
+    public decimal RentAmount { get; set; }
+    public RentFrequency RentFrequency { get; set; } = RentFrequency.Monthly;
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
     public AgreementStatus Status { get; set; } = AgreementStatus.Draft;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SignedAt { get; set; }

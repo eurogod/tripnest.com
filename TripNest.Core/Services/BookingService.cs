@@ -12,17 +12,23 @@ public class BookingService : IBookingService
     private readonly IBookingRepository _bookingRepository;
     private readonly IPropertyRepository _propertyRepository;
     private readonly IEscrowRepository _escrowRepository;
+    private readonly IAvailabilityService _availabilityService;
+    private readonly ICancellationPolicyService _cancellationPolicyService;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
         IBookingRepository bookingRepository,
         IPropertyRepository propertyRepository,
         IEscrowRepository escrowRepository,
+        IAvailabilityService availabilityService,
+        ICancellationPolicyService cancellationPolicyService,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
         _propertyRepository = propertyRepository;
         _escrowRepository = escrowRepository;
+        _availabilityService = availabilityService;
+        _cancellationPolicyService = cancellationPolicyService;
         _logger = logger;
     }
 
@@ -37,16 +43,10 @@ public class BookingService : IBookingService
         var property = await _propertyRepository.GetByIdAsync(request.PropertyId)
             ?? throw new NotFoundException("Property");
 
-        // Friendly pre-check. The authoritative guard against double-booking is the
-        // Postgres exclusion constraint on confirmed bookings (see migration), which closes
-        // the race this in-memory check cannot.
-        var existingBookings = await _bookingRepository.GetByPropertyIdAsync(request.PropertyId);
-        var hasOverlap = existingBookings.Any(b =>
-            b.Status == BookingStatus.Confirmed &&
-            b.CheckInDate < request.CheckOutDate &&
-            b.CheckOutDate > request.CheckInDate);
-
-        if (hasOverlap)
+        // Friendly pre-check (confirmed bookings + landlord-blocked dates). The authoritative
+        // guard against double-booking is the Postgres exclusion constraint on confirmed
+        // bookings (see migration), which closes the race this in-memory check cannot.
+        if (!await _availabilityService.IsRangeAvailable(request.PropertyId, request.CheckInDate, request.CheckOutDate))
             throw new ConflictException("The selected dates are not available for this property");
 
         var totalAmount = CalculateTotalAmount(property, request.CheckInDate, request.CheckOutDate);
@@ -110,8 +110,10 @@ public class BookingService : IBookingService
         var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
         if (escrow != null)
         {
-            // TODO: Module 19 — replace always-100% refund with ICancellationPolicyService.CalculateRefundPercentage(bookingId)
+            // Tiered refund based on the property's cancellation policy and how far out check-in is.
+            var refundPercentage = await _cancellationPolicyService.CalculateRefundPercentage(bookingId);
             escrow.Status = EscrowStatus.Refunded;
+            escrow.ReleaseReason = $"Cancelled — {refundPercentage:0}% refund per cancellation policy";
         }
 
         // Single atomic commit for the booking + its escrow (shared DbContext).

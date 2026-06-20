@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TripNest.Core.Interfaces.Repositories;
+using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
@@ -16,16 +17,32 @@ public class AvailabilityController : ControllerBase
 {
     private readonly IRepository<PropertyBlockedDate> _blockedDateRepository;
     private readonly IPropertyRepository _propertyRepository;
+    private readonly IAvailabilityService _availabilityService;
     private readonly ILogger<AvailabilityController> _logger;
 
     public AvailabilityController(
         IRepository<PropertyBlockedDate> blockedDateRepository,
         IPropertyRepository propertyRepository,
+        IAvailabilityService availabilityService,
         ILogger<AvailabilityController> logger)
     {
         _blockedDateRepository = blockedDateRepository;
         _propertyRepository = propertyRepository;
+        _availabilityService = availabilityService;
         _logger = logger;
+    }
+
+    /// <summary>Open (bookable) date ranges for the calendar widget within [from, to].</summary>
+    [HttpGet("available-ranges")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<DateRange>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<DateRange>>>> GetAvailableRanges(
+        string propertyId, [FromQuery] DateTime? from, [FromQuery] DateTime? to)
+    {
+        var start = from ?? DateTime.UtcNow.Date;
+        var end = to ?? start.AddMonths(3);
+        var ranges = await _availabilityService.GetAvailableRanges(propertyId, start, end);
+        return Ok(ApiResponse<IEnumerable<DateRange>>.Ok("Available ranges retrieved", ranges));
     }
 
     [HttpGet("availability")]

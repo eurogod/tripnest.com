@@ -50,6 +50,35 @@ public class PropertiesControllerTests : TestBase
     }
 
     [Fact]
+    public async Task CreateProperty_RoundTripsStayTypeAndCancellationPolicy()
+    {
+        await MarkUserVerifiedAsync(_landlordId!);
+
+        var createRequest = new CreatePropertyRequest
+        {
+            Title = "Student Hostel",
+            Description = "Near campus",
+            Location = "Tarkwa, Ghana",
+            Latitude = 5.30,
+            Longitude = -1.99,
+            Bedrooms = 1,
+            Bathrooms = 1,
+            MonthlyRent = 800m,
+            DailyRate = 40m,
+            PropertyType = "Hostel",
+            StayType = TripNest.Core.Enums.StayType.Student,
+            CancellationPolicy = TripNest.Core.Enums.CancellationPolicy.Strict
+        };
+
+        var response = await _httpClient.PostAsJsonAsync("/api/properties", createRequest);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        Assert.Equal((int)TripNest.Core.Enums.StayType.Student, data.GetProperty("stayType").GetInt32());
+        Assert.Equal((int)TripNest.Core.Enums.CancellationPolicy.Strict, data.GetProperty("cancellationPolicy").GetInt32());
+    }
+
+    [Fact]
     public async Task CreateProperty_WithValidData_ShouldReturnCreated()
     {
         // Arrange — a landlord must be identity-verified before they can list a property.
