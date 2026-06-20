@@ -16,6 +16,7 @@ public class CommunicationsTests : TestBase
 {
     private RecordingSmsSender Sms => _fixture.Services.GetRequiredService<RecordingSmsSender>();
     private RecordingEmailSender Email => _fixture.Services.GetRequiredService<RecordingEmailSender>();
+    private RecordingWhatsAppSender WhatsApp => _fixture.Services.GetRequiredService<RecordingWhatsAppSender>();
 
     [Fact]
     public async Task NormalNotification_WithChannelsOff_SendsNothing_ButRecordsInApp()
@@ -28,6 +29,7 @@ public class CommunicationsTests : TestBase
 
         Sms.Sent.Clear();
         Email.Sent.Clear();
+        WhatsApp.Sent.Clear();
 
         using (var scope = _fixture.Services.CreateScope())
         {
@@ -35,9 +37,10 @@ public class CommunicationsTests : TestBase
             await notifier.NotifyAsync(userId, NotificationType.General, "Booking update", "Your booking changed.");
         }
 
-        // Opt-out honoured: no SMS/email dispatched.
+        // Opt-out honoured: no SMS/email/WhatsApp dispatched.
         Assert.Empty(Sms.Sent);
         Assert.Empty(Email.Sent);
+        Assert.Empty(WhatsApp.Sent);
 
         // In-app record still created.
         using var verify = _fixture.Services.CreateScope();
@@ -55,13 +58,15 @@ public class CommunicationsTests : TestBase
 
         Sms.Sent.Clear();
         Email.Sent.Clear();
+        WhatsApp.Sent.Clear();
 
         var response = await _httpClient.PostAsJsonAsync("/api/safety/alert", new { bookingId = "x" });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        // Emergency bypasses the opt-out on BOTH channels.
+        // Emergency bypasses the opt-out on ALL channels (SMS, email, WhatsApp).
         Assert.NotEmpty(Sms.Sent);
         Assert.NotEmpty(Email.Sent);
+        Assert.NotEmpty(WhatsApp.Sent);
 
         using var scope = _fixture.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

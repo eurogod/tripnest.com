@@ -125,6 +125,8 @@ builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
 builder.Services.AddScoped<ICancellationPolicyService, CancellationPolicyService>();
 builder.Services.AddScoped<ISmsSender, TwilioSmsSender>();
 builder.Services.AddScoped<IEmailSender, SendGridEmailSender>();
+builder.Services.AddScoped<IWhatsAppSender, TwilioWhatsAppSender>();
+builder.Services.AddSingleton<IPhoneNumberValidator, PhoneNumberValidator>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
 builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();

@@ -25,13 +25,18 @@ Core runs standalone; the two sidecars are only required for the identity-verifi
 
 | Integration | Used for | Config keys |
 |---|---|---|
-| **Twilio** | SMS notifications | `TwilioSettings:{AccountSid,AuthToken,FromPhoneNumber}` |
+| **Twilio** | SMS + WhatsApp notifications | `TwilioSettings:{AccountSid,AuthToken,FromPhoneNumber,WhatsAppFromNumber}` |
 | **SendGrid** | Email notifications | `SendGridSettings:{ApiKey,FromEmail,FromName}` |
 | **Paystack** | Escrow payments (test/live) | `PaystackSettings:{SecretKey,PublicKey,CallbackUrl}` |
 
-All three **degrade gracefully** when unconfigured — they log and no-op (SMS/email) or
-return a simulated reference (Paystack), so the app runs without credentials. Set real keys
-with `dotnet user-secrets set "<key>" "<value>"`.
+All four channels (SMS, WhatsApp, email, Paystack) **degrade gracefully** when unconfigured —
+they log and no-op (SMS/WhatsApp/email) or return a simulated reference (Paystack), so the app
+runs without credentials. Set real keys with `dotnet user-secrets set "<key>" "<value>"`.
+
+**Phone numbers** are validated offline (libphonenumber, default region `Phone:DefaultRegion`,
+GH) at registration and normalised to E.164 — invalid numbers are rejected with 400.
+Notification opt-out covers SMS, email, and WhatsApp independently; emergency safety alerts
+ignore the opt-out on all three.
 
 ## Roles
 
@@ -212,7 +217,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | Method | Path | Access |
 |---|---|---|
 | GET | `/mine` | 🔒 |
-| PUT | `/mine` | 🔒 (body `{ smsEnabled, emailEnabled }`) |
+| PUT | `/mine` | 🔒 (body `{ smsEnabled, emailEnabled, whatsAppEnabled }`) |
 
 ### Receipts — `api/receipts`
 | Method | Path | Access |

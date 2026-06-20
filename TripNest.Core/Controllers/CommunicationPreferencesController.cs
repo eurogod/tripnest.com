@@ -45,7 +45,7 @@ public class CommunicationPreferencesController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        var prefs = await _notificationService.UpdatePreferenceAsync(userId, request.SmsEnabled, request.EmailEnabled);
+        var prefs = await _notificationService.UpdatePreferenceAsync(userId, request.SmsEnabled, request.EmailEnabled, request.WhatsAppEnabled);
         return Ok(ApiResponse<CommunicationPreferenceResponse>.Ok(
             "Preferences updated. Note: emergency safety alerts will still be sent by SMS and email regardless of this setting.",
             prefs));

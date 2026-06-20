@@ -53,7 +53,7 @@ public class SettingsController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        var prefs = await _notificationService.UpdatePreferenceAsync(userId, request.SmsEnabled, request.EmailEnabled);
+        var prefs = await _notificationService.UpdatePreferenceAsync(userId, request.SmsEnabled, request.EmailEnabled, request.WhatsAppEnabled);
         return Ok(ApiResponse<DTOs.Notifications.CommunicationPreferenceResponse>.Ok(
             "Notification settings updated. Emergency safety alerts will still be sent regardless.", prefs));
     }

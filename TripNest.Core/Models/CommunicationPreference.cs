@@ -11,5 +11,6 @@ public class CommunicationPreference
     public User? User { get; set; }
     public bool SmsEnabled { get; set; } = true;
     public bool EmailEnabled { get; set; } = true;
+    public bool WhatsAppEnabled { get; set; } = true;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

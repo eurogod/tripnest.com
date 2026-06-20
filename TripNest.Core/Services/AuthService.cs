@@ -13,12 +13,18 @@ public class AuthService : IAuthService
 {
     private readonly IUserRepository _userRepository;
     private readonly ITokenService _tokenService;
+    private readonly IPhoneNumberValidator _phoneValidator;
     private readonly ILogger<AuthService> _logger;
 
-    public AuthService(IUserRepository userRepository, ITokenService tokenService, ILogger<AuthService> logger)
+    public AuthService(
+        IUserRepository userRepository,
+        ITokenService tokenService,
+        IPhoneNumberValidator phoneValidator,
+        ILogger<AuthService> logger)
     {
         _userRepository = userRepository;
         _tokenService = tokenService;
+        _phoneValidator = phoneValidator;
         _logger = logger;
     }
 
@@ -32,6 +38,10 @@ public class AuthService : IAuthService
 
         PasswordPolicy.Validate(request.Password);
 
+        // Validate + normalise the phone number to E.164 so SMS/WhatsApp delivery works.
+        var normalizedPhone = _phoneValidator.Normalize(request.Phone)
+            ?? throw new InvalidOperationException("Please provide a valid phone number");
+
         if (await _userRepository.EmailExistsAsync(request.Email))
             throw new InvalidOperationException("Email already registered");
 
@@ -43,7 +53,7 @@ public class AuthService : IAuthService
             FullName = request.FullName,
             Email = request.Email,
             PasswordHash = passwordHash,
-            Phone = request.Phone,
+            Phone = normalizedPhone,
             Role = request.Role,
             IsVerified = false,
             IsActive = true,
