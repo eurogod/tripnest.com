@@ -21,6 +21,18 @@ identity verification, and escrow-protected payments (Ghana-oriented).
 
 Core runs standalone; the two sidecars are only required for the identity-verification flow.
 
+## External integrations (keys via user-secrets)
+
+| Integration | Used for | Config keys |
+|---|---|---|
+| **Twilio** | SMS notifications | `TwilioSettings:{AccountSid,AuthToken,FromPhoneNumber}` |
+| **SendGrid** | Email notifications | `SendGridSettings:{ApiKey,FromEmail,FromName}` |
+| **Paystack** | Escrow payments (test/live) | `PaystackSettings:{SecretKey,PublicKey,CallbackUrl}` |
+
+All three **degrade gracefully** when unconfigured — they log and no-op (SMS/email) or
+return a simulated reference (Paystack), so the app runs without credentials. Set real keys
+with `dotnet user-secrets set "<key>" "<value>"`.
+
 ## Roles
 
 `Tenant`, `Landlord`, `Agent`, `Caretaker`, `Admin`, `Guest`.
@@ -84,14 +96,16 @@ Core runs standalone; the two sidecars are only required for the identity-verifi
 | GET | `/{propertyId}` | 🌐 |
 | GET | `/search?location=&minBedrooms=&maxBedrooms=` | 🌐 |
 | GET | `/user/my-properties` | 🔒 |
-| POST | `/` | 🔒 🛡️ |
+| POST | `/` | 🔒 🛡️ (incl. `stayType`, `cancellationPolicy`) |
 | PUT | `/{propertyId}` | 🔒 🛡️ |
 | DELETE | `/{propertyId}` | 🔒 🛡️ |
+| POST | `/{propertyId}/photos` | 🔒 🛡️ (multipart/form-data, owner only) |
 
 ### Availability — `api/properties/{propertyId}`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/availability` | 🌐 |
+| GET | `/availability` | 🌐 (blocked-date ranges) |
+| GET | `/available-ranges?from=&to=` | 🌐 (open bookable ranges for the calendar) |
 | POST | `/blocked-dates` | 🔒 `[Landlord]` 🛡️ |
 | DELETE | `/blocked-dates/{blockedDateId}` | 🔒 `[Landlord]` 🛡️ |
 
@@ -109,15 +123,16 @@ Core runs standalone; the two sidecars are only required for the identity-verifi
 | Method | Path | Access |
 |---|---|---|
 | GET | `/{bookingId}` | 🌐 |
-| POST | `/` | 🔒 |
+| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates) |
 | GET | `/user/my-bookings` | 🔒 |
-| POST | `/{bookingId}/cancel` | 🔒 |
+| GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change) |
+| POST | `/{bookingId}/cancel` | 🔒 (tiered refund per cancellation policy) |
 
 ### Escrow — `api/escrow`
 | Method | Path | Access |
 |---|---|---|
-| POST | `/initiate` | 🔒 |
-| POST | `/webhook` | 🌐 (HMAC-signed; unsigned → 401) |
+| POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`) |
+| POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401 |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/release` | 🔒 |
 | POST | `/{id}/dispute` | 🔒 |
@@ -192,6 +207,13 @@ Core runs standalone; the two sidecars are only required for the identity-verifi
 | PATCH | `/mark-all-read` | 🔒 |
 | DELETE | `/{id}` | 🔒 |
 
+### Communication preferences — `api/communication-preferences`
+SMS/email opt-out (default on). Emergency safety alerts are **always** sent regardless.
+| Method | Path | Access |
+|---|---|---|
+| GET | `/mine` | 🔒 |
+| PUT | `/mine` | 🔒 (body `{ smsEnabled, emailEnabled }`) |
+
 ### Receipts — `api/receipts`
 | Method | Path | Access |
 |---|---|---|
@@ -217,6 +239,8 @@ Core runs standalone; the two sidecars are only required for the identity-verifi
 ### Settings — `api/settings`
 | Method | Path | Access |
 |---|---|---|
+| GET | `/notifications` | 🔒 (pass-through to communication preferences) |
+| PUT | `/notifications` | 🔒 |
 | PUT | `/password` | 🔒 |
 | DELETE | `/account` | 🔒 |
 
