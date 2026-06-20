@@ -179,7 +179,7 @@ public class AuthService : IAuthService
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
 
-        // TODO: send email with rawToken to user.Email via email provider (e.g. SendGrid / SMTP)
+        // TODO: send email with rawToken to user.Email via IEmailSender (Gmail SMTP)
         _logger.LogInformation("Password reset token generated for {Email}. Token (dev-only): {Token}", email, rawToken);
 
         return (user, rawToken);

@@ -15,7 +15,7 @@ public class RecordingSmsSender : ISmsSender
     }
 }
 
-/// <summary>Test double that records emails instead of calling SendGrid.</summary>
+/// <summary>Test double that records emails instead of sending over SMTP.</summary>
 public class RecordingEmailSender : IEmailSender
 {
     public ConcurrentBag<(string To, string Subject, string Body)> Sent { get; } = new();

@@ -35,7 +35,7 @@ public class TestFixture : WebApplicationFactory<Program>
                 options.UseInMemoryDatabase(_dbName)
             );
 
-            // Replace the real Twilio/SendGrid senders with recording doubles (singletons so
+            // Replace the real Twilio/SMTP senders with recording doubles (singletons so
             // tests can resolve the same instance and inspect what was dispatched).
             services.RemoveAll<ISmsSender>();
             services.RemoveAll<IEmailSender>();
