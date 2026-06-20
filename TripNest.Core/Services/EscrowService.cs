@@ -10,15 +10,21 @@ public class EscrowService : IEscrowService
 {
     private readonly IEscrowRepository _escrowRepository;
     private readonly IBookingRepository _bookingRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IPaymentGateway _paymentGateway;
     private readonly ILogger<EscrowService> _logger;
 
     public EscrowService(
         IEscrowRepository escrowRepository,
         IBookingRepository bookingRepository,
+        IUserRepository userRepository,
+        IPaymentGateway paymentGateway,
         ILogger<EscrowService> logger)
     {
         _escrowRepository = escrowRepository;
         _bookingRepository = bookingRepository;
+        _userRepository = userRepository;
+        _paymentGateway = paymentGateway;
         _logger = logger;
     }
 
@@ -46,13 +52,19 @@ public class EscrowService : IEscrowService
             Status = EscrowStatus.Pending
         };
 
+        // Start a Paystack checkout for the booking's tenant.
+        var tenant = await _userRepository.GetByIdAsync(booking.TenantId);
+        var payment = await _paymentGateway.InitiatePaymentAsync(
+            escrow.Amount, "GHS", tenant?.Email ?? "tenant@tripnest.app", bookingId);
+        escrow.PaymentReference = payment.Reference;
+
         await _escrowRepository.AddAsync(escrow);
         await _escrowRepository.SaveChangesAsync();
 
-        _logger.LogInformation("Escrow initiated for booking {BookingId}, escrow {EscrowId}, amount {Amount}",
-            bookingId, escrow.Id, escrow.Amount);
+        _logger.LogInformation("Escrow initiated for booking {BookingId}, escrow {EscrowId}, amount {Amount}, ref {Reference}",
+            bookingId, escrow.Id, escrow.Amount, payment.Reference);
 
-        return MapToResponse(escrow);
+        return MapToResponse(escrow, payment.CheckoutUrl);
     }
 
     public async Task VerifyAndHoldPaymentAsync(string bookingId, string reference)
@@ -182,6 +194,10 @@ public class EscrowService : IEscrowService
         if (escrow.Status is not (EscrowStatus.HeldInEscrow or EscrowStatus.Disputed))
             throw new InvalidOperationException($"Escrow cannot be refunded from status '{escrow.Status}'");
 
+        // Issue the refund through the provider before recording it locally.
+        if (!string.IsNullOrEmpty(escrow.PaymentReference))
+            await _paymentGateway.RefundAsync(escrow.PaymentReference, escrow.Amount);
+
         escrow.Status = EscrowStatus.Refunded;
         escrow.ReleaseReason = reason;
 
@@ -191,7 +207,7 @@ public class EscrowService : IEscrowService
         _logger.LogInformation("Escrow {EscrowId} refunded: {Reason}", escrowId, reason);
     }
 
-    private static EscrowResponse MapToResponse(Escrow e) => new EscrowResponse
+    private static EscrowResponse MapToResponse(Escrow e, string? checkoutUrl = null) => new EscrowResponse
     {
         EscrowId = e.Id,
         BookingId = e.BookingId,
@@ -200,6 +216,8 @@ public class EscrowService : IEscrowService
         CreatedAt = e.CreatedAt,
         HeldAt = e.HeldAt,
         ReleasedAt = e.ReleasedAt,
-        ReleaseReason = e.ReleaseReason
+        ReleaseReason = e.ReleaseReason,
+        PaymentReference = e.PaymentReference,
+        CheckoutUrl = checkoutUrl
     };
 }
