@@ -41,6 +41,9 @@ public class ApiResponse<T> where T : class
     public static ApiResponse<T> BadRequest(string message)
         => new(message, 400, null);
 
+    public static ApiResponse<T> TooManyRequests(string message)
+        => new(message, 429, null);
+
     public static ApiResponse<T> InternalServerError(string message = "An error occurred")
         => new(message, 500, null);
 }

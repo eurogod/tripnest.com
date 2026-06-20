@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using TripNest.Core.DTOs.Auth;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -24,8 +26,10 @@ public class PhoneVerificationController : ControllerBase
 
     /// <summary>Sends a one-time code to the authenticated user's phone (SMS or WhatsApp).</summary>
     [HttpPost("send-otp")]
+    [EnableRateLimiting("otp")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<object>>> SendOtp([FromBody] SendOtpRequest request)
     {
         var userId = User.GetUserId();
@@ -36,6 +40,10 @@ public class PhoneVerificationController : ControllerBase
         {
             await _phoneVerificationService.SendOtpAsync(userId, request.Channel);
             return Ok(ApiResponse<object>.Ok("Verification code sent", new { }));
+        }
+        catch (TooManyRequestsException ex)
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, ApiResponse<object>.TooManyRequests(ex.Message));
         }
         catch (InvalidOperationException ex)
         {

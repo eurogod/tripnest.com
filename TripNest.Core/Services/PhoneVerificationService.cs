@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 
@@ -15,6 +16,8 @@ public class PhoneVerificationService : IPhoneVerificationService
 {
     private const int MaxAttempts = 5;
     private static readonly TimeSpan Ttl = TimeSpan.FromMinutes(10);
+    // Minimum gap between consecutive sends, so a user can't trigger a burst of SMS.
+    private static readonly TimeSpan ResendCooldown = TimeSpan.FromSeconds(60);
 
     private readonly IUserRepository _userRepository;
     private readonly ISmsSender _smsSender;
@@ -39,6 +42,16 @@ public class PhoneVerificationService : IPhoneVerificationService
             ?? throw new InvalidOperationException("User not found");
         if (user.PhoneVerified)
             throw new InvalidOperationException("Phone number is already verified");
+
+        // Resend cooldown: lastSentAt is derived from the stored expiry (= lastSentAt + Ttl),
+        // so no extra column is needed to make the user wait between sends.
+        if (user.PhoneOtpExpiry is { } expiry)
+        {
+            var wait = (expiry - Ttl) + ResendCooldown - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero)
+                throw new TooManyRequestsException(
+                    $"Please wait {Math.Ceiling(wait.TotalSeconds)}s before requesting another code.");
+        }
 
         var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
         user.PhoneOtpHash = Hash(code);

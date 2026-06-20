@@ -32,6 +32,22 @@ public class PhoneVerificationTests : TestBase
     }
 
     [Fact]
+    public async Task SendOtp_TwiceInQuickSuccession_SecondIsThrottled()
+    {
+        await RegisterAndLoginAsync(UserRole.Tenant);
+        Sms.Sent.Clear();
+
+        var first = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { channel = "sms" });
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+        var second = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { channel = "sms" });
+        Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
+
+        // Only the first send actually dispatched an SMS.
+        Assert.Single(Sms.Sent);
+    }
+
+    [Fact]
     public async Task Verify_WithWrongCode_ReturnsBadRequest()
     {
         await RegisterAndLoginAsync(UserRole.Tenant);
