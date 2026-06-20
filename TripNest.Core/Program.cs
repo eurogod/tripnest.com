@@ -121,6 +121,8 @@ builder.Services.AddScoped<IWalkthroughService, WalkthroughService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<ITrustScoreService, TrustScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
+builder.Services.AddScoped<ICancellationPolicyService, CancellationPolicyService>();
 builder.Services.AddScoped<ISmsSender, TwilioSmsSender>();
 builder.Services.AddScoped<IEmailSender, SendGridEmailSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();

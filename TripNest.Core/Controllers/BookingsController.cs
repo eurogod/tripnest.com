@@ -14,12 +14,31 @@ namespace TripNest.Core.Controllers;
 public class BookingsController : ControllerBase
 {
     private readonly IBookingService _bookingService;
+    private readonly ICancellationPolicyService _cancellationPolicyService;
     private readonly ILogger<BookingsController> _logger;
 
-    public BookingsController(IBookingService bookingService, ILogger<BookingsController> logger)
+    public BookingsController(
+        IBookingService bookingService,
+        ICancellationPolicyService cancellationPolicyService,
+        ILogger<BookingsController> logger)
     {
         _bookingService = bookingService;
+        _cancellationPolicyService = cancellationPolicyService;
         _logger = logger;
+    }
+
+    /// <summary>Previews the refund the tenant would get if they cancelled now (no state change).</summary>
+    [HttpGet("{bookingId}/cancellation-preview")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<RefundPreview>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<RefundPreview>>> CancellationPreview(string bookingId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var preview = await _cancellationPolicyService.PreviewAsync(bookingId);
+        return Ok(ApiResponse<RefundPreview>.Ok("Cancellation preview", preview));
     }
 
     [HttpPost]

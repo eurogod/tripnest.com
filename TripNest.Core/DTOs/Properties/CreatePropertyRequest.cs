@@ -14,5 +14,7 @@ public class CreatePropertyRequest
     public required decimal MonthlyRent { get; set; }
     public decimal? DailyRate { get; set; }
     public required string PropertyType { get; set; }
+    public StayType StayType { get; set; } = StayType.ShortTerm;
+    public CancellationPolicy CancellationPolicy { get; set; } = CancellationPolicy.Moderate;
     public string? Amenities { get; set; }
 }

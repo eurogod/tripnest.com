@@ -33,6 +33,8 @@ public class AppDbContext : DbContext
     public DbSet<PropertyBlockedDate> PropertyBlockedDates { get; set; }
     public DbSet<WishlistItem> WishlistItems { get; set; }
     public DbSet<CommunicationPreference> CommunicationPreferences { get; set; }
+    public DbSet<PropertyPhoto> PropertyPhotos { get; set; }
+    public DbSet<PropertyCaretakerAssignment> PropertyCaretakerAssignments { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

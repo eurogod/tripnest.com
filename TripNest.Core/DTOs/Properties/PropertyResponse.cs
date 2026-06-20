@@ -15,6 +15,8 @@ public class PropertyResponse
     public required decimal MonthlyRent { get; set; }
     public decimal? DailyRate { get; set; }
     public required string PropertyType { get; set; }
+    public StayType StayType { get; set; }
+    public CancellationPolicy CancellationPolicy { get; set; }
     public string? Amenities { get; set; }
     public string? PhotoPaths { get; set; }
     public PropertyStatus Status { get; set; }

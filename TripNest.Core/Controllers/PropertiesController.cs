@@ -184,4 +184,33 @@ public class PropertiesController : ControllerBase
             return StatusCode(500, ApiResponse<object>.InternalServerError());
         }
     }
+
+    /// <summary>Uploads one or more photos for a property (owner only, multipart/form-data).</summary>
+    [HttpPost("{propertyId}/photos")]
+    [Authorize]
+    [RequireVerified]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(typeof(ApiResponse<List<string>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<List<string>>>> UploadPhotos(string propertyId)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+            var paths = await _propertyService.AddPhotosAsync(propertyId, userId, Request.Form.Files);
+            return Ok(ApiResponse<List<string>>.Ok("Photos uploaded", paths));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading property photos");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
 }

@@ -17,8 +17,11 @@ public class Property
     public required decimal MonthlyRent { get; set; }
     public required decimal? DailyRate { get; set; }
     public required string PropertyType { get; set; }
+    public StayType StayType { get; set; } = StayType.ShortTerm;
+    public CancellationPolicy CancellationPolicy { get; set; } = CancellationPolicy.Moderate;
     public string? Amenities { get; set; }
     public string? PhotoPaths { get; set; }
+    public ICollection<PropertyPhoto> Photos { get; set; } = new List<PropertyPhoto>();
     public PropertyStatus Status { get; set; } = PropertyStatus.Draft;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

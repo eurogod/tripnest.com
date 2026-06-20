@@ -49,6 +49,7 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("POST", "/api/bookings")]
     [InlineData("GET", "/api/bookings/user/my-bookings")]
     [InlineData("POST", "/api/bookings/x/cancel")]
+    [InlineData("GET", "/api/bookings/x/cancellation-preview")]
     // Escrow
     [InlineData("POST", "/api/escrow/initiate")]
     [InlineData("GET", "/api/escrow/x")]
@@ -146,6 +147,7 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("GET", "/api/properties/x")]
     [InlineData("GET", "/api/properties/search?location=Accra")]
     [InlineData("GET", "/api/properties/x/availability")]
+    [InlineData("GET", "/api/properties/x/available-ranges")]
     [InlineData("GET", "/api/properties/x/walkthroughs")]
     [InlineData("GET", "/api/properties/x/walkthroughs/y")]
     [InlineData("GET", "/api/bookings/x")]

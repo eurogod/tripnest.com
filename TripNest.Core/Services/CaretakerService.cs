@@ -11,17 +11,20 @@ public class CaretakerService : ICaretakerService
     private readonly ICaretakerRepository _caretakerRepository;
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<ServiceRequest> _serviceRequestRepository;
+    private readonly IRepository<PropertyCaretakerAssignment> _assignmentRepository;
     private readonly ILogger<CaretakerService> _logger;
 
     public CaretakerService(
         ICaretakerRepository caretakerRepository,
         IPropertyRepository propertyRepository,
         IRepository<ServiceRequest> serviceRequestRepository,
+        IRepository<PropertyCaretakerAssignment> assignmentRepository,
         ILogger<CaretakerService> logger)
     {
         _caretakerRepository = caretakerRepository;
         _propertyRepository = propertyRepository;
         _serviceRequestRepository = serviceRequestRepository;
+        _assignmentRepository = assignmentRepository;
         _logger = logger;
     }
 
@@ -85,6 +88,15 @@ public class CaretakerService : ICaretakerService
 
             await _caretakerRepository.UpdateAsync(caretaker);
             await _caretakerRepository.SaveChangesAsync();
+
+            // Record the assignment (who assigned, when) as a first-class history entry.
+            await _assignmentRepository.AddAsync(new PropertyCaretakerAssignment
+            {
+                PropertyId = propertyId,
+                CaretakerId = caretakerId,
+                AssignedByUserId = landlordId
+            });
+            await _assignmentRepository.SaveChangesAsync();
 
             _logger.LogInformation("Caretaker {CaretakerId} assigned to property {PropertyId}", caretakerId, propertyId);
         }
