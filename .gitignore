@@ -41,6 +41,10 @@ appsettings.Local.json
 .env
 .env.*
 !.env.example
+## Personal credentials dump — MUST NOT be committed
+Details
+Details.md
+Details.txt
 
 ## Test results
 [Tt]est[Rr]esult*/
