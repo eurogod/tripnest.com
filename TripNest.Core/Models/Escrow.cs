@@ -14,6 +14,9 @@ public class Escrow
     /// <summary>Payment provider reference, recorded when funds are confirmed held.</summary>
     public string? PaymentReference { get; set; }
 
+    /// <summary>Payment provider used for this escrow (e.g. "Paystack").</summary>
+    public string PaymentProvider { get; set; } = "Paystack";
+
     /// <summary>When funds were confirmed and moved into escrow. The auto-release grace period is measured from this moment.</summary>
     public DateTime? HeldAt { get; set; }
 

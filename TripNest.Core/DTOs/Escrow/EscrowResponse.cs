@@ -12,4 +12,7 @@ public class EscrowResponse
     public DateTime? HeldAt { get; set; }
     public DateTime? ReleasedAt { get; set; }
     public string? ReleaseReason { get; set; }
+    public string? PaymentReference { get; set; }
+    /// <summary>Hosted Paystack checkout URL to redirect the tenant to (set on initiate only).</summary>
+    public string? CheckoutUrl { get; set; }
 }

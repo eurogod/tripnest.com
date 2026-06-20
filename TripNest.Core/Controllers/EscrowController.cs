@@ -76,38 +76,40 @@ public class EscrowController : ControllerBase
             Request.Body.Position = 0;
         }
 
-        var secret = _configuration["Escrow:WebhookSecret"];
-        if (string.IsNullOrEmpty(secret))
+        // Paystack signs the raw body with HMAC-SHA512 of your secret key. Without a configured
+        // secret we cannot authenticate the webhook, so reject (never process an unverifiable call).
+        var secret = _configuration["PaystackSettings:SecretKey"];
+        var providedSignature = Request.Headers["x-paystack-signature"].FirstOrDefault();
+        if (string.IsNullOrEmpty(secret) || !IsPaystackSignatureValid(rawBody, secret, providedSignature))
         {
-            _logger.LogError("Escrow:WebhookSecret is not configured — rejecting webhook");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
-
-        var providedSignature = Request.Headers["X-Signature"].FirstOrDefault();
-        if (!IsSignatureValid(rawBody, secret, providedSignature))
-        {
-            _logger.LogWarning("Rejected escrow webhook with invalid or missing signature");
+            _logger.LogWarning("Rejected escrow webhook with invalid/missing signature or unconfigured key");
             return Unauthorized(ApiResponse<object>.UnAuthorized());
         }
 
-        WebhookCallbackRequest? request;
         try
         {
-            request = JsonSerializer.Deserialize<WebhookCallbackRequest>(rawBody,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            using var doc = JsonDocument.Parse(rawBody);
+            var root = doc.RootElement;
+            var eventType = root.TryGetProperty("event", out var ev) ? ev.GetString() : null;
+
+            // Only a successful charge moves funds into escrow; ignore other events.
+            if (eventType != "charge.success")
+                return Ok(ApiResponse<object>.Ok("Event ignored", null));
+
+            var data = root.GetProperty("data");
+            var reference = data.TryGetProperty("reference", out var r) ? r.GetString() : null;
+            var bookingId = data.TryGetProperty("metadata", out var meta) && meta.TryGetProperty("bookingId", out var b)
+                ? b.GetString() : null;
+
+            if (string.IsNullOrEmpty(bookingId) || string.IsNullOrEmpty(reference))
+                return BadRequest(ApiResponse<object>.BadRequest("Missing booking or payment reference"));
+
+            await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference);
+            return Ok(ApiResponse<object>.Ok("Payment verified", null));
         }
         catch (JsonException)
         {
             return BadRequest(ApiResponse<object>.BadRequest("Malformed webhook payload"));
-        }
-
-        if (request == null || string.IsNullOrEmpty(request.BookingId) || string.IsNullOrEmpty(request.Reference))
-            return BadRequest(ApiResponse<object>.BadRequest("Missing booking or payment reference"));
-
-        try
-        {
-            await _escrowService.VerifyAndHoldPaymentAsync(request.BookingId, request.Reference);
-            return Ok(ApiResponse<object>.Ok("Payment verified", null));
         }
         catch (InvalidOperationException ex)
         {
@@ -121,20 +123,19 @@ public class EscrowController : ControllerBase
     }
 
     /// <summary>
-    /// Verifies an HMAC-SHA256 signature (hex-encoded) of the raw body using the shared secret,
-    /// in constant time to avoid timing attacks.
+    /// Verifies Paystack's HMAC-SHA512 signature (hex-encoded) over the raw body, in constant time.
     /// </summary>
-    private static bool IsSignatureValid(string rawBody, string secret, string? providedSignature)
+    private static bool IsPaystackSignatureValid(string rawBody, string secret, string? providedSignature)
     {
         if (string.IsNullOrEmpty(providedSignature))
             return false;
 
         var computed = Convert.ToHexString(
-            HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(rawBody)));
+            HMACSHA512.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(rawBody)));
 
         return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(computed),
-            Encoding.UTF8.GetBytes(providedSignature.Trim().ToUpperInvariant()));
+            Encoding.UTF8.GetBytes(computed.ToLowerInvariant()),
+            Encoding.UTF8.GetBytes(providedSignature.Trim().ToLowerInvariant()));
     }
 
     /// <summary>

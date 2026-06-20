@@ -124,6 +124,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ISmsSender, TwilioSmsSender>();
 builder.Services.AddScoped<IEmailSender, SendGridEmailSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
+builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
 
 builder.Services.AddSwaggerGen(options =>
