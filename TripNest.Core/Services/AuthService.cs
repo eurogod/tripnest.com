@@ -38,7 +38,7 @@ public class AuthService : IAuthService
 
         PasswordPolicy.Validate(request.Password);
 
-        // Validate + normalise the phone number to E.164 so SMS/WhatsApp delivery works.
+        // Validate + normalise the phone number to E.164 so SMS delivery works.
         var normalizedPhone = _phoneValidator.Normalize(request.Phone)
             ?? throw new InvalidOperationException("Please provide a valid phone number");
 
@@ -103,6 +103,8 @@ public class AuthService : IAuthService
             AccessToken = accessToken,
             RefreshToken = refreshToken,
             IsVerified = user.IsVerified,
+            EmailVerified = user.EmailVerified,
+            PhoneVerified = user.PhoneVerified,
             TripNestId = user.TripNestId
         };
     }
@@ -135,6 +137,8 @@ public class AuthService : IAuthService
             AccessToken = accessToken,
             RefreshToken = newRefreshToken,
             IsVerified = user.IsVerified,
+            EmailVerified = user.EmailVerified,
+            PhoneVerified = user.PhoneVerified,
             TripNestId = user.TripNestId
         };
     }
@@ -179,7 +183,7 @@ public class AuthService : IAuthService
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
 
-        // TODO: send email with rawToken to user.Email via email provider (e.g. SendGrid / SMTP)
+        // TODO: send email with rawToken to user.Email via IEmailSender (Gmail SMTP)
         _logger.LogInformation("Password reset token generated for {Email}. Token (dev-only): {Token}", email, rawToken);
 
         return (user, rawToken);

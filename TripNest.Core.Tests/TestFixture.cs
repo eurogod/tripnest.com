@@ -35,17 +35,14 @@ public class TestFixture : WebApplicationFactory<Program>
                 options.UseInMemoryDatabase(_dbName)
             );
 
-            // Replace the real Twilio/SendGrid senders with recording doubles (singletons so
+            // Replace the real TextBee/SMTP senders with recording doubles (singletons so
             // tests can resolve the same instance and inspect what was dispatched).
             services.RemoveAll<ISmsSender>();
             services.RemoveAll<IEmailSender>();
-            services.RemoveAll<IWhatsAppSender>();
             services.AddSingleton<RecordingSmsSender>();
             services.AddSingleton<RecordingEmailSender>();
-            services.AddSingleton<RecordingWhatsAppSender>();
             services.AddSingleton<ISmsSender>(sp => sp.GetRequiredService<RecordingSmsSender>());
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<RecordingEmailSender>());
-            services.AddSingleton<IWhatsAppSender>(sp => sp.GetRequiredService<RecordingWhatsAppSender>());
         });
 
         builder.UseEnvironment("Testing");

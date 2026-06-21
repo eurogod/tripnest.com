@@ -5,16 +5,15 @@ using Xunit.Abstractions;
 namespace TripNest.Core.Tests.Live;
 
 /// <summary>
-/// Opt-in tests that hit the REAL Twilio / SendGrid / Paystack using the keys in the Core
-/// project's user-secrets. They are skipped (no-op) unless RUN_LIVE_INTEGRATION=1, so the
+/// Opt-in tests that hit the REAL TextBee (SMS) / Gmail SMTP / Paystack using the keys in the
+/// Core project's user-secrets. They are skipped (no-op) unless RUN_LIVE_INTEGRATION=1, so the
 /// normal suite and CI stay green and your phones aren't spammed on every run.
 ///
 /// Run them with:  RUN_LIVE_INTEGRATION=1 dotnet test --filter "FullyQualifiedName~Live"
 ///
-/// Paystack is asserted (test mode always works). SMS/WhatsApp/email outcomes are logged per
-/// recipient rather than asserted, because Twilio trial only delivers to verified numbers, the
-/// WhatsApp sandbox needs a join, and SendGrid needs a verified sender — so a "FAILED" line is
-/// an actionable signal, not a broken test.
+/// Paystack is asserted (test mode always works). SMS/email outcomes are logged per recipient
+/// rather than asserted, because TextBee needs an online Android gateway device and SMTP needs
+/// valid credentials — so a "FAILED" line is an actionable signal, not a broken test.
 /// </summary>
 public class LiveIntegrationTests
 {
@@ -37,7 +36,7 @@ public class LiveIntegrationTests
         _out = output;
         // Load the Core project's user-secrets (where the real keys + test recipients live).
         _config = new ConfigurationBuilder()
-            .AddUserSecrets(typeof(TwilioSmsSender).Assembly)
+            .AddUserSecrets(typeof(TextBeeSmsSender).Assembly)
             .AddEnvironmentVariables()
             .Build();
     }
@@ -61,7 +60,7 @@ public class LiveIntegrationTests
         if (!Enabled) { _out.WriteLine("SKIPPED — set RUN_LIVE_INTEGRATION=1 to run."); return; }
         if (Phones.Length == 0) { _out.WriteLine("No recipients — set LiveTest:Phones in user-secrets."); return; }
 
-        var sms = new TwilioSmsSender(_config, new XunitLogger<TwilioSmsSender>(_out));
+        var sms = new TextBeeSmsSender(new HttpClient(), _config, new XunitLogger<TextBeeSmsSender>(_out));
         var validator = new PhoneNumberValidator(_config);
 
         foreach (var phone in Phones)
@@ -73,31 +72,17 @@ public class LiveIntegrationTests
     }
 
     [Fact]
-    public async Task WhatsApp_FirstNumber_Live()
-    {
-        if (!Enabled) { _out.WriteLine("SKIPPED — set RUN_LIVE_INTEGRATION=1 to run."); return; }
-        if (Phones.Length == 0) { _out.WriteLine("No recipients — set LiveTest:Phones in user-secrets."); return; }
-
-        var whatsApp = new TwilioWhatsAppSender(_config, new XunitLogger<TwilioWhatsAppSender>(_out));
-        var validator = new PhoneNumberValidator(_config);
-        var e164 = validator.Normalize(Phones[0]) ?? Phones[0];
-
-        var ok = await whatsApp.SendAsync(e164, "TripNest: WhatsApp notifications are working ✅");
-        _out.WriteLine($"WhatsApp {Phones[0]} ({e164}): {(ok ? "SENT ✅" : "FAILED ❌ (recipient must join the sandbox first)")}");
-    }
-
-    [Fact]
     public async Task Email_BothAddresses_Live()
     {
         if (!Enabled) { _out.WriteLine("SKIPPED — set RUN_LIVE_INTEGRATION=1 to run."); return; }
         if (Emails.Length == 0) { _out.WriteLine("No recipients — set LiveTest:Emails in user-secrets."); return; }
 
-        var email = new SendGridEmailSender(_config, new XunitLogger<SendGridEmailSender>(_out));
+        var email = new SmtpEmailSender(_config, new XunitLogger<SmtpEmailSender>(_out));
         foreach (var addr in Emails)
         {
             var ok = await email.SendAsync(addr, "TripNest test email",
                 "<p>Your TripNest email notifications are working ✅</p>");
-            _out.WriteLine($"Email {addr}: {(ok ? "SENT ✅" : "FAILED ❌ (needs a verified SendGrid sender / FromEmail)")}");
+            _out.WriteLine($"Email {addr}: {(ok ? "SENT ✅" : "FAILED ❌ (check SmtpSettings: host/username/app-password)")}");
         }
     }
 }

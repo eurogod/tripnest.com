@@ -39,3 +39,10 @@ public sealed class ForbiddenException : DomainException
     public override int StatusCode => 403;
     public ForbiddenException(string message) : base(message) { }
 }
+
+/// <summary>429 — the caller is being throttled (e.g. OTP resend cooldown) and should retry later.</summary>
+public sealed class TooManyRequestsException : DomainException
+{
+    public override int StatusCode => 429;
+    public TooManyRequestsException(string message) : base(message) { }
+}

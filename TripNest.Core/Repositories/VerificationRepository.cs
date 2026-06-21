@@ -26,12 +26,6 @@ public class VerificationRepository : Repository<VerificationRequest>, IVerifica
             .FirstOrDefaultAsync();
     }
 
-    public async Task<int> GetVerifiedCountAsync()
-    {
-        return await _context.Set<VerificationRequest>()
-            .CountAsync(v => v.Status == VerificationStatus.Verified);
-    }
-
     public async Task<int> CountAttemptsSinceAsync(string userId, DateTime since)
     {
         return await _context.Set<VerificationRequest>()

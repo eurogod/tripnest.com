@@ -10,5 +10,8 @@ public interface IUserRepository : IRepository<User>
 
     Task<User?> GetByTripNestIdAsync(string tripNestId);
 
+    /// <summary>Count of users that already hold a TripNestId — used as the next serial source.</summary>
+    Task<int> CountAssignedTripNestIdsAsync();
+
     Task<User?> GetByRefreshTokenAsync(string refreshToken);
 }

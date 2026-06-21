@@ -5,12 +5,10 @@ public class CommunicationPreferenceResponse
     public required string UserId { get; set; }
     public bool SmsEnabled { get; set; }
     public bool EmailEnabled { get; set; }
-    public bool WhatsAppEnabled { get; set; }
 }
 
 public class UpdateCommunicationPreferenceRequest
 {
     public bool SmsEnabled { get; set; }
     public bool EmailEnabled { get; set; }
-    public bool WhatsAppEnabled { get; set; }
 }

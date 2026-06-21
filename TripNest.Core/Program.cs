@@ -14,6 +14,9 @@ using TripNest.Core.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// QuestPDF Community licence (free for organisations/individuals under the revenue threshold).
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
@@ -123,11 +126,11 @@ builder.Services.AddScoped<ITrustScoreService, TrustScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
 builder.Services.AddScoped<ICancellationPolicyService, CancellationPolicyService>();
-builder.Services.AddScoped<ISmsSender, TwilioSmsSender>();
-builder.Services.AddScoped<IEmailSender, SendGridEmailSender>();
-builder.Services.AddScoped<IWhatsAppSender, TwilioWhatsAppSender>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddSingleton<IPhoneNumberValidator, PhoneNumberValidator>();
 builder.Services.AddScoped<IPhoneVerificationService, PhoneVerificationService>();
+builder.Services.AddScoped<IEmailVerificationService, EmailVerificationService>();
+builder.Services.AddHttpClient<ISmsSender, TextBeeSmsSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
 builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
@@ -229,6 +232,19 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
             {
                 PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+
+    // Tighter, per-user limit for OTP sends (defense-in-depth on top of the service cooldown),
+    // so a caller can't fan out SMS even by rotating fast. Opt-in via [EnableRateLimiting("otp")].
+    options.AddPolicy("otp", httpContext =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.GetUserId()
+                ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
                 Window = TimeSpan.FromMinutes(1)
             }));
 });

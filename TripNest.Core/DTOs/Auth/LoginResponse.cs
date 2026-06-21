@@ -18,5 +18,9 @@ public class LoginResponse
 
     public bool IsVerified { get; set; }
 
+    public bool EmailVerified { get; set; }
+
+    public bool PhoneVerified { get; set; }
+
     public string? TripNestId { get; set; }
 }

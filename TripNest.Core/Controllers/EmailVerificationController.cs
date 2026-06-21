@@ -10,21 +10,21 @@ using TripNest.Core.Response;
 namespace TripNest.Core.Controllers;
 
 [ApiController]
-[Route("api/auth/phone")]
+[Route("api/auth/email")]
 [Authorize]
 [Produces("application/json")]
-public class PhoneVerificationController : ControllerBase
+public class EmailVerificationController : ControllerBase
 {
-    private readonly IPhoneVerificationService _phoneVerificationService;
-    private readonly ILogger<PhoneVerificationController> _logger;
+    private readonly IEmailVerificationService _emailVerificationService;
+    private readonly ILogger<EmailVerificationController> _logger;
 
-    public PhoneVerificationController(IPhoneVerificationService phoneVerificationService, ILogger<PhoneVerificationController> logger)
+    public EmailVerificationController(IEmailVerificationService emailVerificationService, ILogger<EmailVerificationController> logger)
     {
-        _phoneVerificationService = phoneVerificationService;
+        _emailVerificationService = emailVerificationService;
         _logger = logger;
     }
 
-    /// <summary>Sends a one-time code to the authenticated user's phone via SMS.</summary>
+    /// <summary>Sends a one-time code to the authenticated user's email address.</summary>
     [HttpPost("send-otp")]
     [EnableRateLimiting("otp")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
@@ -38,7 +38,7 @@ public class PhoneVerificationController : ControllerBase
 
         try
         {
-            await _phoneVerificationService.SendOtpAsync(userId);
+            await _emailVerificationService.SendOtpAsync(userId);
             return Ok(ApiResponse<object>.Ok("Verification code sent", new { }));
         }
         catch (TooManyRequestsException ex)
@@ -51,12 +51,12 @@ public class PhoneVerificationController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error sending phone OTP");
+            _logger.LogError(ex, "Error sending email OTP");
             return StatusCode(500, ApiResponse<object>.InternalServerError());
         }
     }
 
-    /// <summary>Confirms ownership by checking the code; marks the phone verified on success.</summary>
+    /// <summary>Confirms ownership by checking the code; marks the email verified on success.</summary>
     [HttpPost("verify-otp")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
@@ -68,9 +68,9 @@ public class PhoneVerificationController : ControllerBase
 
         try
         {
-            var ok = await _phoneVerificationService.VerifyOtpAsync(userId, request.Code);
+            var ok = await _emailVerificationService.VerifyOtpAsync(userId, request.Code);
             return ok
-                ? Ok(ApiResponse<object>.Ok("Phone number verified", new { }))
+                ? Ok(ApiResponse<object>.Ok("Email address verified", new { }))
                 : BadRequest(ApiResponse<object>.BadRequest("Incorrect code"));
         }
         catch (InvalidOperationException ex)
@@ -79,7 +79,7 @@ public class PhoneVerificationController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error verifying phone OTP");
+            _logger.LogError(ex, "Error verifying email OTP");
             return StatusCode(500, ApiResponse<object>.InternalServerError());
         }
     }
