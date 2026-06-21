@@ -14,6 +14,7 @@ public class DatabaseSeeder : IDatabaseSeeder
 {
     private readonly AppDbContext _context;
     private readonly ILogger<DatabaseSeeder> _logger;
+    private int _tripNestSerial;
 
     public DatabaseSeeder(AppDbContext context, ILogger<DatabaseSeeder> logger)
     {
@@ -290,10 +291,7 @@ public class DatabaseSeeder : IDatabaseSeeder
         }
     }
 
-    private string GenerateTripNestId()
-    {
-        var year = DateTime.UtcNow.Year;
-        var randomNumber = Random.Shared.Next(100000, 999999);
-        return $"TN-GH-{year}-{randomNumber}";
-    }
+    // Mint sequential IDs through the shared generator so seeded data matches the production
+    // format (TN-GH-YYYY-000001…) and never collides with real verification-issued IDs.
+    private string GenerateTripNestId() => TripNestIdGenerator.Format(++_tripNestSerial);
 }

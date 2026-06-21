@@ -26,6 +26,11 @@ public class UserRepository : Repository<User>, IUserRepository
         return await _dbSet.FirstOrDefaultAsync(u => u.TripNestId == tripNestId);
     }
 
+    public async Task<int> CountAssignedTripNestIdsAsync()
+    {
+        return await _dbSet.CountAsync(u => u.TripNestId != null);
+    }
+
     public async Task<User?> GetByRefreshTokenAsync(string refreshToken)
     {
         return await _dbSet.FirstOrDefaultAsync(u => u.RefreshToken == refreshToken && u.RefreshTokenExpiryTime > DateTime.UtcNow);

@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using TripNest.Core.DTOs.Verification;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -142,20 +143,24 @@ public class VerificationService : IVerificationService
         verification.Status = isVerified ? VerificationStatus.Verified : VerificationStatus.Rejected;
         verification.ReviewedAt = DateTime.UtcNow;
         await _verificationRepository.UpdateAsync(verification);
-        await _verificationRepository.SaveChangesAsync();
 
+        // Mark the user verified and mint their TripNestId in the SAME save as the verification
+        // outcome, so we never end up with a Verified request but an unbadged user.
+        User? userToBadge = null;
         if (isVerified)
         {
             var user = await _userRepository.GetByIdAsync(verification.UserId);
             if (user != null && !user.IsVerified)
             {
-                var sequence = await _verificationRepository.GetVerifiedCountAsync();
                 user.IsVerified = true;
-                user.TripNestId = $"TN-GH-{DateTime.UtcNow.Year}-{sequence:D6}";
-                await _userRepository.UpdateAsync(user);
-                await _userRepository.SaveChangesAsync();
+                userToBadge = user; // TripNestId assigned inside the collision-safe save below
             }
+        }
 
+        await PersistOutcomeWithTripNestIdAsync(userToBadge);
+
+        if (isVerified)
+        {
             await _notificationService.NotifyAsync(
                 verification.UserId,
                 Enums.NotificationType.VerificationStatusChanged,
@@ -173,6 +178,39 @@ public class VerificationService : IVerificationService
 
         _logger.LogInformation("Verification {VerificationId} resolved — score: {Score}, status: {Status}",
             verificationId, faceMatchScore, verification.Status);
+    }
+
+    /// <summary>
+    /// Saves the verification outcome and, when a user is being badged, assigns their TripNestId in
+    /// the same atomic save. The serial is the count of already-issued IDs + 1; under concurrency two
+    /// users can briefly compute the same serial, so a unique-index violation is caught and retried
+    /// with a freshly recomputed serial. The repositories share one DbContext, so a single
+    /// SaveChanges commits both the verification and the user together.
+    /// </summary>
+    private async Task PersistOutcomeWithTripNestIdAsync(User? userToBadge)
+    {
+        if (userToBadge == null)
+        {
+            await _verificationRepository.SaveChangesAsync();
+            return;
+        }
+
+        const int maxAttempts = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            userToBadge.TripNestId = TripNestIdGenerator.Format(
+                await _userRepository.CountAssignedTripNestIdsAsync() + 1);
+            try
+            {
+                await _userRepository.SaveChangesAsync();
+                return;
+            }
+            catch (DbUpdateException) when (attempt < maxAttempts)
+            {
+                _logger.LogWarning("TripNestId collision assigning to user {UserId} (attempt {Attempt}); retrying",
+                    userToBadge.Id, attempt);
+            }
+        }
     }
 
     public async Task<VerificationStatusResponse> GetVerificationStatusAsync(string userId)
