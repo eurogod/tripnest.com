@@ -19,7 +19,7 @@ public class PhoneVerificationTests : TestBase
         await RegisterAndLoginAsync(UserRole.Tenant);
         Sms.Sent.Clear();
 
-        var send = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { channel = "sms" });
+        var send = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { });
         Assert.Equal(HttpStatusCode.OK, send.StatusCode);
 
         // Recover the code from the SMS the recording sender captured.
@@ -37,10 +37,10 @@ public class PhoneVerificationTests : TestBase
         await RegisterAndLoginAsync(UserRole.Tenant);
         Sms.Sent.Clear();
 
-        var first = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { channel = "sms" });
+        var first = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { });
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
-        var second = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { channel = "sms" });
+        var second = await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { });
         Assert.Equal(HttpStatusCode.TooManyRequests, second.StatusCode);
 
         // Only the first send actually dispatched an SMS.
@@ -51,7 +51,7 @@ public class PhoneVerificationTests : TestBase
     public async Task Verify_WithWrongCode_ReturnsBadRequest()
     {
         await RegisterAndLoginAsync(UserRole.Tenant);
-        await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { channel = "sms" });
+        await _httpClient.PostAsJsonAsync("/api/auth/phone/send-otp", new { });
 
         var verify = await _httpClient.PostAsJsonAsync("/api/auth/phone/verify-otp", new { code = "000000" });
         // Incorrect-code 400 (unless 000000 happened to match the real code — vanishingly unlikely).

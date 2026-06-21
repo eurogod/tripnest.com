@@ -1,4 +1,3 @@
-using System.Text;
 using TripNest.Core.DTOs.Agreements;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -193,20 +192,8 @@ public class AgreementService : IAgreementService
                 throw new UnauthorizedAccessException("User is not authorised to download this agreement");
         }
 
-        var content = $"""
-            RENTAL AGREEMENT — {agreement.Id}
-            =====================================
-            {agreement.TermsContent}
-
-            Status           : {agreement.Status}
-            Created At       : {agreement.CreatedAt:yyyy-MM-dd HH:mm:ss} UTC
-            Tenant Signature : {agreement.TenantSignature ?? "Not signed"}
-            Landlord Signature: {agreement.LandlordSignature ?? "Not signed"}
-            Signed At        : {(agreement.SignedAt.HasValue ? agreement.SignedAt.Value.ToString("yyyy-MM-dd HH:mm:ss") + " UTC" : "N/A")}
-            """;
-
-        var bytes = Encoding.UTF8.GetBytes(content);
-        var filename = $"agreement-{agreementId}.txt";
+        var bytes = Pdf.AgreementPdf.Render(agreement, booking);
+        var filename = $"agreement-{agreementId}.pdf";
 
         _logger.LogInformation("Agreement {AgreementId} downloaded by user {UserId}", agreementId, userId);
 

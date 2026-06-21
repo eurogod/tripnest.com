@@ -201,4 +201,4 @@ public class AuditService : IAuditService
     }
 }
 
-// SMS sending lives in Services/TwilioSmsSender.cs (real Twilio integration, graceful fallback).
+// SMS sending lives in Services/TextBeeSmsSender.cs (real TextBee integration, graceful fallback).

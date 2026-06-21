@@ -5,17 +5,15 @@ using Xunit.Abstractions;
 namespace TripNest.Core.Tests.Live;
 
 /// <summary>
-/// Opt-in tests that hit the REAL TextBee (SMS) / Twilio (WhatsApp) / Gmail SMTP / Paystack
-/// using the keys in the Core
-/// project's user-secrets. They are skipped (no-op) unless RUN_LIVE_INTEGRATION=1, so the
+/// Opt-in tests that hit the REAL TextBee (SMS) / Gmail SMTP / Paystack using the keys in the
+/// Core project's user-secrets. They are skipped (no-op) unless RUN_LIVE_INTEGRATION=1, so the
 /// normal suite and CI stay green and your phones aren't spammed on every run.
 ///
 /// Run them with:  RUN_LIVE_INTEGRATION=1 dotnet test --filter "FullyQualifiedName~Live"
 ///
-/// Paystack is asserted (test mode always works). SMS/WhatsApp/email outcomes are logged per
-/// recipient rather than asserted, because TextBee needs an online Android gateway device, the
-/// Twilio WhatsApp sandbox needs a join, and SMTP needs valid credentials — so a "FAILED" line is
-/// an actionable signal, not a broken test.
+/// Paystack is asserted (test mode always works). SMS/email outcomes are logged per recipient
+/// rather than asserted, because TextBee needs an online Android gateway device and SMTP needs
+/// valid credentials — so a "FAILED" line is an actionable signal, not a broken test.
 /// </summary>
 public class LiveIntegrationTests
 {
@@ -71,20 +69,6 @@ public class LiveIntegrationTests
             var ok = await sms.SendSmsAsync(e164, "TripNest: your SMS notifications are working ✅");
             _out.WriteLine($"SMS  {phone} ({e164}): {(ok ? "SENT ✅" : "FAILED ❌")}");
         }
-    }
-
-    [Fact]
-    public async Task WhatsApp_FirstNumber_Live()
-    {
-        if (!Enabled) { _out.WriteLine("SKIPPED — set RUN_LIVE_INTEGRATION=1 to run."); return; }
-        if (Phones.Length == 0) { _out.WriteLine("No recipients — set LiveTest:Phones in user-secrets."); return; }
-
-        var whatsApp = new TwilioWhatsAppSender(_config, new XunitLogger<TwilioWhatsAppSender>(_out));
-        var validator = new PhoneNumberValidator(_config);
-        var e164 = validator.Normalize(Phones[0]) ?? Phones[0];
-
-        var ok = await whatsApp.SendAsync(e164, "TripNest: WhatsApp notifications are working ✅");
-        _out.WriteLine($"WhatsApp {Phones[0]} ({e164}): {(ok ? "SENT ✅" : "FAILED ❌ (recipient must join the sandbox first)")}");
     }
 
     [Fact]

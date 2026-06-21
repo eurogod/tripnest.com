@@ -3,7 +3,7 @@ using TripNest.Core.Interfaces.Services;
 
 namespace TripNest.Core.Tests;
 
-/// <summary>Test double that records SMS sends instead of calling Twilio.</summary>
+/// <summary>Test double that records SMS sends instead of calling TextBee.</summary>
 public class RecordingSmsSender : ISmsSender
 {
     public ConcurrentBag<(string Phone, string Message)> Sent { get; } = new();
@@ -23,18 +23,6 @@ public class RecordingEmailSender : IEmailSender
     public Task<bool> SendAsync(string toEmail, string subject, string htmlBody)
     {
         Sent.Add((toEmail, subject, htmlBody));
-        return Task.FromResult(true);
-    }
-}
-
-/// <summary>Test double that records WhatsApp messages instead of calling Twilio.</summary>
-public class RecordingWhatsAppSender : IWhatsAppSender
-{
-    public ConcurrentBag<(string Phone, string Message)> Sent { get; } = new();
-
-    public Task<bool> SendAsync(string phoneNumber, string message)
-    {
-        Sent.Add((phoneNumber, message));
         return Task.FromResult(true);
     }
 }

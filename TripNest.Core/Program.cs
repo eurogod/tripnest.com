@@ -14,6 +14,9 @@ using TripNest.Core.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// QuestPDF Community licence (free for organisations/individuals under the revenue threshold).
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
@@ -124,9 +127,9 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
 builder.Services.AddScoped<ICancellationPolicyService, CancellationPolicyService>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
-builder.Services.AddScoped<IWhatsAppSender, TwilioWhatsAppSender>();
 builder.Services.AddSingleton<IPhoneNumberValidator, PhoneNumberValidator>();
 builder.Services.AddScoped<IPhoneVerificationService, PhoneVerificationService>();
+builder.Services.AddScoped<IEmailVerificationService, EmailVerificationService>();
 builder.Services.AddHttpClient<ISmsSender, TextBeeSmsSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
 builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();

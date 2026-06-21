@@ -12,12 +12,6 @@ public interface IEmailSender
     Task<bool> SendAsync(string toEmail, string subject, string htmlBody);
 }
 
-public interface IWhatsAppSender
-{
-    /// <summary>Sends a WhatsApp message; returns true on success, false if not configured or it failed.</summary>
-    Task<bool> SendAsync(string phoneNumber, string message);
-}
-
 public interface ITrustScoreService
 {
     Task<decimal> CalculatePropertyTrustScoreAsync(string propertyId);

@@ -22,6 +22,46 @@ public class ProfileController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>Downloads the verified user's TripNest ID card as a PDF. Requires a verified identity.</summary>
+    [HttpGet("id-card")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetIdCard()
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return NotFound(ApiResponse<object>.NotFound("User"));
+
+        if (!user.IsVerified || string.IsNullOrWhiteSpace(user.TripNestId))
+            return BadRequest(ApiResponse<object>.BadRequest(
+                "Your identity isn't verified yet, so a TripNest ID card can't be issued."));
+
+        var pdf = Pdf.IdCardPdf.Render(user, TryReadPhoto(user.ProfilePhotoPath));
+        return File(pdf, "application/pdf", $"tripnest-id-{user.TripNestId}.pdf");
+    }
+
+    // Best-effort load of the profile photo for embedding; placeholder initials are used if missing.
+    private static byte[]? TryReadPhoto(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        try
+        {
+            var full = Path.IsPathRooted(path)
+                ? path
+                : Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", path.TrimStart('/'));
+            return System.IO.File.Exists(full) ? System.IO.File.ReadAllBytes(full) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     [HttpGet("me")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> GetProfile()
@@ -44,6 +84,8 @@ public class ProfileController : ControllerBase
                 user.Phone,
                 user.Role,
                 user.IsVerified,
+                user.EmailVerified,
+                user.PhoneVerified,
                 user.TripNestId,
                 user.ProfilePhotoPath,
                 user.Bio

@@ -25,21 +25,23 @@ Core runs standalone; the two sidecars are only required for the identity-verifi
 
 | Integration | Used for | Config keys |
 |---|---|---|
-| **Twilio** | SMS + WhatsApp notifications | `TwilioSettings:{AccountSid,AuthToken,FromPhoneNumber,WhatsAppFromNumber}` |
-| **SendGrid** | Email notifications | `SendGridSettings:{ApiKey,FromEmail,FromName}` |
+| **TextBee** | SMS notifications (Android gateway relay) | `TextBeeSettings:{BaseUrl,ApiKey,DeviceId}` |
+| **SMTP (Gmail)** | Email notifications | `SmtpSettings:{Host,Port,UseStartTls,Username,Password,FromEmail,FromName}` |
 | **Paystack** | Escrow payments (test/live) | `PaystackSettings:{SecretKey,PublicKey,CallbackUrl}` |
 
-All four channels (SMS, WhatsApp, email, Paystack) **degrade gracefully** when unconfigured —
-they log and no-op (SMS/WhatsApp/email) or return a simulated reference (Paystack), so the app
-runs without credentials. Set real keys with `dotnet user-secrets set "<key>" "<value>"`.
+All three channels (SMS, email, Paystack) **degrade gracefully** when unconfigured — they log
+and no-op (SMS/email) or return a simulated reference (Paystack), so the app runs without
+credentials. Set real keys with `dotnet user-secrets set "<key>" "<value>"`.
 
 **Phone numbers** are validated offline (libphonenumber, default region `Phone:DefaultRegion`,
-GH) at registration and normalised to E.164 — invalid numbers are rejected with 400. Ownership
-can be confirmed via OTP: `POST /api/auth/phone/send-otp` texts/WhatsApps a single-use 6-digit
-code (hashed, 10-min expiry, 5-attempt cap), and `POST /api/auth/phone/verify-otp` sets the
-user's `PhoneVerified` flag.
-Notification opt-out covers SMS, email, and WhatsApp independently; emergency safety alerts
-ignore the opt-out on all three.
+GH) at registration and normalised to E.164 — invalid numbers are rejected with 400.
+
+**Contact verification** is independent for email and phone (use either or both): `POST
+/api/auth/email/send-otp` / `POST /api/auth/phone/send-otp` send a single-use 6-digit code
+(hashed, 10-min expiry, 5-attempt cap, 60s resend cooldown → 429, plus a 5/min rate limit), and
+the matching `verify-otp` sets the user's `EmailVerified` / `PhoneVerified` flag. These are
+separate from `IsVerified` (Ghana Card identity).
+Notification opt-out covers SMS and email independently; emergency safety alerts ignore it.
 
 ## Roles
 
@@ -90,8 +92,10 @@ ignore the opt-out on all three.
 | POST | `/reset-password` | 🌐 |
 | GET | `/me` | 🔒 |
 | POST | `/change-password` | 🔒 |
-| POST | `/phone/send-otp` | 🔒 (body `{ channel: "sms" \| "whatsapp" }`) |
+| POST | `/phone/send-otp` | 🔒 (no body → texts a code) |
 | POST | `/phone/verify-otp` | 🔒 (body `{ code }` → marks phone verified) |
+| POST | `/email/send-otp` | 🔒 (no body → emails a code) |
+| POST | `/email/verify-otp` | 🔒 (body `{ code }` → marks email verified) |
 
 ### Verification — `api/verification`
 | Method | Path | Access |
@@ -222,7 +226,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | Method | Path | Access |
 |---|---|---|
 | GET | `/mine` | 🔒 |
-| PUT | `/mine` | 🔒 (body `{ smsEnabled, emailEnabled, whatsAppEnabled }`) |
+| PUT | `/mine` | 🔒 (body `{ smsEnabled, emailEnabled }`) |
 
 ### Receipts — `api/receipts`
 | Method | Path | Access |
@@ -257,8 +261,10 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Safety — `api/safety`
 | Method | Path | Access |
 |---|---|---|
-| POST | `/checkin` | 🔒 |
-| POST | `/alert` | 🔒 |
+| GET | `/contact` | 🔒 (saved trusted contact) |
+| PUT | `/contact` | 🔒 (body `{ name, phone, email }`) |
+| POST | `/checkin` | 🔒 (body `{ bookingId, contactPhone?, contactEmail?, shareLocation, latitude?, longitude? }` → notifies contact; location only with consent) |
+| POST | `/alert` | 🔒 (body `{ bookingId }`) |
 
 ### Trust Score — `api/trustscore`
 | Method | Path | Access |

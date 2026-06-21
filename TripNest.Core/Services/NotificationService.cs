@@ -14,7 +14,6 @@ public class NotificationService : INotificationService
     private readonly IRepository<CommunicationPreference> _preferenceRepository;
     private readonly ISmsSender _smsSender;
     private readonly IEmailSender _emailSender;
-    private readonly IWhatsAppSender _whatsAppSender;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
@@ -23,7 +22,6 @@ public class NotificationService : INotificationService
         IRepository<CommunicationPreference> preferenceRepository,
         ISmsSender smsSender,
         IEmailSender emailSender,
-        IWhatsAppSender whatsAppSender,
         ILogger<NotificationService> logger)
     {
         _notificationRepository = notificationRepository;
@@ -31,7 +29,6 @@ public class NotificationService : INotificationService
         _preferenceRepository = preferenceRepository;
         _smsSender = smsSender;
         _emailSender = emailSender;
-        _whatsAppSender = whatsAppSender;
         _logger = logger;
     }
 
@@ -42,21 +39,16 @@ public class NotificationService : INotificationService
 
         var sentViaSms = false;
         var sentViaEmail = false;
-        var sentViaWhatsApp = false;
 
         // Emergency alerts ignore the opt-out entirely; otherwise honour each channel's preference.
         var shouldSms = isEmergency || preference.SmsEnabled;
         var shouldEmail = isEmergency || preference.EmailEnabled;
-        var shouldWhatsApp = isEmergency || preference.WhatsAppEnabled;
 
         if (shouldSms && user != null && !string.IsNullOrWhiteSpace(user.Phone))
             sentViaSms = await SafeSendSmsAsync(user.Phone, $"{title}: {body}");
 
         if (shouldEmail && user != null && !string.IsNullOrWhiteSpace(user.Email))
             sentViaEmail = await SafeSendEmailAsync(user.Email, title, $"<p>{body}</p>");
-
-        if (shouldWhatsApp && user != null && !string.IsNullOrWhiteSpace(user.Phone))
-            sentViaWhatsApp = await SafeSendWhatsAppAsync(user.Phone, $"{title}: {body}");
 
         var notification = new Notification
         {
@@ -66,7 +58,6 @@ public class NotificationService : INotificationService
             Message = body,
             SentViaSms = sentViaSms,
             SentViaEmail = sentViaEmail,
-            SentViaWhatsApp = sentViaWhatsApp,
             IsEmergencyOverride = isEmergency
         };
 
@@ -81,12 +72,11 @@ public class NotificationService : INotificationService
     public async Task<CommunicationPreferenceResponse> GetPreferenceAsync(string userId)
         => ToResponse(await GetOrCreatePreferenceAsync(userId));
 
-    public async Task<CommunicationPreferenceResponse> UpdatePreferenceAsync(string userId, bool smsEnabled, bool emailEnabled, bool whatsAppEnabled)
+    public async Task<CommunicationPreferenceResponse> UpdatePreferenceAsync(string userId, bool smsEnabled, bool emailEnabled)
     {
         var preference = await GetOrCreatePreferenceAsync(userId);
         preference.SmsEnabled = smsEnabled;
         preference.EmailEnabled = emailEnabled;
-        preference.WhatsAppEnabled = whatsAppEnabled;
         preference.UpdatedAt = DateTime.UtcNow;
         await _preferenceRepository.UpdateAsync(preference);
         await _preferenceRepository.SaveChangesAsync();
@@ -118,18 +108,11 @@ public class NotificationService : INotificationService
         catch (Exception ex) { _logger.LogError(ex, "Email dispatch failed for {Email}", email); return false; }
     }
 
-    private async Task<bool> SafeSendWhatsAppAsync(string phone, string message)
-    {
-        try { return await _whatsAppSender.SendAsync(phone, message); }
-        catch (Exception ex) { _logger.LogError(ex, "WhatsApp dispatch failed for {Phone}", phone); return false; }
-    }
-
     private static CommunicationPreferenceResponse ToResponse(CommunicationPreference p) => new()
     {
         UserId = p.UserId,
         SmsEnabled = p.SmsEnabled,
-        EmailEnabled = p.EmailEnabled,
-        WhatsAppEnabled = p.WhatsAppEnabled
+        EmailEnabled = p.EmailEnabled
     };
 
     public async Task CreateAsync(string userId, string title, string message, string? relatedEntityId = null, string? relatedEntityType = null)

@@ -43,4 +43,15 @@ public class User
     public string? PhoneOtpHash { get; set; }
     public DateTime? PhoneOtpExpiry { get; set; }
     public int PhoneOtpAttempts { get; set; }
+
+    // Email-ownership (OTP) verification — independent of phone; either or both may be used.
+    public bool EmailVerified { get; set; } = false;
+    public string? EmailOtpHash { get; set; }
+    public DateTime? EmailOtpExpiry { get; set; }
+    public int EmailOtpAttempts { get; set; }
+
+    // Saved trusted contact for safe-arrival check-ins (overridable per check-in request).
+    public string? TrustedContactName { get; set; }
+    public string? TrustedContactPhone { get; set; }
+    public string? TrustedContactEmail { get; set; }
 }

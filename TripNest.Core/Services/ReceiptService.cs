@@ -1,4 +1,3 @@
-using System.Text;
 using TripNest.Core.DTOs.Receipts;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Repositories;
@@ -88,10 +87,8 @@ public class ReceiptService : IReceiptService
             if (receipt == null || receipt.UserId != userId)
                 throw new InvalidOperationException("Receipt not found");
 
-            // Stub — real QuestPDF integration is a future task
-            var content = $"TripNest Receipt\nBookingId:{receipt.BookingId}\nAmount:{receipt.Amount}\nDate:{receipt.CreatedAt}";
-            var bytes = Encoding.UTF8.GetBytes(content);
-            var filename = $"receipt-{receipt.Id}.txt";
+            var bytes = Pdf.ReceiptPdf.Render(receipt, receipt.User?.FullName);
+            var filename = $"receipt-{receipt.Id}.pdf";
 
             _logger.LogInformation("Receipt {ReceiptId} downloaded by user {UserId}", receiptId, userId);
 
