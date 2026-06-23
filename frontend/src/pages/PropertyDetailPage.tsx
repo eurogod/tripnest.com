@@ -7,11 +7,10 @@ import {
   propertiesApi,
   reviewsApi,
   trustApi,
-  chatApi,
 } from '@/lib/services';
-import { Button, ErrorState, Input, Skeleton } from '@/components/ui';
+import { Button, ErrorState, Skeleton } from '@/components/ui';
 import { Avatar, StarRating, TrustChip, VerifiedBadge, Pill } from '@/components/badges';
-import { Heart, MapPin, Shield, Wifi, Check, Chat as ChatIcon, Star, Camera } from '@/components/icons';
+import { Heart, MapPin, Shield, Wifi, Chat as ChatIcon, Star, Camera } from '@/components/icons';
 import { SingleMap } from '@/components/PropertyMap';
 import { money, parseAmenities, parsePhotos, fallbackPhoto, fmtDate, nights, priceLabel } from '@/lib/format';
 import { CancellationPolicyLabel, StayType, StayTypeLabel } from '@/lib/enums';

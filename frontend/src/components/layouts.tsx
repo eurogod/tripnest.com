@@ -5,7 +5,7 @@ import { Footer } from './Footer';
 import { Spinner } from './ui';
 import { useAuth } from '@/auth/AuthContext';
 import { UserRole } from '@/lib/enums';
-import { Home, Calendar, Heart, Chat, Bell, Cash, Doc, Wrench, Users, Shield, Settings, Camera, MapPin } from './icons';
+import { Home, Calendar, Heart, Chat, Cash, Doc, Wrench, Users, Shield, Settings, Camera, MapPin } from './icons';
 
 export function PublicLayout() {
   return (
