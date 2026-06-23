@@ -52,7 +52,7 @@ export default function MessagesPage() {
             <div className="grid h-full place-items-center p-6 text-center text-sm text-muted">No conversations yet.</div>
           ) : (
             <ul className="h-full overflow-y-auto">
-              {convos.data.map((c) => (
+              {(convos.data ?? []).map((c) => (
                 <li key={c.conversationId}>
                   <button
                     onClick={() => setActive(c.conversationId)}
