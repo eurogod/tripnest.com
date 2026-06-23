@@ -5,7 +5,7 @@ identity verification, and escrow-protected payments (Ghana-oriented).
 
 - **Base URL (local):** `http://localhost:5091`
 - **Interactive docs:** `http://localhost:5091/swagger` (Development only)
-- **Health check:** `GET /health`
+- **Health checks:** `GET /health/live` (liveness), `GET /health/ready` (readiness — Postgres gates, verification sidecars reported but non-gating), `GET /health` (full report).
 - **Auth:** JWT Bearer. Obtain a token from `POST /api/auth/login`, then send
   `Authorization: Bearer <accessToken>` on protected routes.
 - **Response envelope:** every endpoint returns
@@ -91,7 +91,8 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/forgot-password` | 🌐 |
 | POST | `/reset-password` | 🌐 |
 | GET | `/me` | 🔒 |
-| POST | `/change-password` | 🔒 |
+| POST | `/logout` | 🔒 (revokes the refresh token) |
+| POST | `/change-password` | 🔒 (also revokes existing refresh token) |
 | POST | `/phone/send-otp` | 🔒 (no body → texts a code) |
 | POST | `/phone/verify-otp` | 🔒 (body `{ code }` → marks phone verified) |
 | POST | `/email/send-otp` | 🔒 (no body → emails a code) |
@@ -136,17 +137,17 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Bookings — `api/bookings`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/{bookingId}` | 🌐 |
+| GET | `/{bookingId}` | 🔒 (tenant or the property's landlord only) |
 | POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates) |
 | GET | `/user/my-bookings` | 🔒 |
 | GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change) |
-| POST | `/{bookingId}/cancel` | 🔒 (tiered refund per cancellation policy) |
+| POST | `/{bookingId}/cancel` | 🔒 (owner only; tiered refund per policy, issued via the gateway) |
 
 ### Escrow — `api/escrow`
 | Method | Path | Access |
 |---|---|---|
 | POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`) |
-| POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401 |
+| POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401. Charged amount must match the booking total or the hold is rejected |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/release` | 🔒 |
 | POST | `/{id}/dispute` | 🔒 |
@@ -297,6 +298,20 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
 
 ---
+
+## Operations & scaling
+
+- **Health:** `GET /health/live` (process up), `GET /health/ready` (Postgres gates → 503 if down;
+  TripNest.Id / face-match sidecars reported as Degraded but non-gating), `GET /health` (full report).
+- **Rate limiting:** global fixed window **100/min** (per user, falling back to IP) + a stricter
+  **5/min** `otp` policy on the OTP send endpoints; over-limit → **429**.
+- **Caching:** public, non-personalized GETs (config, properties, search, caretakers, agents, trust
+  score) are output-cached (config 5 min; the rest 60 s, varying by query).
+- **Telemetry:** structured logs (Serilog, trace-id correlated) + OpenTelemetry traces/metrics. Set
+  `ApplicationInsights:ConnectionString` (or env `APPLICATIONINSIGHTS_CONNECTION_STRING`) to export to
+  Azure Application Insights; empty = console only.
+- **Multi-instance:** set `Redis:ConnectionString` to back the SignalR backplane, output cache and
+  rate-limiter counters with Redis (shared across instances). Empty = in-memory, single instance.
 
 ## Real-time (SignalR)
 
