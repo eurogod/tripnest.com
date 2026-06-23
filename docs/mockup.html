@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TripNest — Airbnb-style concept (teal)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand:#0F766E;--brand-dark:#0B5751;--tint:#E7F6F3;--ink:#222222;
+    --muted:#6A6A6A;--line:#EBEBEB;--star:#222;--shadow:0 6px 20px rgba(0,0,0,.10);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:var(--ink);background:#fff}
+  img{display:block;width:100%;height:100%;object-fit:cover}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 40px}
+  svg{display:block}
+
+  /* ---------- header ---------- */
+  header{border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:30}
+  .hdr{display:flex;align-items:center;justify-content:space-between;height:80px}
+  .logo{display:flex;align-items:center;gap:8px;color:var(--brand);font-weight:800;font-size:22px;letter-spacing:-.5px}
+  .logo .m{width:26px;height:26px;border-radius:8px;background:var(--brand);display:grid;place-items:center;color:#fff;font-size:15px}
+  .tabs{display:flex;gap:26px;font-weight:600;color:var(--muted);font-size:15px}
+  .tabs .on{color:var(--ink);font-weight:700;position:relative}
+  .tabs .on::after{content:"";position:absolute;left:0;right:0;bottom:-28px;height:2px;background:var(--ink)}
+  .pill{display:flex;align-items:center;border:1px solid var(--line);border-radius:999px;
+    box-shadow:0 1px 4px rgba(0,0,0,.08);font-size:14px;font-weight:600;padding:6px 6px 6px 18px}
+  .pill .seg{padding:0 16px;border-right:1px solid var(--line)}
+  .pill .seg.m{color:var(--muted);font-weight:500}
+  .pill .seg:last-of-type{border:0}
+  .pill .go{width:36px;height:36px;border-radius:50%;background:var(--brand);color:#fff;border:0;display:grid;place-items:center;margin-left:6px}
+  .right{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px}
+  .right .host{padding:10px 14px;border-radius:999px}
+  .right .ham{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:999px;padding:6px 8px 6px 14px}
+  .av{width:30px;height:30px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px}
+
+  /* ---------- listing rows ---------- */
+  .sec{padding:34px 0}
+  .sec h2{font-size:22px;font-weight:800;letter-spacing:-.4px;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+  .rowg{display:grid;grid-template-columns:repeat(5,1fr);gap:22px}
+  .card .ph{position:relative;border-radius:14px;overflow:hidden;aspect-ratio:1/1}
+  .badge{position:absolute;top:10px;left:10px;background:#fff;color:var(--brand-dark);font-size:12px;font-weight:700;
+    padding:5px 10px;border-radius:999px;display:flex;align-items:center;gap:5px;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+  .heart{position:absolute;top:9px;right:12px;color:#fff}
+  .t1{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-top:11px}
+  .t2{color:var(--muted);font-size:14px;margin-top:1px}
+  .t3{margin-top:5px;font-size:14px}.t3 b{font-weight:700}
+  .star{display:inline-flex;align-items:center;gap:3px;font-weight:600}
+
+  /* ---------- detail ---------- */
+  .pagepad{padding:30px 0 60px}
+  .dtitle{font-size:26px;font-weight:800;letter-spacing:-.5px}
+  .dmeta{display:flex;gap:14px;align-items:center;color:var(--ink);font-size:14px;margin:8px 0 16px;font-weight:600}
+  .dmeta .vh{display:inline-flex;align-items:center;gap:5px;color:var(--brand-dark)}
+  .gallery{display:grid;grid-template-columns:2fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;height:420px;border-radius:16px;overflow:hidden}
+  .gallery .g:first-child{grid-row:1/3}
+  .grid2{display:grid;grid-template-columns:1fr 372px;gap:60px;margin-top:36px}
+  .lead{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:24px;border-bottom:1px solid var(--line)}
+  .lead h3{font-size:20px;font-weight:700}
+  .lead .sub{color:var(--muted);margin-top:4px}
+  .hostmini{display:flex;align-items:center;gap:12px}
+  .hostmini .hav{width:46px;height:46px;border-radius:50%;overflow:hidden;position:relative}
+  .vdot{position:absolute;right:-2px;bottom:-2px;width:18px;height:18px;border-radius:50%;background:var(--brand);
+    border:2px solid #fff;color:#fff;display:grid;place-items:center;font-size:9px}
+  .feat{display:flex;gap:14px;padding:22px 0;border-bottom:1px solid var(--line)}
+  .feat .fi{padding:16px 0;display:flex;gap:14px}
+  .feat .ic{flex:none}
+  .feat b{font-weight:700}.feat small{color:var(--muted)}
+  .desc{padding:24px 0;border-bottom:1px solid var(--line);color:#3a3a3a;line-height:1.6}
+  .amen{padding:24px 0}
+  .amen h3{font-size:20px;font-weight:700;margin-bottom:16px}
+  .amg{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;font-size:15px}
+  .amg .a{display:flex;gap:14px;align-items:center;padding:6px 0}
+  .amg .a.off{color:#9a9a9a;text-decoration:line-through}
+  .showall{margin-top:22px;border:1px solid #222;background:#fff;border-radius:10px;padding:13px 22px;font-weight:700;font-size:14px}
+
+  /* booking widget */
+  .widget{border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:24px;position:sticky;top:100px}
+  .wtop{display:flex;align-items:baseline;gap:8px}
+  .wstrike{color:var(--muted);text-decoration:line-through;font-size:16px}
+  .wnow{font-size:22px;font-weight:800}
+  .wfor{color:var(--muted);font-size:15px}
+  .box{border:1px solid #b0b0b0;border-radius:12px;margin:14px 0;overflow:hidden}
+  .box .r{display:flex}
+  .box .c{flex:1;padding:10px 14px}
+  .box .c+ .c{border-left:1px solid #b0b0b0}
+  .box .r+ .r{border-top:1px solid #b0b0b0}
+  .box label{display:block;font-size:10px;font-weight:800;letter-spacing:.4px}
+  .box span{font-size:14px;color:#3a3a3a}
+  .rate{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;display:flex;justify-content:space-between;gap:10px}
+  .rate.sel{border-color:var(--ink);border-width:2px}
+  .rate b{font-weight:700;font-size:14px}.rate small{color:var(--muted);font-size:12px;display:block;margin-top:4px;line-height:1.4}
+  .radio{width:18px;height:18px;border-radius:50%;border:1px solid #999;flex:none;margin-top:2px}
+  .radio.on{border:5px solid var(--brand)}
+  .reserve{width:100%;border:0;border-radius:12px;background:var(--brand);color:#fff;font-weight:800;font-size:16px;padding:15px;margin-top:6px}
+  .escrow{display:flex;align-items:center;justify-content:center;gap:7px;color:var(--muted);font-size:13px;margin-top:12px}
+  .fees{display:flex;align-items:center;justify-content:center;gap:7px;background:var(--tint);color:var(--brand-dark);
+    border-radius:10px;padding:10px;font-size:13px;font-weight:600;margin-bottom:14px}
+
+  /* reviews */
+  .revhead{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;margin-bottom:18px}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:26px}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:9px 15px;font-size:13px;font-weight:600;display:flex;gap:7px;align-items:center}
+  .chip.on{background:var(--tint);border-color:transparent;color:var(--brand-dark)}
+  .revs{display:grid;grid-template-columns:1fr 1fr;gap:30px 50px}
+  .rev .who{display:flex;gap:12px;align-items:center}
+  .rev .ra{width:40px;height:40px;border-radius:50%;overflow:hidden}
+  .rev .nm{font-weight:700;font-size:14px}.rev .dt{color:var(--muted);font-size:12px}
+  .rev p{margin-top:10px;color:#3a3a3a;font-size:14px;line-height:1.55}
+
+  /* host card */
+  .hostcard{display:grid;grid-template-columns:300px 1fr;gap:46px;align-items:center;padding:40px 0;border-top:1px solid var(--line)}
+  .hc{border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:28px;display:grid;grid-template-columns:1.2fr 1fr;gap:10px;align-items:center}
+  .hc .big{width:84px;height:84px;border-radius:50%;overflow:hidden;position:relative;margin:0 auto}
+  .hc .nm{text-align:center;font-size:22px;font-weight:800;margin-top:10px}
+  .hc .role{text-align:center;color:var(--muted);font-size:13px;display:flex;gap:5px;justify-content:center;align-items:center}
+  .hc .stats .s{padding:6px 0}
+  .hc .stats .n{font-size:18px;font-weight:800}.hc .stats .l{font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:4px}
+
+  /* things to know + footer */
+  .know{display:grid;grid-template-columns:repeat(3,1fr);gap:30px;padding:36px 0;border-top:1px solid var(--line)}
+  .know h4{font-size:15px;font-weight:700;margin-bottom:8px}
+  .know p{color:var(--muted);font-size:13.5px;line-height:1.6}
+  footer{background:#F7F7F7;border-top:1px solid var(--line);padding:40px 0;color:#444;font-size:13px}
+  .fcols{display:flex;justify-content:space-between;flex-wrap:wrap;gap:20px}
+  .secdiv{border-top:1px solid var(--line)}
+  @media(max-width:900px){.rowg{grid-template-columns:repeat(2,1fr)}.grid2,.hostcard,.know,.revs{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header><div class="wrap hdr">
+  <div class="logo"><span class="m">✦</span>TripNest</div>
+  <div class="tabs"><span class="on">Homes</span><span>Experiences</span><span>Services</span></div>
+  <div class="pill">
+    <span class="seg">Kumasi</span><span class="seg m">Jul 10–12</span><span class="seg m">2 guests</span>
+    <button class="go">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+    </button>
+  </div>
+  <div class="right"><span class="host">Become a host</span>
+    <span class="ham">
+      <svg width="16" height="16" viewBox="0 0 24 24" stroke="#222" stroke-width="2" fill="none"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      <span class="av">A</span>
+    </span>
+  </div>
+</div></header>
+
+<!-- ===== HOME: listing rows ===== -->
+<div class="wrap">
+  <section class="sec">
+    <h2>Popular verified homes in Kumasi
+      <svg width="18" height="18" viewBox="0 0 24 24" stroke="#222" stroke-width="2.5" fill="none"><path d="M9 6l6 6-6 6"/></svg>
+    </h2>
+    <div class="rowg">
+      <div class="card"><div class="ph"><img src="https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=600&q=80"><span class="badge">✓ Verified</span><span class="heart">♡</span></div>
+        <div class="t1"><span>Villa in Kumasi Metro</span><span class="star">★ 4.91</span></div><div class="t2">Entire villa · 6 guests</div><div class="t3"><b>GH₵4,795</b> for 2 nights</div></div>
+      <div class="card"><div class="ph"><img src="https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=600&q=80"><span class="badge">✓ Verified</span><span class="heart">♡</span></div>
+        <div class="t1"><span>Room in Kumasi</span><span class="star">★ 4.96</span></div><div class="t2">Private room · 2 guests</div><div class="t3"><b>GH₵610</b> for 2 nights</div></div>
+      <div class="card"><div class="ph"><img src="https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&q=80"><span class="badge">✓ Verified</span><span class="heart">♡</span></div>
+        <div class="t1"><span>Apartment in Kumasi</span><span class="star">★ 5.0</span></div><div class="t2">Entire apt · 4 guests</div><div class="t3"><b>GH₵1,110</b> for 2 nights</div></div>
+      <div class="card"><div class="ph"><img src="https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=600&q=80"><span class="heart">♡</span></div>
+        <div class="t1"><span>Bungalow in Kumasi</span><span class="star">★ 4.87</span></div><div class="t2">Entire home · 5 guests</div><div class="t3"><b>GH₵2,585</b> for 2 nights</div></div>
+      <div class="card"><div class="ph"><img src="https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=600&q=80"><span class="badge">✓ Verified</span><span class="heart">♡</span></div>
+        <div class="t1"><span>Stay in Kumasi Metro</span><span class="star">★ 4.93</span></div><div class="t2">Entire suite · 3 guests</div><div class="t3"><b>GH₵1,014</b> for 2 nights</div></div>
+    </div>
+  </section>
+</div>
+
+<!-- ===== PROPERTY DETAIL ===== -->
+<div class="wrap pagepad secdiv">
+  <h1 class="dtitle">Large Premium 3 Bedroom Serv. Apartment @ Kumasi</h1>
+  <div class="dmeta">
+    <span class="star">★ 4.91</span><span>· 56 reviews ·</span>
+    <span class="vh">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="#0F766E"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>
+      Verified host</span>
+    <span>· Kumasi Metropolitan Area, Ghana</span>
+  </div>
+
+  <div class="gallery">
+    <div class="g"><img src="https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=900&q=80"></div>
+    <div class="g"><img src="https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=500&q=80"></div>
+    <div class="g"><img src="https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=500&q=80"></div>
+    <div class="g"><img src="https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=500&q=80"></div>
+    <div class="g"><img src="https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=500&q=80"></div>
+  </div>
+
+  <div class="grid2">
+    <!-- left column -->
+    <div>
+      <div class="lead">
+        <div><h3>Entire villa in Kumasi · 6 guests · 3 bedrooms · 3 baths</h3>
+          <div class="sub">Hosted by Eliphaz · Verified host · 7 years hosting</div></div>
+        <div class="hostmini"><div class="hav"><img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&q=80"><span class="vdot">✓</span></div></div>
+      </div>
+
+      <div>
+        <div class="feat fi"><span class="ic"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#222" stroke-width="1.6" fill="none"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg></span>
+          <div><b>Amazing outdoor space</b><br><small>Guests mention the pool as a highlight.</small></div></div>
+        <div class="feat fi"><span class="ic"><svg width="26" height="26" viewBox="0 0 24 24" fill="#0F766E"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg></span>
+          <div><b>Exceptional check-in</b><br><small>Recent guests gave check-in a 5-star rating.</small></div></div>
+        <div class="feat fi" style="border:0"><span class="ic"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#0F766E" stroke-width="1.6" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></span>
+          <div><b>Escrow-protected booking</b><br><small>Your payment is held safely and released after check-in.</small></div></div>
+      </div>
+
+      <div class="desc">Bright, premium 3-bedroom serviced apartment in a gated Kumasi community. Reliable
+        water and backup power, fast Wi-Fi, secure parking and an on-site lounge &amp; cinema. Bring the
+        whole family — lots of room and a pool to relax by.</div>
+
+      <div class="amen">
+        <h3>What this place offers</h3>
+        <div class="amg">
+          <div class="a">⌁ &nbsp;Kitchen</div><div class="a">⛁ &nbsp;Wi-Fi</div>
+          <div class="a">⛟ &nbsp;Free parking on premises</div><div class="a">≋ &nbsp;Pool</div>
+          <div class="a">▭ &nbsp;TV</div><div class="a">⇅ &nbsp;Elevator</div>
+          <div class="a">❄ &nbsp;Air conditioning</div><div class="a">⌖ &nbsp;Security cameras</div>
+        </div>
+        <button class="showall">Show all 44 amenities</button>
+      </div>
+    </div>
+
+    <!-- right: booking widget -->
+    <div>
+      <div class="widget">
+        <div class="fees">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#0F766E"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>
+          Prices include all fees</div>
+        <div class="wtop"><span class="wstrike">GH₵7,992</span><span class="wnow">GH₵4,795</span><span class="wfor">for 2 nights</span></div>
+        <div class="box">
+          <div class="r"><div class="c"><label>CHECK-IN</label><span>10/07/2026</span></div><div class="c"><label>CHECKOUT</label><span>12/07/2026</span></div></div>
+          <div class="r"><div class="c"><label>GUESTS</label><span>2 guests</span></div></div>
+        </div>
+        <div class="rate sel"><div><b>Non-refundable · GH₵4,795</b><small>Free cancellation for 24 hours. After that, non-refundable.</small></div><span class="radio on"></span></div>
+        <div class="rate"><div><b>Refundable · GH₵5,327</b><small>Free cancellation before Jul 5. Partial refund after.</small></div><span class="radio"></span></div>
+        <button class="reserve">Reserve</button>
+        <div class="escrow">
+          <svg width="13" height="13" viewBox="0 0 24 24" stroke="#6A6A6A" stroke-width="2" fill="none"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>
+          Escrow-protected — you won’t be charged yet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- reviews -->
+  <div class="secdiv" style="padding-top:34px">
+    <div class="revhead"><span class="star">★ 4.91</span> · 56 reviews</div>
+    <div class="chips">
+      <span class="chip on">✓ Verified guests</span><span class="chip">Cleanliness 4.9</span>
+      <span class="chip">Check-in 5.0</span><span class="chip">Location 4.8</span>
+      <span class="chip">Safety 5.0</span><span class="chip">Value 4.7</span>
+    </div>
+    <div class="revs">
+      <div class="rev"><div class="who"><div class="ra"><img src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=80&q=80"></div><div><div class="nm">Chantal</div><div class="dt">May 2026 · Group trip</div></div></div>
+        <p>A great place to stay in Kumasi. Plenty of food and bars within walking distance, and the host responded to every issue quickly.</p></div>
+      <div class="rev"><div class="who"><div class="ra"><img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80&q=80"></div><div><div class="nm">Judifter</div><div class="dt">3 weeks ago · Stayed a few nights</div></div></div>
+        <p>Beautiful and perfect for my study-abroad group. We had the entire compound to ourselves and the on-site manager, Jack, was wonderful.</p></div>
+      <div class="rev"><div class="who"><div class="ra"><img src="https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=80&q=80"></div><div><div class="nm">Douglas</div><div class="dt">March 2026 · Group trip</div></div></div>
+        <p>Eliphaz’s place made staying in the city easy. Everything was comfortable and communication was smooth from start to finish.</p></div>
+      <div class="rev"><div class="who"><div class="ra"><img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&q=80"></div><div><div class="nm">Glory</div><div class="dt">November 2025 · Stayed a few nights</div></div></div>
+        <p>Eliphaz and Rose are amazing hosts. My friends and I felt safe, and the check-in process was effortless. Highly recommend.</p></div>
+    </div>
+  </div>
+
+  <!-- meet your host -->
+  <div class="hostcard">
+    <div class="hc">
+      <div>
+        <div class="big"><img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80"><span class="vdot" style="width:24px;height:24px;font-size:12px;right:90px;bottom:6px">✓</span></div>
+        <div class="nm">Eliphaz</div>
+        <div class="role">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="#0F766E"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8z"/></svg>
+          Verified host</div>
+      </div>
+      <div class="stats">
+        <div class="s"><div class="n">3,034</div><div class="l">Reviews</div></div>
+        <div class="s"><div class="n">4.77 ★</div><div class="l">Rating</div></div>
+        <div class="s"><div class="n">7</div><div class="l">Years hosting</div></div>
+      </div>
+    </div>
+    <div>
+      <h3 style="font-size:20px;font-weight:800">Eliphaz is a Verified host</h3>
+      <p style="color:var(--muted);margin-top:8px;line-height:1.6;max-width:430px">Verified hosts confirm their
+        Ghana Card identity and consistently earn great reviews. Response rate 100% · responds within an hour.</p>
+      <button class="showall" style="margin-top:18px">Message host</button>
+    </div>
+  </div>
+
+  <!-- things to know -->
+  <div class="know">
+    <div><h4>Cancellation policy</h4><p>Free cancellation for 24 hours. After that, this reservation is non-refundable. Review the host’s full policy.</p></div>
+    <div><h4>House rules</h4><p>Check-in after 2:00 PM · Checkout before 11:00 AM · 6 guests maximum.</p></div>
+    <div><h4>Safety &amp; property</h4><p>Exterior security cameras · Carbon-monoxide alarm · Smoke alarm · Safe-arrival check-in available.</p></div>
+  </div>
+</div>
+
+<footer><div class="wrap fcols">
+  <div><div class="logo" style="font-size:18px">TripNest</div><div style="margin-top:8px">Verified rentals in Ghana</div></div>
+  <div>Explore · Become a host · Trust &amp; safety · Help Center</div>
+  <div>© 2026 TripNest, Inc. · Accra, Ghana · GHS</div>
+</div></footer>
+
+</body>
+</html>
