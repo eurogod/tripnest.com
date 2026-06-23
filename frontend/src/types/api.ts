@@ -285,6 +285,14 @@ export interface Walkthrough {
   createdAt: string;
 }
 
+export interface PropertyWalkthroughStatus {
+  propertyId: string;
+  walkthroughStatus: number;
+  videoPath?: string | null;
+  rejectionReason?: string | null;
+  reviewedAt?: string | null;
+}
+
 export interface TrustedContact {
   name?: string | null;
   phone?: string | null;

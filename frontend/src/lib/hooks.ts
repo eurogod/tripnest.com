@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { configApi, notificationsApi } from './services';
+import { configApi, notificationsApi, propertiesApi } from './services';
 import { useAuth } from '@/auth/AuthContext';
+import type { Property } from '@/types/api';
 
 const DEFAULT_MAP = {
   provider: 'OpenStreetMap',
@@ -30,6 +32,34 @@ export function useUnreadCount() {
     enabled: !!user,
     refetchInterval: 60_000,
   });
+}
+
+/** The current host's own listings, with a propertyId → Property lookup for joining bookings/agreements. */
+export function useMyProperties() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['my-properties'],
+    queryFn: propertiesApi.mine,
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+}
+
+/** propertyId → Property map across all properties the user can see (for titles on bookings/agreements). */
+export function usePropertyLookup(source: 'all' | 'mine' = 'all') {
+  const { user } = useAuth();
+  const query = useQuery({
+    queryKey: ['properties', source],
+    queryFn: source === 'mine' ? propertiesApi.mine : propertiesApi.list,
+    enabled: source === 'all' || !!user,
+    staleTime: 60_000,
+  });
+  const map = useMemo(() => {
+    const m = new Map<string, Property>();
+    (query.data ?? []).forEach((p) => m.set(p.propertyId, p));
+    return m;
+  }, [query.data]);
+  return map;
 }
 
 /** Ghana's major towns for the location picker / map centering. */

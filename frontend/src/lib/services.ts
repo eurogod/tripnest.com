@@ -18,6 +18,7 @@ import type {
   Notification,
   PagedResult,
   Property,
+  PropertyWalkthroughStatus,
   Receipt,
   RegisterRequest,
   Review,
@@ -66,6 +67,12 @@ export const propertiesApi = {
     return api.post<Property>(`/properties/${id}/photos`, fd);
   },
   walkthroughs: (id: string) => api.get<Walkthrough[]>(`/properties/${id}/walkthroughs`),
+};
+
+export const walkthroughsApi = {
+  pending: () => api.get<PropertyWalkthroughStatus[]>('/properties/pending-walkthroughs'),
+  review: (propertyId: string, approved: boolean, rejectionReason?: string) =>
+    api.patch<PropertyWalkthroughStatus>(`/properties/${propertyId}/walkthrough/review`, { approved, rejectionReason }),
 };
 
 export const reviewsApi = {
