@@ -29,6 +29,11 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.10" />
 
+    <!-- Redis-backed (multi-instance) variants of SignalR backplane / output cache / rate limiting,
+         all activated only when Redis:ConnectionString is set. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+    <PackageReference Include="RedisRateLimiting" Version="1.2.1" />
+
     <!-- Observability: structured logging (Serilog), distributed tracing + metrics (OpenTelemetry
          exported to Azure Application Insights), and dependency health checks. -->
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />

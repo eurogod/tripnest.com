@@ -6,10 +6,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.OutputCaching;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using RedisRateLimiting;
 using Serilog;
+using StackExchange.Redis;
+using TripNest.Core.Caching;
 using TripNest.Core.Context;
 using TripNest.Core.Extensions;
 using TripNest.Core.Middleware;
@@ -272,14 +276,25 @@ builder.Services.AddHostedService<TrustScoreDailySnapshotService>();
 builder.Services.AddHostedService<VerificationProcessingService>();
 builder.Services.AddHostedService<NotificationDispatchService>();
 
-// Register SignalR. A Redis backplane is required to scale the chat hub beyond a single
-// instance (Groups/Clients are per-server otherwise); enable it by setting Redis:ConnectionString.
-var signalR = builder.Services.AddSignalR();
+// Shared Redis connection (optional). When Redis:ConnectionString is set, the SignalR backplane,
+// output cache and rate limiter all use it, so the app is correct across multiple instances. When
+// it isn't set, each falls back to in-memory single-instance behaviour. AbortOnConnectFail=false lets
+// the app start even if Redis is momentarily unreachable.
 var redisConnection = builder.Configuration["Redis:ConnectionString"];
+IConnectionMultiplexer? redisMux = null;
 if (!string.IsNullOrWhiteSpace(redisConnection))
 {
-    signalR.AddStackExchangeRedis(redisConnection);
+    var redisOptions = ConfigurationOptions.Parse(redisConnection);
+    redisOptions.AbortOnConnectFail = false;
+    redisMux = ConnectionMultiplexer.Connect(redisOptions);
+    builder.Services.AddSingleton<IConnectionMultiplexer>(redisMux);
 }
+
+// SignalR: a Redis backplane is required to scale the chat hub beyond one instance (Groups/Clients
+// are per-server otherwise). Reuse the shared multiplexer when present.
+var signalR = builder.Services.AddSignalR();
+if (redisMux is not null)
+    signalR.AddStackExchangeRedis(o => o.ConnectionFactory = _ => Task.FromResult<IConnectionMultiplexer>(redisMux));
 
 // Liveness/readiness checks for orchestrators and load balancers. Readiness probes the real
 // dependencies: Postgres is critical (Unhealthy → 503, instance pulled from rotation); the
@@ -309,33 +324,42 @@ builder.Services.AddOutputCache(options =>
         .SetVaryByQuery("*"));
 });
 
-// Edge rate limiting: a global fixed-window limiter as a coarse abuse guard.
+// Share the output cache across instances when Redis is available (registered after AddOutputCache so
+// it replaces the default in-memory store); otherwise the in-memory store is used.
+if (redisMux is not null)
+    builder.Services.AddSingleton<IOutputCacheStore>(_ => new RedisOutputCacheStore(redisMux));
+
+// Edge rate limiting: a coarse fixed-window abuse guard. Backed by Redis when configured (shared
+// counters across instances → a true global limit); in-memory otherwise (per-instance ceiling).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.User.GetUserId()
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+
+    static string PartitionKey(HttpContext ctx) =>
+        ctx.User.GetUserId() ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
+
+    // Build a fixed-window partition for the caller — Redis-backed when available, else in-memory.
+    System.Threading.RateLimiting.RateLimitPartition<string> Partition(HttpContext ctx, int permitLimit) =>
+        redisMux is not null
+            ? RedisRateLimitPartition.GetFixedWindowRateLimiter(PartitionKey(ctx), _ => new RedisFixedWindowRateLimiterOptions
             {
-                PermitLimit = 100,
-                Window = TimeSpan.FromMinutes(1)
-            }));
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                ConnectionMultiplexerFactory = () => redisMux
+            })
+            : System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(PartitionKey(ctx),
+                _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = permitLimit,
+                    Window = TimeSpan.FromMinutes(1)
+                });
+
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
+        ctx => Partition(ctx, 100));
 
     // Tighter, per-user limit for OTP sends (defense-in-depth on top of the service cooldown),
     // so a caller can't fan out SMS even by rotating fast. Opt-in via [EnableRateLimiting("otp")].
-    options.AddPolicy("otp", httpContext =>
-        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.User.GetUserId()
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1)
-            }));
+    options.AddPolicy("otp", ctx => Partition(ctx, 5));
 });
 
 var app = builder.Build();
