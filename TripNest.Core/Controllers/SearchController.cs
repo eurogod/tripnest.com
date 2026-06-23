@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using TripNest.Core.DTOs.Search;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Response;
@@ -28,6 +29,7 @@ public class SearchController : ControllerBase
     }
 
     [HttpGet]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<GlobalSearchResultDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<GlobalSearchResultDto>>>> Search([FromQuery] string? q = null, [FromQuery] string? type = null)
     {

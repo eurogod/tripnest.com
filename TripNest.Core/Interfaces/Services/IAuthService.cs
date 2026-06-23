@@ -13,6 +13,9 @@ public interface IAuthService
 
     Task ChangePasswordAsync(string userId, ChangePasswordRequest request);
 
+    /// <summary>Revokes the user's refresh token so it can no longer be exchanged for access tokens.</summary>
+    Task LogoutAsync(string userId);
+
     Task<(User? User, string? ResetToken)> ForgotPasswordAsync(string email);
 
     Task ResetPasswordAsync(string email, string resetToken, string newPassword);

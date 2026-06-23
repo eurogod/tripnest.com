@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Agents;
 using TripNest.Core.Interfaces.Services;
@@ -27,6 +28,7 @@ public class AgentsController : ControllerBase
     /// Get list of verified agents, optionally filtered by service area
     /// </summary>
     [HttpGet]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<List<AgentResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<AgentResponse>>>> GetAgents([FromQuery] string? serviceArea)
     {
@@ -46,6 +48,7 @@ public class AgentsController : ControllerBase
     /// Get agent profile with rating
     /// </summary>
     [HttpGet("{id}")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<AgentResponse>>> GetAgent(string id)

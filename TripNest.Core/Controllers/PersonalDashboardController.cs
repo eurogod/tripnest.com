@@ -213,18 +213,4 @@ public class PersonalDashboardController : ControllerBase
             return Task.FromResult<ActionResult<ApiResponse<object>>>(StatusCode(500, ApiResponse<object>.InternalServerError()));
         }
     }
-
-    [HttpGet("debug")]
-    [AllowAnonymous]
-    public IActionResult DebugClaims()
-    {
-        var claims = new Dictionary<string, object>
-        {
-            ["IsAuthenticated"] = User.Identity?.IsAuthenticated ?? false,
-            ["AuthenticationType"] = User.Identity?.AuthenticationType ?? "none",
-            ["Name"] = User.Identity?.Name ?? "no-name",
-            ["Claims"] = User.Claims.Select(c => new { c.Type, c.Value }).ToList()
-        };
-        return Ok(claims);
-    }
 }

@@ -142,6 +142,28 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<object>>> Logout()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+            await _authService.LogoutAsync(userId);
+            return Ok(ApiResponse<object>.Ok("Logged out successfully", null));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during logout");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
     [HttpPost("change-password")]
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]

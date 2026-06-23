@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -20,6 +21,12 @@ public class TestFixture : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // The app refuses to boot outside Development with the committed placeholder JWT key, and the
+        // test host runs as "Testing". Supply a strong, test-only signing key so the guard is satisfied
+        // while still exercising the production startup path. UseSetting has higher precedence than
+        // appsettings.json under the minimal-hosting model, so it actually overrides the committed key.
+        builder.UseSetting("Jwt:Key", "tripnest-test-signing-key-please-do-not-use-in-production-0123456789");
+
         builder.ConfigureServices(services =>
         {
             // Remove the current DbContext registration

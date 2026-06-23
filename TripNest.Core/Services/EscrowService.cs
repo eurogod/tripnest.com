@@ -52,10 +52,13 @@ public class EscrowService : IEscrowService
             Status = EscrowStatus.Pending
         };
 
-        // Start a Paystack checkout for the booking's tenant.
-        var tenant = await _userRepository.GetByIdAsync(booking.TenantId);
+        // Start a Paystack checkout for the booking's tenant. The tenant always exists (the booking
+        // references them and we authorized against TenantId above) — fail loudly rather than send
+        // the receipt to a bogus address.
+        var tenant = await _userRepository.GetByIdAsync(booking.TenantId)
+            ?? throw new InvalidOperationException("Booking tenant not found");
         var payment = await _paymentGateway.InitiatePaymentAsync(
-            escrow.Amount, "GHS", tenant?.Email ?? "tenant@tripnest.app", bookingId);
+            escrow.Amount, "GHS", tenant.Email, bookingId);
         escrow.PaymentReference = payment.Reference;
 
         await _escrowRepository.AddAsync(escrow);
@@ -67,7 +70,7 @@ public class EscrowService : IEscrowService
         return MapToResponse(escrow, payment.CheckoutUrl);
     }
 
-    public async Task VerifyAndHoldPaymentAsync(string bookingId, string reference)
+    public async Task VerifyAndHoldPaymentAsync(string bookingId, string reference, decimal paidAmount)
     {
         var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
         if (escrow == null)
@@ -85,6 +88,18 @@ public class EscrowService : IEscrowService
         // Funds can only move into escrow from the Pending state.
         if (escrow.Status != EscrowStatus.Pending)
             throw new InvalidOperationException($"Escrow cannot be held from status '{escrow.Status}'");
+
+        // The webhook is authenticated (HMAC signature), but the amount must still match what the
+        // booking is owed — never trust a "success" event to mean the correct amount was paid.
+        // Allow a 1-pesewa tolerance for rounding; reject genuine under/over-payment.
+        if (Math.Abs(paidAmount - escrow.Amount) > 0.01m)
+        {
+            _logger.LogWarning(
+                "Escrow {EscrowId} payment amount mismatch for booking {BookingId}: expected {Expected}, paid {Paid} (ref {Reference})",
+                escrow.Id, bookingId, escrow.Amount, paidAmount, reference);
+            throw new InvalidOperationException(
+                $"Paid amount ({paidAmount:0.00}) does not match the amount due ({escrow.Amount:0.00})");
+        }
 
         escrow.Status = EscrowStatus.HeldInEscrow;
         escrow.PaymentReference = reference;
@@ -133,6 +148,11 @@ public class EscrowService : IEscrowService
 
         escrow.Status = EscrowStatus.Released;
         escrow.ReleasedAt = DateTime.UtcNow;
+
+        // Parity with the auto-release job: a released stay is a completed stay.
+        // NOTE: actual disbursement to the landlord happens via Paystack Transfers, which requires a
+        // verified transfer recipient per host. Until that is wired, "Released" records intent only.
+        booking.Status = BookingStatus.Completed;
 
         await _escrowRepository.UpdateAsync(escrow);
         await _escrowRepository.SaveChangesAsync();
@@ -194,9 +214,15 @@ public class EscrowService : IEscrowService
         if (escrow.Status is not (EscrowStatus.HeldInEscrow or EscrowStatus.Disputed))
             throw new InvalidOperationException($"Escrow cannot be refunded from status '{escrow.Status}'");
 
-        // Issue the refund through the provider before recording it locally.
+        // Issue the refund through the provider before recording it locally. Only mark the escrow
+        // refunded if the provider actually accepted it — otherwise the status would lie about money
+        // that never moved. (The provider call is idempotent on the same transaction reference.)
         if (!string.IsNullOrEmpty(escrow.PaymentReference))
-            await _paymentGateway.RefundAsync(escrow.PaymentReference, escrow.Amount);
+        {
+            var refunded = await _paymentGateway.RefundAsync(escrow.PaymentReference, escrow.Amount);
+            if (!refunded)
+                throw new InvalidOperationException("Refund could not be processed by the payment provider. Please retry.");
+        }
 
         escrow.Status = EscrowStatus.Refunded;
         escrow.ReleaseReason = reason;

@@ -49,6 +49,7 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("DELETE", "/api/properties/x/walkthroughs/y")]
     // Bookings
     [InlineData("POST", "/api/bookings")]
+    [InlineData("GET", "/api/bookings/x")]
     [InlineData("GET", "/api/bookings/user/my-bookings")]
     [InlineData("POST", "/api/bookings/x/cancel")]
     [InlineData("GET", "/api/bookings/x/cancellation-preview")]
@@ -152,7 +153,6 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("GET", "/api/properties/x/available-ranges")]
     [InlineData("GET", "/api/properties/x/walkthroughs")]
     [InlineData("GET", "/api/properties/x/walkthroughs/y")]
-    [InlineData("GET", "/api/bookings/x")]
     // (escrow webhook is anonymous but HMAC-guarded — covered separately below)
     [InlineData("GET", "/api/caretakers")]
     [InlineData("GET", "/api/caretakers/x")]
@@ -164,7 +164,6 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("GET", "/api/trustscore/user/x")]
     [InlineData("GET", "/api/search")]
     [InlineData("GET", "/api/config/app-info")]
-    [InlineData("GET", "/api/personaldashboard/debug")]
     public async Task PublicEndpoint_Anonymous_ShouldNotRequireAuth(string method, string path)
     {
         ClearAuth();

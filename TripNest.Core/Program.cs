@@ -1,11 +1,19 @@
 using System.Text;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Serilog;
 using TripNest.Core.Context;
 using TripNest.Core.Extensions;
 using TripNest.Core.Middleware;
+using TripNest.Core.Monitoring;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -13,6 +21,22 @@ using TripNest.Core.Repositories;
 using TripNest.Core.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Structured logging via Serilog. Console is always on (human-readable locally; the structured
+// properties — including the trace ids added by ActivityEnricher — make it greppable/queryable).
+// Clear the default Console/Debug providers first so logs aren't emitted twice; writeToProviders:true
+// still forwards events to other registered providers — notably the OpenTelemetry/Azure Monitor
+// provider wired below — so the same logs also reach Application Insights.
+builder.Logging.ClearProviders();
+builder.Host.UseSerilog((context, _, config) => config
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", Serilog.Events.LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.With<ActivityEnricher>()
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} <trace:{TraceId}>{NewLine}{Exception}"),
+    writeToProviders: true);
 
 // QuestPDF Community licence (free for organisations/individuals under the revenue threshold).
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
@@ -30,7 +54,18 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 );
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured"));
+var jwtKey = jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured");
+
+// Refuse to boot outside Development with a weak or well-known signing key. The value below is the
+// placeholder that ships in appsettings.json for local dev — if it (or anything < 32 bytes) reaches
+// a real environment, anyone could forge tokens, so fail fast and force a proper secret via env/secrets.
+const string InsecureDefaultJwtKey = "your-super-secret-key-must-be-at-least-32-characters-long-12345";
+if (!builder.Environment.IsDevelopment() && (jwtKey == InsecureDefaultJwtKey || jwtKey.Length < 32))
+    throw new InvalidOperationException(
+        "Jwt:Key must be set to a strong, unique secret (at least 32 characters) outside Development. " +
+        "Configure it via environment variable Jwt__Key or user-secrets — never the committed default.");
+
+var key = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -119,6 +154,8 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 // Singleton so the request path (enqueue) and the hosted processor (dequeue) share one queue.
 builder.Services.AddSingleton<IVerificationQueue, VerificationQueue>();
+// Same pattern for non-emergency notification delivery (SMS/email sent off the request thread).
+builder.Services.AddSingleton<INotificationDispatchQueue, NotificationDispatchQueue>();
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IWalkthroughService, WalkthroughService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
@@ -173,11 +210,37 @@ builder.Services.AddSwaggerGen(options =>
         options.IncludeXmlComments(xmlPath);
 });
 
-builder.Services.AddLogging(config =>
+// Distributed tracing + metrics via OpenTelemetry, exported to Azure Application Insights when a
+// connection string is configured (env APPLICATIONINSIGHTS_CONNECTION_STRING or
+// ApplicationInsights:ConnectionString). Without it, instrumentation still runs but exports nowhere,
+// so local/dev and tests need no Azure account.
+var appInsightsConn = builder.Configuration["ApplicationInsights:ConnectionString"]
+    ?? builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+
+var otel = builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("TripNest.Core"));
+
+// Signals the Azure Monitor distro does NOT add: DB spans (Npgsql's built-in source) + runtime metrics.
+otel.WithTracing(tracing => tracing.AddSource("Npgsql"))
+    .WithMetrics(metrics => metrics.AddRuntimeInstrumentation());
+
+if (!string.IsNullOrWhiteSpace(appInsightsConn))
 {
-    config.AddConsole();
-    config.AddDebug();
-});
+    // The distro adds ASP.NET Core + HttpClient instrumentation and exports traces, metrics and logs.
+    otel.UseAzureMonitor(options => options.ConnectionString = appInsightsConn);
+}
+else
+{
+    // No Azure backend configured — still instrument so traces/metrics exist for any other exporter
+    // (and so the wiring is identical between environments). Added here to avoid double-registering
+    // the same instrumentation the distro provides above.
+    otel.WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation())
+        .WithMetrics(metrics => metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation());
+}
 
 // Register DatabaseSeeder
 builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
@@ -195,7 +258,7 @@ builder.Services.AddScoped<IChatService, ChatService>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
-    o.MultipartBodyLengthLimit = 524_288_000; // 500 MB
+    o.MultipartBodyLengthLimit = 104_857_600; // 100 MB — walkthrough videos; cap guards against memory/disk exhaustion
 });
 
 builder.Services.AddScoped<IRepository<ServiceRequest>, Repository<ServiceRequest>>();
@@ -207,6 +270,7 @@ builder.Services.AddScoped<IRepository<WishlistItem>, Repository<WishlistItem>>(
 builder.Services.AddHostedService<EscrowAutoReleaseService>();
 builder.Services.AddHostedService<TrustScoreDailySnapshotService>();
 builder.Services.AddHostedService<VerificationProcessingService>();
+builder.Services.AddHostedService<NotificationDispatchService>();
 
 // Register SignalR. A Redis backplane is required to scale the chat hub beyond a single
 // instance (Groups/Clients are per-server otherwise); enable it by setting Redis:ConnectionString.
@@ -217,8 +281,33 @@ if (!string.IsNullOrWhiteSpace(redisConnection))
     signalR.AddStackExchangeRedis(redisConnection);
 }
 
-// Liveness/readiness endpoint for orchestrators and load balancers.
-builder.Services.AddHealthChecks();
+// Liveness/readiness checks for orchestrators and load balancers. Readiness probes the real
+// dependencies: Postgres is critical (Unhealthy → 503, instance pulled from rotation); the
+// verification sidecars are Degraded-but-non-gating (only needed for Ghana Card verification, so the
+// API stays "ready" when they're down but the degradation is still reported for monitoring).
+var tripNestIdUrl = builder.Configuration["Services:TripNestId"] ?? "http://localhost:5135";
+var faceMatchUrl = builder.Configuration["Services:FaceMatchSidecar"] ?? "http://localhost:5001";
+
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("postgres", failureStatus: HealthStatus.Unhealthy, tags: new[] { "ready" })
+    .AddTypeActivatedCheck<HttpDependencyHealthCheck>("tripnest-id", HealthStatus.Degraded, new[] { "ready" }, args: tripNestIdUrl)
+    .AddTypeActivatedCheck<HttpDependencyHealthCheck>("face-match", HealthStatus.Degraded, new[] { "ready" }, args: faceMatchUrl);
+
+// In-process caching. MemoryCache is available for service-level caching; OutputCache caches whole
+// HTTP responses for the public, non-personalized GET endpoints (opted in per-endpoint via
+// [OutputCache(PolicyName=...)]). Only anonymous, identical-for-everyone reads are annotated, so a
+// shared cached response is always correct. TTLs are short; tag-based eviction on writes can be
+// layered on later for instant freshness.
+builder.Services.AddMemoryCache();
+builder.Services.AddOutputCache(options =>
+{
+    // Rarely-changing app configuration.
+    options.AddPolicy("config", b => b.Expire(TimeSpan.FromMinutes(5)));
+    // Public listings/details/search — vary by query so each filter combination is cached distinctly.
+    options.AddPolicy("listings", b => b
+        .Expire(TimeSpan.FromSeconds(60))
+        .SetVaryByQuery("*"));
+});
 
 // Edge rate limiting: a global fixed-window limiter as a coarse abuse guard.
 builder.Services.AddRateLimiter(options =>
@@ -272,6 +361,10 @@ using (var scope = app.Services.CreateScope())
 // Catch-all error translation must wrap the whole pipeline.
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+// One structured summary line per request (method, path, status, elapsed) with the trace id —
+// the backbone of request-level monitoring.
+app.UseSerilogRequestLogging();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -281,16 +374,30 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = string.Empty;
     });
 }
+else
+{
+    // Outside Development, enforce HTTPS at the browser via HSTS.
+    app.UseHsts();
+}
 
 app.UseHttpsRedirection();
 
 app.UseCors("AllowFrontend");
+
+// Output caching must run after CORS. Only the explicitly-annotated public GET endpoints are cached;
+// everything else passes straight through to auth below.
+app.UseOutputCache();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseRateLimiter();
 
+// Liveness: the process is up and serving (no dependency checks — used for restart decisions).
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+// Readiness: dependencies are usable (DB gates; sidecars reported but non-gating).
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+// Back-compat: the original path returns the full report.
 app.MapHealthChecks("/health");
 app.MapControllers();
 app.MapHub<TripNest.Core.Hubs.ChatHub>("/hubs/chat");

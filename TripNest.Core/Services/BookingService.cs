@@ -14,6 +14,7 @@ public class BookingService : IBookingService
     private readonly IEscrowRepository _escrowRepository;
     private readonly IAvailabilityService _availabilityService;
     private readonly ICancellationPolicyService _cancellationPolicyService;
+    private readonly IPaymentGateway _paymentGateway;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -22,6 +23,7 @@ public class BookingService : IBookingService
         IEscrowRepository escrowRepository,
         IAvailabilityService availabilityService,
         ICancellationPolicyService cancellationPolicyService,
+        IPaymentGateway paymentGateway,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -29,6 +31,7 @@ public class BookingService : IBookingService
         _escrowRepository = escrowRepository;
         _availabilityService = availabilityService;
         _cancellationPolicyService = cancellationPolicyService;
+        _paymentGateway = paymentGateway;
         _logger = logger;
     }
 
@@ -79,10 +82,12 @@ public class BookingService : IBookingService
         return MapToResponse(booking);
     }
 
-    public async Task<BookingResponse> GetBookingAsync(string bookingId)
+    public async Task<BookingResponse> GetBookingAsync(string bookingId, string userId)
     {
         var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId)
             ?? throw new NotFoundException("Booking");
+
+        EnsureParticipant(booking, userId);
 
         return MapToResponse(booking);
     }
@@ -99,10 +104,16 @@ public class BookingService : IBookingService
         return bookings.Select(MapToResponse);
     }
 
-    public async Task<BookingResponse> CancelBookingAsync(string bookingId)
+    public async Task<BookingResponse> CancelBookingAsync(string bookingId, string userId)
     {
-        var booking = await _bookingRepository.GetByIdAsync(bookingId)
+        // Load with details so we can authorize against the property's landlord too.
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId)
             ?? throw new NotFoundException("Booking");
+
+        EnsureParticipant(booking, userId);
+
+        if (booking.Status is BookingStatus.Cancelled or BookingStatus.Completed)
+            throw new ConflictException($"A {booking.Status.ToString().ToLowerInvariant()} booking cannot be cancelled");
 
         booking.Status = BookingStatus.Cancelled;
         booking.CancelledAt = DateTime.UtcNow;
@@ -112,14 +123,45 @@ public class BookingService : IBookingService
         {
             // Tiered refund based on the property's cancellation policy and how far out check-in is.
             var refundPercentage = await _cancellationPolicyService.CalculateRefundPercentage(bookingId);
-            escrow.Status = EscrowStatus.Refunded;
-            escrow.ReleaseReason = $"Cancelled — {refundPercentage:0}% refund per cancellation policy";
+
+            if (escrow.Status == EscrowStatus.HeldInEscrow)
+            {
+                // Funds were actually captured — issue the partial/full refund through the provider
+                // BEFORE recording it, and only mark refunded if the provider accepts it.
+                var refundAmount = Math.Round(escrow.Amount * refundPercentage / 100m, 2);
+                if (refundAmount > 0 && !string.IsNullOrEmpty(escrow.PaymentReference))
+                {
+                    var refunded = await _paymentGateway.RefundAsync(escrow.PaymentReference, refundAmount);
+                    if (!refunded)
+                        throw new InvalidOperationException("Refund could not be processed by the payment provider. Please retry.");
+                }
+
+                escrow.Status = EscrowStatus.Refunded;
+                escrow.ReleaseReason = $"Cancelled — {refundPercentage:0}% refund (GH₵{Math.Round(escrow.Amount * refundPercentage / 100m, 2)}) per cancellation policy";
+            }
+            else if (escrow.Status == EscrowStatus.Pending)
+            {
+                // No money was ever captured; just void the pending escrow — no provider call.
+                escrow.Status = EscrowStatus.Refunded;
+                escrow.ReleaseReason = "Cancelled before payment was captured";
+            }
+            // Released/Refunded/Disputed escrows are left untouched here (handled via the dispute flow).
         }
 
         // Single atomic commit for the booking + its escrow (shared DbContext).
         await _bookingRepository.SaveChangesAsync();
 
+        _logger.LogInformation("Booking {BookingId} cancelled by {UserId}", bookingId, userId);
+
         return MapToResponse(booking);
+    }
+
+    /// <summary>Throws Forbidden unless the user is the booking's tenant or the property's landlord.</summary>
+    private static void EnsureParticipant(Booking booking, string userId)
+    {
+        var landlordId = booking.Property?.UserId;
+        if (booking.TenantId != userId && landlordId != userId)
+            throw new ForbiddenException("You do not have access to this booking");
     }
 
     private decimal CalculateTotalAmount(Property property, DateTime checkIn, DateTime checkOut)

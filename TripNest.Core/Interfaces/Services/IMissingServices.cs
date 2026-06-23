@@ -15,7 +15,9 @@ namespace TripNest.Core.Interfaces.Services;
 public interface IEscrowService
 {
     Task<EscrowResponse> InitiatePaymentAsync(string bookingId, string userId);
-    Task VerifyAndHoldPaymentAsync(string bookingId, string reference);
+    // paidAmount: amount actually paid (major currency units) from the signature-verified provider
+    // webhook, so the service can reject under/over-payment before holding funds.
+    Task VerifyAndHoldPaymentAsync(string bookingId, string reference, decimal paidAmount);
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
     Task ReleaseEscrowAsync(string escrowId, string userId);
     Task RaiseDisputeAsync(string escrowId, string userId, string reason);

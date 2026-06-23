@@ -14,17 +14,20 @@ public class AuthService : IAuthService
     private readonly IUserRepository _userRepository;
     private readonly ITokenService _tokenService;
     private readonly IPhoneNumberValidator _phoneValidator;
+    private readonly IEmailSender _emailSender;
     private readonly ILogger<AuthService> _logger;
 
     public AuthService(
         IUserRepository userRepository,
         ITokenService tokenService,
         IPhoneNumberValidator phoneValidator,
+        IEmailSender emailSender,
         ILogger<AuthService> logger)
     {
         _userRepository = userRepository;
         _tokenService = tokenService;
         _phoneValidator = phoneValidator;
+        _emailSender = emailSender;
         _logger = logger;
     }
 
@@ -158,10 +161,30 @@ public class AuthService : IAuthService
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
 
+        // Changing the password invalidates existing sessions: drop the refresh token so it
+        // cannot be exchanged for new access tokens.
+        user.RefreshToken = null;
+        user.RefreshTokenExpiryTime = null;
+
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
 
         _logger.LogInformation("Password changed for user: {Email}", user.Email);
+    }
+
+    public async Task LogoutAsync(string userId)
+    {
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return; // Nothing to revoke — treat as success (idempotent).
+
+        user.RefreshToken = null;
+        user.RefreshTokenExpiryTime = null;
+
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
+
+        _logger.LogInformation("User logged out (refresh token revoked): {UserId}", userId);
     }
 
     public async Task<(User? User, string? ResetToken)> ForgotPasswordAsync(string email)
@@ -183,8 +206,17 @@ public class AuthService : IAuthService
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
 
-        // TODO: send email with rawToken to user.Email via IEmailSender (Gmail SMTP)
-        _logger.LogInformation("Password reset token generated for {Email}. Token (dev-only): {Token}", email, rawToken);
+        // Email the token to the address on file. Never log the raw token — it is a bearer
+        // credential. IEmailSender degrades gracefully (logs + returns false) when SMTP is
+        // unconfigured, so this never throws and the controller still returns its generic message.
+        var subject = "Reset your TripNest password";
+        var html = $"<p>We received a request to reset your TripNest password.</p>" +
+                   $"<p>Use this code to reset it (valid for 1 hour):</p>" +
+                   $"<p style=\"font-size:18px;font-weight:bold;letter-spacing:1px\">{rawToken}</p>" +
+                   $"<p>If you didn't request this, you can safely ignore this email.</p>";
+        await _emailSender.SendAsync(user.Email, subject, html);
+
+        _logger.LogInformation("Password reset token generated and emailed for {Email}", email);
 
         return (user, rawToken);
     }
@@ -205,6 +237,10 @@ public class AuthService : IAuthService
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
         user.PasswordResetToken = null;
         user.PasswordResetTokenExpiry = null;
+
+        // A reset (often used after a compromise) must also revoke existing sessions.
+        user.RefreshToken = null;
+        user.RefreshTokenExpiryTime = null;
 
         await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();

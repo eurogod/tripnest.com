@@ -26,7 +26,24 @@ public class EscrowAutoReleaseService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Run once daily at 2 AM UTC
+        // Catch-up pass shortly after startup so eligible escrows aren't stranded when an instance
+        // restarts before the next 02:00 window (the old schedule could defer releases up to ~24h).
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            await ProcessAutoReleasesAsync(stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("EscrowAutoReleaseService cancelled");
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in EscrowAutoReleaseService startup pass");
+        }
+
+        // Then run once daily at 2 AM UTC.
         while (!stoppingToken.IsCancellationRequested)
         {
             try

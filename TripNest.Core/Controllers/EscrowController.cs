@@ -104,7 +104,13 @@ public class EscrowController : ControllerBase
             if (string.IsNullOrEmpty(bookingId) || string.IsNullOrEmpty(reference))
                 return BadRequest(ApiResponse<object>.BadRequest("Missing booking or payment reference"));
 
-            await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference);
+            // Paystack reports the charged amount in the minor unit (pesewas); convert to GHS so the
+            // service can verify it matches what the booking is owed before holding the funds.
+            var paidAmount = data.TryGetProperty("amount", out var amt) && amt.TryGetDecimal(out var minor)
+                ? minor / 100m
+                : 0m;
+
+            await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference, paidAmount);
             return Ok(ApiResponse<object>.Ok("Payment verified", null));
         }
         catch (JsonException)
