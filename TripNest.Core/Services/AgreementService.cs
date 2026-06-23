@@ -79,10 +79,13 @@ public class AgreementService : IAgreementService
 
     public async Task<List<AgreementResponse>> GetUserAgreementsAsync(string userId)
     {
-        var allAgreements = await _agreementRepository.GetAllAsync();
+        // Narrow to the user's agreements in the database (tenant on the booking, or the property's
+        // landlord) instead of loading every agreement and filtering in memory.
+        var agreements = await _agreementRepository.FindAsync(
+            a => a.Booking!.TenantId == userId || a.Booking!.Property!.UserId == userId);
         var result = new List<AgreementResponse>();
 
-        foreach (var agreement in allAgreements)
+        foreach (var agreement in agreements)
         {
             var booking = agreement.Booking
                 ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId);

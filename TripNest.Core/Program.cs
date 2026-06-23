@@ -6,7 +6,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.FileProviders;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -15,6 +17,7 @@ using Serilog;
 using StackExchange.Redis;
 using TripNest.Core.Caching;
 using TripNest.Core.Context;
+using TripNest.Core.Storage;
 using TripNest.Core.Extensions;
 using TripNest.Core.Middleware;
 using TripNest.Core.Monitoring;
@@ -329,6 +332,15 @@ builder.Services.AddOutputCache(options =>
 if (redisMux is not null)
     builder.Services.AddSingleton<IOutputCacheStore>(_ => new RedisOutputCacheStore(redisMux));
 
+// File storage: Azure Blob when configured (multi-instance-safe; survives restarts/scale-out), else
+// local disk under wwwroot served by UseStaticFiles (single-instance/dev).
+var blobConnection = builder.Configuration["Storage:Blob:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(blobConnection))
+    builder.Services.AddSingleton<IFileStorage>(_ =>
+        new BlobFileStorage(blobConnection, builder.Configuration["Storage:Blob:Container"] ?? "uploads"));
+else
+    builder.Services.AddSingleton<IFileStorage, LocalFileStorage>();
+
 // Edge rate limiting: a coarse fixed-window abuse guard. Backed by Redis when configured (shared
 // counters across instances → a true global limit); in-memory otherwise (per-instance ceiling).
 builder.Services.AddRateLimiter(options =>
@@ -382,6 +394,17 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Honour X-Forwarded-* from the hosting reverse proxy (Azure App Service, etc.) so the real client
+// IP and scheme are used — needed for correct rate-limiting partitions, HTTPS detection and logs.
+// Must run before any middleware that inspects the connection.
+var forwardedOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+forwardedOptions.KnownNetworks.Clear();
+forwardedOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedOptions);
+
 // Catch-all error translation must wrap the whole pipeline.
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
@@ -405,6 +428,12 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Serve locally-stored uploads (/uploads/...). Ensure the web root exists so the static file
+// provider has a directory to serve even before the first upload.
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(webRoot);
+app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(webRoot) });
 
 app.UseCors("AllowFrontend");
 

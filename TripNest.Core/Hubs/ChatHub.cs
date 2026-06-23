@@ -97,12 +97,12 @@ public class ChatHub : Hub
             };
 
             await _messageRepository.AddAsync(message);
-            await _messageRepository.SaveChangesAsync();
 
-            // Update conversation's last message time
+            // Update conversation's last message time. Both repositories share the scoped DbContext,
+            // so a single SaveChanges commits the message and the conversation update atomically.
             conversation.LastMessageAt = DateTime.UtcNow;
             await _conversationRepository.UpdateAsync(conversation);
-            await _conversationRepository.SaveChangesAsync();
+            await _messageRepository.SaveChangesAsync();
 
             // Broadcast to conversation group using the same MessageResponse shape the
             // REST endpoint and message history return, so clients see one consistent payload.

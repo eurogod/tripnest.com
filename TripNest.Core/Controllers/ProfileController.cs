@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TripNest.Core.Interfaces.Repositories;
+using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
 
@@ -14,11 +15,13 @@ namespace TripNest.Core.Controllers;
 public class ProfileController : ControllerBase
 {
     private readonly IUserRepository _userRepository;
+    private readonly IFileStorage _fileStorage;
     private readonly ILogger<ProfileController> _logger;
 
-    public ProfileController(IUserRepository userRepository, ILogger<ProfileController> logger)
+    public ProfileController(IUserRepository userRepository, IFileStorage fileStorage, ILogger<ProfileController> logger)
     {
         _userRepository = userRepository;
+        _fileStorage = fileStorage;
         _logger = logger;
     }
 
@@ -144,23 +147,23 @@ public class ProfileController : ControllerBase
             if (photo == null || photo.Length == 0)
                 return BadRequest(ApiResponse<object>.BadRequest("Photo file is required"));
 
-            var filename = $"profile-{userId}-{Guid.NewGuid()}{Path.GetExtension(photo.FileName)}";
-            var filepath = Path.Combine("/uploads", "profiles", filename);
-
-            using (var stream = new FileStream(filepath, FileMode.Create))
-            {
-                await photo.CopyToAsync(stream);
-            }
+            // Storage validates type + size and returns a servable path/URL (local disk or Azure Blob).
+            var photoPath = await _fileStorage.SaveAsync("profiles", photo, UploadKind.Image);
 
             var user = await _userRepository.GetByIdAsync(userId);
             if (user != null)
             {
-                user.ProfilePhotoPath = filepath;
+                user.ProfilePhotoPath = photoPath;
                 await _userRepository.UpdateAsync(user);
                 await _userRepository.SaveChangesAsync();
             }
 
-            return Ok(ApiResponse<object>.Ok("Profile photo uploaded", new { photoPath = filepath }));
+            return Ok(ApiResponse<object>.Ok("Profile photo uploaded", new { photoPath }));
+        }
+        catch (TripNest.Core.Exceptions.ValidationException ex)
+        {
+            // Rejected type/size from the storage validator.
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {

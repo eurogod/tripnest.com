@@ -29,8 +29,7 @@ public class AgentService : IAgentService
     {
         try
         {
-            var agents = await _agentRepository.GetAllAsync();
-            var activeAgents = agents.Where(a => a.Status == AgentStatus.Active);
+            var activeAgents = await _agentRepository.FindAsync(a => a.Status == AgentStatus.Active);
 
             // serviceArea filtering is a future feature — no area field on Agent yet
             return activeAgents.Select(MapToAgent).ToList();

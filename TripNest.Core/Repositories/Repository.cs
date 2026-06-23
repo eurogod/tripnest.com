@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using TripNest.Core.Context;
 using TripNest.Core.Interfaces.Repositories;
@@ -25,6 +26,17 @@ public class Repository<T> : IRepository<T> where T : class
     {
         // Read-only listing — skip change tracking for less overhead.
         return await _dbSet.AsNoTracking().ToListAsync();
+    }
+
+    public async Task<IEnumerable<T>> FindAsync(Expression<Func<T, bool>> predicate)
+    {
+        // Filter in the database rather than loading the whole table and filtering in memory.
+        return await _dbSet.AsNoTracking().Where(predicate).ToListAsync();
+    }
+
+    public async Task<int> CountAsync(Expression<Func<T, bool>> predicate)
+    {
+        return await _dbSet.CountAsync(predicate);
     }
 
     public async Task<T> AddAsync(T entity)

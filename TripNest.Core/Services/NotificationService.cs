@@ -110,8 +110,8 @@ public class NotificationService : INotificationService
 
     private async Task<CommunicationPreference> GetOrCreatePreferenceAsync(string userId)
     {
-        var existing = (await _preferenceRepository.GetAllAsync())
-            .FirstOrDefault(p => p.UserId == userId);
+        var existing = (await _preferenceRepository.FindAsync(p => p.UserId == userId))
+            .FirstOrDefault();
         if (existing != null)
             return existing;
 

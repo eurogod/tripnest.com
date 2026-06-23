@@ -32,9 +32,7 @@ public class CaretakerService : ICaretakerService
     {
         try
         {
-            var caretakers = await _caretakerRepository.GetAllAsync();
-
-            var active = caretakers.Where(c => c.Status == CaretakerStatus.Active);
+            var active = await _caretakerRepository.FindAsync(c => c.Status == CaretakerStatus.Active);
 
             if (!string.IsNullOrWhiteSpace(serviceType))
                 active = active.Where(c => c.Responsibilities.Contains(serviceType, StringComparison.OrdinalIgnoreCase));
@@ -147,10 +145,10 @@ public class CaretakerService : ICaretakerService
     {
         try
         {
-            var all = await _serviceRequestRepository.GetAllAsync();
+            var requests = await _serviceRequestRepository.FindAsync(
+                s => s.RequestedByUserId == userId || s.CaretakerId == userId);
 
-            return all
-                .Where(s => s.RequestedByUserId == userId || s.CaretakerId == userId)
+            return requests
                 .Select(MapToServiceRequest)
                 .ToList();
         }
