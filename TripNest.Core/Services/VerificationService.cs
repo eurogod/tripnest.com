@@ -105,8 +105,10 @@ public class VerificationService : IVerificationService
         }
 
         var threshold = _configuration.GetValue<double>("Verification:FaceMatchThreshold", 80.0);
+        var livenessThreshold = _configuration.GetValue<double>("Verification:LivenessThreshold", 75.0);
         string? failureReason = null;
         double? faceMatchScore = null;
+        double? livenessScore = null;
         var isVerified = false;
 
         try
@@ -124,12 +126,23 @@ public class VerificationService : IVerificationService
             else
             {
                 verification.NiaPhotoUrl = nia.PhotoUrl ?? string.Empty;
-                var (score, matchFailure) = await _faceMatchClient.CompareFacesAsync(verification.SelfiePhotoPath, nia.PhotoUrl ?? string.Empty);
+                var (score, liveness, matchFailure) = await _faceMatchClient.CompareFacesAsync(verification.SelfiePhotoPath, nia.PhotoUrl ?? string.Empty);
                 faceMatchScore = score;
+                livenessScore = liveness;
                 failureReason = matchFailure;
-                isVerified = string.IsNullOrEmpty(matchFailure) && score >= threshold;
-                if (!isVerified && string.IsNullOrEmpty(failureReason))
-                    failureReason = $"Face match score {score:F0} is below the required {threshold:F0}";
+
+                // Both must hold: the selfie must resemble the NIA photo AND pass the liveness
+                // check. Liveness is evaluated first so a spoof (printed/replayed photo) is
+                // reported as such rather than as a generic match failure.
+                if (string.IsNullOrEmpty(matchFailure))
+                {
+                    if (liveness < livenessThreshold)
+                        failureReason = "Liveness check failed — please retake a live selfie now, not a photo of a photo or a screen.";
+                    else if (score < threshold)
+                        failureReason = $"Face match score {score:F0} is below the required {threshold:F0}";
+                    else
+                        isVerified = true;
+                }
             }
         }
         catch (Exception ex)
@@ -139,6 +152,7 @@ public class VerificationService : IVerificationService
         }
 
         verification.FaceMatchScore = faceMatchScore;
+        verification.LivenessScore = livenessScore;
         verification.FailureReason = failureReason;
         verification.Status = isVerified ? VerificationStatus.Verified : VerificationStatus.Rejected;
         verification.ReviewedAt = DateTime.UtcNow;
@@ -176,8 +190,8 @@ public class VerificationService : IVerificationService
                 "We couldn't verify your identity. Tap to try again.");
         }
 
-        _logger.LogInformation("Verification {VerificationId} resolved — score: {Score}, status: {Status}",
-            verificationId, faceMatchScore, verification.Status);
+        _logger.LogInformation("Verification {VerificationId} resolved — score: {Score}, liveness: {Liveness}, status: {Status}",
+            verificationId, faceMatchScore, livenessScore, verification.Status);
     }
 
     /// <summary>
@@ -251,6 +265,7 @@ public class VerificationService : IVerificationService
         GhanaCardNumber = MaskCardNumber(verification.GhanaCardNumber),
         Status = verification.Status,
         FaceMatchScore = verification.FaceMatchScore,
+        LivenessScore = verification.LivenessScore,
         FailureReason = verification.FailureReason,
         SubmittedAt = verification.SubmittedAt,
         ReviewedAt = verification.ReviewedAt
