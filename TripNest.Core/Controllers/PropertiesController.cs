@@ -148,6 +148,25 @@ public class PropertiesController : ControllerBase
         }
     }
 
+    /// <summary>Featured listings for the home page (most recent active properties).</summary>
+    [HttpGet("featured")]
+    [OutputCache(PolicyName = "listings")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> GetFeaturedProperties([FromQuery] int limit = 8)
+    {
+        try
+        {
+            var active = await _propertyService.GetAllActivePropertiesAsync();
+            var featured = active.Take(limit < 1 ? 8 : limit);
+            return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Featured properties retrieved", featured));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving featured properties");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
     [HttpGet("search")]
     [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]

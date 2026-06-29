@@ -273,6 +273,29 @@ builder.Services.AddScoped<IRepository<ViewingRequest>, Repository<ViewingReques
 builder.Services.AddScoped<IRepository<PropertyBlockedDate>, Repository<PropertyBlockedDate>>();
 builder.Services.AddScoped<IRepository<WishlistItem>, Repository<WishlistItem>>();
 
+// Marketplace / operations modules (frontend parity).
+builder.Services.AddScoped<IRepository<PricingSettings>, Repository<PricingSettings>>();
+builder.Services.AddScoped<IRepository<Inquiry>, Repository<Inquiry>>();
+builder.Services.AddScoped<IRepository<SavedPaymentMethod>, Repository<SavedPaymentMethod>>();
+builder.Services.AddScoped<IRepository<ExchangePost>, Repository<ExchangePost>>();
+builder.Services.AddScoped<IRepository<ExchangeReply>, Repository<ExchangeReply>>();
+builder.Services.AddScoped<IRepository<HostTask>, Repository<HostTask>>();
+builder.Services.AddScoped<IRepository<TeamMember>, Repository<TeamMember>>();
+builder.Services.AddScoped<IRepository<ResourceItem>, Repository<ResourceItem>>();
+builder.Services.AddScoped<IRepository<PropertyTour>, Repository<PropertyTour>>();
+
+builder.Services.AddScoped<IPricingService, PricingService>();
+builder.Services.AddScoped<ICalendarService, CalendarService>();
+builder.Services.AddScoped<IInquiryService, InquiryService>();
+builder.Services.AddScoped<IPaymentMethodService, PaymentMethodService>();
+builder.Services.AddScoped<IExchangeService, ExchangeService>();
+builder.Services.AddScoped<IHostTaskService, HostTaskService>();
+builder.Services.AddScoped<ITeamService, TeamService>();
+builder.Services.AddScoped<IResourceService, ResourceService>();
+builder.Services.AddScoped<IStatementService, StatementService>();
+builder.Services.AddScoped<ITourService, TourService>();
+builder.Services.AddScoped<ILandlordWorkspaceService, LandlordWorkspaceService>();
+
 // Register background services
 builder.Services.AddHostedService<EscrowAutoReleaseService>();
 builder.Services.AddHostedService<TrustScoreDailySnapshotService>();

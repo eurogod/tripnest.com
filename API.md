@@ -297,6 +297,80 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/admin/stats` | 🔒 `[Admin]` |
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
 
+### Pricing & calendar — `api/pricing`, `api/calendar`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` (defaults derived from listing if unset) |
+| PUT | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` |
+| GET | `/api/calendar?propertyId=&year=&month=` | 🔒 `[Landlord,Admin]` priced month w/ weekend/blocked/maintenance/booked flags |
+
+### Landlord workspace — `api/landlord`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/landlord/bookings` | 🔒 `[Landlord,Admin]` incoming bookings across listings |
+| GET | `/api/landlord/tenants` | 🔒 `[Landlord,Admin]` tenant roster (from active bookings) |
+| GET | `/api/landlord/inquiries` | 🔒 `[Landlord,Admin]` |
+| PATCH | `/api/landlord/inquiries/{id}/status` | 🔒 `[Landlord,Admin]` |
+
+### Inquiries — `api/inquiries`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/api/inquiries` | 🔒 send a pre-booking enquiry to a listing's landlord |
+
+### Saved payment methods — `api/payments/methods`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/payments/methods` | 🔒 |
+| POST | `/api/payments/methods` | 🔒 |
+| PATCH | `/api/payments/methods/{id}/primary` | 🔒 |
+| DELETE | `/api/payments/methods/{id}` | 🔒 |
+
+### Host tasks — `api/tasks`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/tasks` | 🔒 `[Landlord,Admin]` |
+| POST | `/api/tasks` | 🔒 `[Landlord,Admin]` |
+| PATCH | `/api/tasks/{id}` | 🔒 `[Landlord,Admin]` |
+| DELETE | `/api/tasks/{id}` | 🔒 `[Landlord,Admin]` |
+
+### Team — `api/team`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/team` | 🔒 `[Landlord,Admin]` |
+| POST | `/api/team` | 🔒 `[Landlord,Admin]` invite |
+| PATCH | `/api/team/{id}` | 🔒 `[Landlord,Admin]` role/status |
+| DELETE | `/api/team/{id}` | 🔒 `[Landlord,Admin]` |
+
+### Statements — `api/statements`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/statements` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed) |
+
+### Owner Exchange — `api/exchange`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/exchange/posts` | 🔒 |
+| POST | `/api/exchange/posts` | 🔒 |
+| GET | `/api/exchange/posts/{id}/replies` | 🔒 |
+| POST | `/api/exchange/posts/{id}/replies` | 🔒 |
+
+### Resources — `api/resources`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/resources` | 🔒 |
+| POST | `/api/resources` | 🔒 `[Admin]` |
+
+### Virtual tour — `api/properties/{propertyId}/tour`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/properties/{propertyId}/tour` | 🌐 rooms + hotspots |
+| PUT | `/api/properties/{propertyId}/tour` | 🔒 `[Landlord,Admin]` owner upsert |
+
+### Featured listings — `api/properties`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/properties/featured?limit=` | 🌐 home-page featured listings |
+
 ---
 
 ## Operations & scaling
