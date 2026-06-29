@@ -128,6 +128,9 @@ public class CalendarService : ICalendarService
         var baseRate = settings?.BaseRate ?? property.DailyRate ?? Math.Round(property.MonthlyRent / 30m, 2);
         var weekendRate = settings?.WeekendRate is > 0 ? settings!.WeekendRate : baseRate;
         var minNights = settings?.MinNights ?? 1;
+        // A long-stay (monthly) discount, when configured, is surfaced on weekday nights as the
+        // effective discounted nightly rate so the calendar reflects the real price a guest would pay.
+        var monthlyDiscount = settings?.MonthlyDiscountPercent ?? 0m;
 
         var blocked = (await _blockedRepository.FindAsync(b => b.PropertyId == propertyId)).ToList();
         var bookings = (await _bookingRepository.GetByPropertyIdAsync(propertyId))
@@ -154,12 +157,20 @@ public class CalendarService : ICalendarService
             var isOwnerBlocked = cover is not null && !isMaintenance;
             var isBooked = bookings.Any(b => date.Date >= b.CheckInDate.Date && date.Date < b.CheckOutDate.Date);
 
+            var price = isWeekend ? weekendRate : baseRate;
+            var isDiscounted = false;
+            if (!isWeekend && monthlyDiscount > 0)
+            {
+                price = Math.Round(price * (1 - monthlyDiscount / 100m), 2);
+                isDiscounted = true;
+            }
+
             response.Days.Add(new CalendarDayResponse
             {
                 Date = date,
-                Price = isWeekend ? weekendRate : baseRate,
+                Price = price,
                 IsWeekend = isWeekend,
-                IsDiscounted = false,
+                IsDiscounted = isDiscounted,
                 IsOwnerBlocked = isOwnerBlocked,
                 IsMaintenance = isMaintenance,
                 IsBooked = isBooked

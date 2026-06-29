@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Marketplace;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -19,15 +20,15 @@ public class HostTasksController : ControllerBase
 
     /// <summary>List the caller's operational tasks.</summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<List<HostTaskResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<HostTaskResponse>>>> GetMine()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<HostTaskResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<HostTaskResponse>>>> GetMine([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var landlordId = User.GetUserId();
         if (string.IsNullOrEmpty(landlordId))
-            return Unauthorized(ApiResponse<List<HostTaskResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<HostTaskResponse>>.UnAuthorized());
 
-        var tasks = await _taskService.GetMineAsync(landlordId);
-        return Ok(ApiResponse<List<HostTaskResponse>>.Ok("Tasks retrieved", tasks));
+        var tasks = await _taskService.GetMineAsync(landlordId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<HostTaskResponse>>.Ok("Tasks retrieved", tasks));
     }
 
     /// <summary>Create a task.</summary>

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Marketplace;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -28,41 +29,41 @@ public class LandlordWorkspaceController : ControllerBase
 
     /// <summary>Incoming bookings across the caller's listings.</summary>
     [HttpGet("bookings")]
-    [ProducesResponseType(typeof(ApiResponse<List<LandlordBookingResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<LandlordBookingResponse>>>> GetBookings()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<LandlordBookingResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<LandlordBookingResponse>>>> GetBookings([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var landlordId = User.GetUserId();
         if (string.IsNullOrEmpty(landlordId))
-            return Unauthorized(ApiResponse<List<LandlordBookingResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<LandlordBookingResponse>>.UnAuthorized());
 
-        var bookings = await _workspaceService.GetBookingsAsync(landlordId);
-        return Ok(ApiResponse<List<LandlordBookingResponse>>.Ok("Bookings retrieved", bookings));
+        var bookings = await _workspaceService.GetBookingsAsync(landlordId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<LandlordBookingResponse>>.Ok("Bookings retrieved", bookings));
     }
 
     /// <summary>The caller's tenant roster, derived from active bookings.</summary>
     [HttpGet("tenants")]
-    [ProducesResponseType(typeof(ApiResponse<List<LandlordTenantResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<LandlordTenantResponse>>>> GetTenants()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<LandlordTenantResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<LandlordTenantResponse>>>> GetTenants([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var landlordId = User.GetUserId();
         if (string.IsNullOrEmpty(landlordId))
-            return Unauthorized(ApiResponse<List<LandlordTenantResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<LandlordTenantResponse>>.UnAuthorized());
 
-        var tenants = await _workspaceService.GetTenantsAsync(landlordId);
-        return Ok(ApiResponse<List<LandlordTenantResponse>>.Ok("Tenants retrieved", tenants));
+        var tenants = await _workspaceService.GetTenantsAsync(landlordId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<LandlordTenantResponse>>.Ok("Tenants retrieved", tenants));
     }
 
     /// <summary>Pre-booking enquiries sent to the caller's listings.</summary>
     [HttpGet("inquiries")]
-    [ProducesResponseType(typeof(ApiResponse<List<InquiryResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<InquiryResponse>>>> GetInquiries()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<InquiryResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<InquiryResponse>>>> GetInquiries([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var landlordId = User.GetUserId();
         if (string.IsNullOrEmpty(landlordId))
-            return Unauthorized(ApiResponse<List<InquiryResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<InquiryResponse>>.UnAuthorized());
 
-        var inquiries = await _inquiryService.GetForLandlordAsync(landlordId);
-        return Ok(ApiResponse<List<InquiryResponse>>.Ok("Inquiries retrieved", inquiries));
+        var inquiries = await _inquiryService.GetForLandlordAsync(landlordId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<InquiryResponse>>.Ok("Inquiries retrieved", inquiries));
     }
 
     /// <summary>Update the status of an enquiry (new / replied / archived).</summary>

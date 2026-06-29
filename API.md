@@ -307,9 +307,9 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Landlord workspace — `api/landlord`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/landlord/bookings` | 🔒 `[Landlord,Admin]` incoming bookings across listings |
-| GET | `/api/landlord/tenants` | 🔒 `[Landlord,Admin]` tenant roster (from active bookings) |
-| GET | `/api/landlord/inquiries` | 🔒 `[Landlord,Admin]` |
+| GET | `/api/landlord/bookings?page=&pageSize=` | 🔒 `[Landlord,Admin]` incoming bookings (paged) |
+| GET | `/api/landlord/tenants?page=&pageSize=` | 🔒 `[Landlord,Admin]` tenant roster (paged) |
+| GET | `/api/landlord/inquiries?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
 | PATCH | `/api/landlord/inquiries/{id}/status` | 🔒 `[Landlord,Admin]` |
 
 ### Inquiries — `api/inquiries`
@@ -328,7 +328,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Host tasks — `api/tasks`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/tasks` | 🔒 `[Landlord,Admin]` |
+| GET | `/api/tasks?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
 | POST | `/api/tasks` | 🔒 `[Landlord,Admin]` |
 | PATCH | `/api/tasks/{id}` | 🔒 `[Landlord,Admin]` |
 | DELETE | `/api/tasks/{id}` | 🔒 `[Landlord,Admin]` |
@@ -349,7 +349,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Owner Exchange — `api/exchange`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/exchange/posts` | 🔒 |
+| GET | `/api/exchange/posts?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/exchange/posts` | 🔒 |
 | GET | `/api/exchange/posts/{id}/replies` | 🔒 |
 | POST | `/api/exchange/posts/{id}/replies` | 🔒 |

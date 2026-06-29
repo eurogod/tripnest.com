@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Marketplace;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -31,7 +32,7 @@ public class ExchangeService : IExchangeService
         _userRepository = userRepository;
     }
 
-    public async Task<List<ExchangePostResponse>> GetPostsAsync()
+    public async Task<PagedResult<ExchangePostResponse>> GetPostsAsync(int page, int pageSize)
     {
         var posts = (await _postRepository.GetAllAsync())
             .OrderByDescending(p => p.Pinned)
@@ -41,9 +42,11 @@ public class ExchangeService : IExchangeService
         var authorIds = posts.Select(p => p.AuthorId).Distinct().ToList();
         var authors = (await _userRepository.FindAsync(u => authorIds.Contains(u.Id)))
             .ToDictionary(u => u.Id, u => u.FullName);
-        var replies = (await _replyRepository.GetAllAsync()).ToList();
+        var replyCounts = (await _replyRepository.GetAllAsync())
+            .GroupBy(r => r.PostId)
+            .ToDictionary(g => g.Key, g => g.Count());
 
-        return posts.Select(p => new ExchangePostResponse
+        var mapped = posts.Select(p => new ExchangePostResponse
         {
             Id = p.Id,
             AuthorId = p.AuthorId,
@@ -52,9 +55,11 @@ public class ExchangeService : IExchangeService
             Body = p.Body,
             Category = p.Category,
             Pinned = p.Pinned,
-            ReplyCount = replies.Count(r => r.PostId == p.Id),
+            ReplyCount = replyCounts.GetValueOrDefault(p.Id),
             CreatedAt = p.CreatedAt
         }).ToList();
+
+        return Paging.Page(mapped, page, pageSize);
     }
 
     public async Task<ExchangePostResponse> CreatePostAsync(CreateExchangePostRequest request, string authorId)
@@ -169,11 +174,13 @@ public class HostTaskService : IHostTaskService
 
     public HostTaskService(IRepository<HostTask> repository) => _repository = repository;
 
-    public async Task<List<HostTaskResponse>> GetMineAsync(string landlordId)
+    public async Task<PagedResult<HostTaskResponse>> GetMineAsync(string landlordId, int page, int pageSize)
     {
         var tasks = (await _repository.FindAsync(t => t.LandlordId == landlordId))
-            .OrderByDescending(t => t.CreatedAt);
-        return tasks.Select(Map).ToList();
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(Map)
+            .ToList();
+        return Paging.Page(tasks, page, pageSize);
     }
 
     public async Task<HostTaskResponse> CreateAsync(CreateHostTaskRequest request, string landlordId)

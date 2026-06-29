@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Marketplace;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -19,11 +20,11 @@ public class ExchangeController : ControllerBase
 
     /// <summary>List Owner Exchange posts (pinned first, then newest).</summary>
     [HttpGet("posts")]
-    [ProducesResponseType(typeof(ApiResponse<List<ExchangePostResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ExchangePostResponse>>>> GetPosts()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ExchangePostResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ExchangePostResponse>>>> GetPosts([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var posts = await _exchangeService.GetPostsAsync();
-        return Ok(ApiResponse<List<ExchangePostResponse>>.Ok("Posts retrieved", posts));
+        var posts = await _exchangeService.GetPostsAsync(page, pageSize);
+        return Ok(ApiResponse<PagedResult<ExchangePostResponse>>.Ok("Posts retrieved", posts));
     }
 
     /// <summary>Create an Owner Exchange post.</summary>

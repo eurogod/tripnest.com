@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using TripNest.Core.DTOs.Marketplace;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -8,6 +9,30 @@ using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Services;
+
+/// <summary>Normalises caller-supplied paging into safe bounds.</summary>
+internal static class Paging
+{
+    public static (int page, int size) Clamp(int page, int pageSize, int maxSize = 100)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > maxSize) pageSize = maxSize;
+        return (page, pageSize);
+    }
+
+    public static PagedResult<T> Page<T>(IReadOnlyList<T> all, int page, int pageSize)
+    {
+        var (p, size) = Clamp(page, pageSize);
+        return new PagedResult<T>
+        {
+            Items = all.Skip((p - 1) * size).Take(size).ToList(),
+            TotalCount = all.Count,
+            Page = p,
+            PageSize = size
+        };
+    }
+}
 
 public class InquiryService : IInquiryService
 {
@@ -38,7 +63,7 @@ public class InquiryService : IInquiryService
         return Map(inquiry, property.Title);
     }
 
-    public async Task<List<InquiryResponse>> GetForLandlordAsync(string landlordId)
+    public async Task<PagedResult<InquiryResponse>> GetForLandlordAsync(string landlordId, int page, int pageSize)
     {
         var inquiries = (await _inquiryRepository.FindAsync(i => i.LandlordId == landlordId))
             .OrderByDescending(i => i.CreatedAt)
@@ -48,7 +73,8 @@ public class InquiryService : IInquiryService
         var titles = (await _propertyRepository.FindAsync(p => propertyIds.Contains(p.Id)))
             .ToDictionary(p => p.Id, p => p.Title);
 
-        return inquiries.Select(i => Map(i, titles.GetValueOrDefault(i.PropertyId))).ToList();
+        var mapped = inquiries.Select(i => Map(i, titles.GetValueOrDefault(i.PropertyId))).ToList();
+        return Paging.Page(mapped, page, pageSize);
     }
 
     public async Task<InquiryResponse> UpdateStatusAsync(string inquiryId, string status, string landlordId)
@@ -170,16 +196,16 @@ public class StatementService : IStatementService
 
     public async Task<List<StatementResponse>> GetForLandlordAsync(string landlordId)
     {
-        var properties = (await _propertyRepository.GetByUserIdAsync(landlordId)).ToList();
+        var propertyIds = (await _propertyRepository.GetByUserIdAsync(landlordId)).Select(p => p.Id).ToList();
+        if (propertyIds.Count == 0)
+            return new List<StatementResponse>();
 
-        var bookings = new List<Booking>();
-        foreach (var property in properties)
-            bookings.AddRange(await _bookingRepository.GetByPropertyIdAsync(property.Id));
-
-        var active = bookings.Where(b => b.Status != BookingStatus.Cancelled);
+        // Single query for all of the landlord's bookings (no per-property round-trips).
+        var bookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId)))
+            .Where(b => b.Status != BookingStatus.Cancelled);
         var now = DateTime.UtcNow;
 
-        return active
+        return bookings
             .GroupBy(b => new { b.CheckInDate.Year, b.CheckInDate.Month })
             .OrderByDescending(g => g.Key.Year).ThenByDescending(g => g.Key.Month)
             .Select(g =>
@@ -269,18 +295,18 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
         _userRepository = userRepository;
     }
 
-    public async Task<List<LandlordBookingResponse>> GetBookingsAsync(string landlordId)
+    public async Task<PagedResult<LandlordBookingResponse>> GetBookingsAsync(string landlordId, int page, int pageSize)
     {
         var properties = (await _propertyRepository.GetByUserIdAsync(landlordId))
             .ToDictionary(p => p.Id, p => p.Title);
+        if (properties.Count == 0)
+            return Paging.Page(Array.Empty<LandlordBookingResponse>(), page, pageSize);
 
-        var bookings = new List<Booking>();
-        foreach (var propertyId in properties.Keys)
-            bookings.AddRange(await _bookingRepository.GetByPropertyIdAsync(propertyId));
-
+        var propertyIds = properties.Keys.ToList();
+        var bookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId))).ToList();
         var tenantNames = await LoadTenantNamesAsync(bookings);
 
-        return bookings
+        var mapped = bookings
             .OrderByDescending(b => b.CheckInDate)
             .Select(b => new LandlordBookingResponse
             {
@@ -295,24 +321,28 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
                 Status = b.Status
             })
             .ToList();
+
+        return Paging.Page(mapped, page, pageSize);
     }
 
-    public async Task<List<LandlordTenantResponse>> GetTenantsAsync(string landlordId)
+    public async Task<PagedResult<LandlordTenantResponse>> GetTenantsAsync(string landlordId, int page, int pageSize)
     {
         var properties = (await _propertyRepository.GetByUserIdAsync(landlordId)).ToList();
         var propertyById = properties.ToDictionary(p => p.Id);
+        if (properties.Count == 0)
+            return Paging.Page(Array.Empty<LandlordTenantResponse>(), page, pageSize);
 
-        var bookings = new List<Booking>();
-        foreach (var property in properties)
-            bookings.AddRange(await _bookingRepository.GetByPropertyIdAsync(property.Id));
+        var propertyIds = properties.Select(p => p.Id).ToList();
+        var active = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId)))
+            .Where(b => b.Status != BookingStatus.Cancelled)
+            .ToList();
 
-        var active = bookings.Where(b => b.Status != BookingStatus.Cancelled).ToList();
         var tenantIds = active.Select(b => b.TenantId).Distinct().ToList();
         var tenants = (await _userRepository.FindAsync(u => tenantIds.Contains(u.Id)))
             .ToDictionary(u => u.Id);
 
         var now = DateTime.UtcNow;
-        return active
+        var mapped = active
             .GroupBy(b => b.TenantId)
             .Select(g =>
             {
@@ -338,6 +368,8 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
                 };
             })
             .ToList();
+
+        return Paging.Page(mapped, page, pageSize);
     }
 
     private async Task<Dictionary<string, string>> LoadTenantNamesAsync(List<Booking> bookings)

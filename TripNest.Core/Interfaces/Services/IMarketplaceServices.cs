@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Marketplace;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Interfaces.Services;
 
@@ -16,7 +17,7 @@ public interface ICalendarService
 public interface IInquiryService
 {
     Task<InquiryResponse> CreateAsync(CreateInquiryRequest request, string? guestUserId, string? guestNameFallback);
-    Task<List<InquiryResponse>> GetForLandlordAsync(string landlordId);
+    Task<PagedResult<InquiryResponse>> GetForLandlordAsync(string landlordId, int page, int pageSize);
     Task<InquiryResponse> UpdateStatusAsync(string inquiryId, string status, string landlordId);
 }
 
@@ -30,7 +31,7 @@ public interface IPaymentMethodService
 
 public interface IExchangeService
 {
-    Task<List<ExchangePostResponse>> GetPostsAsync();
+    Task<PagedResult<ExchangePostResponse>> GetPostsAsync(int page, int pageSize);
     Task<ExchangePostResponse> CreatePostAsync(CreateExchangePostRequest request, string authorId);
     Task<List<ExchangeReplyResponse>> GetRepliesAsync(string postId);
     Task<ExchangeReplyResponse> AddReplyAsync(string postId, CreateExchangeReplyRequest request, string authorId);
@@ -38,7 +39,7 @@ public interface IExchangeService
 
 public interface IHostTaskService
 {
-    Task<List<HostTaskResponse>> GetMineAsync(string landlordId);
+    Task<PagedResult<HostTaskResponse>> GetMineAsync(string landlordId, int page, int pageSize);
     Task<HostTaskResponse> CreateAsync(CreateHostTaskRequest request, string landlordId);
     Task<HostTaskResponse> UpdateAsync(string id, UpdateHostTaskRequest request, string landlordId);
     Task DeleteAsync(string id, string landlordId);
@@ -71,6 +72,6 @@ public interface ITourService
 
 public interface ILandlordWorkspaceService
 {
-    Task<List<LandlordBookingResponse>> GetBookingsAsync(string landlordId);
-    Task<List<LandlordTenantResponse>> GetTenantsAsync(string landlordId);
+    Task<PagedResult<LandlordBookingResponse>> GetBookingsAsync(string landlordId, int page, int pageSize);
+    Task<PagedResult<LandlordTenantResponse>> GetTenantsAsync(string landlordId, int page, int pageSize);
 }
