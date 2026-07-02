@@ -25,14 +25,18 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.1.2" />
     <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="7.1.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.10" />
-    <PackageReference Include="BCrypt.Net-Core" Version="1.6.0" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0" />
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="8.0.10" />
 
     <!-- Redis-backed (multi-instance) variants of SignalR backplane / output cache / rate limiting,
          all activated only when Redis:ConnectionString is set. -->
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
     <PackageReference Include="RedisRateLimiting" Version="1.2.1" />
+
+    <!-- Pin MessagePack above the version SignalR.StackExchangeRedis pulls transitively (2.5.108),
+         which has known advisories that persist across the 2.5.x line; 3.1.7 clears them. Keep the
+         explicit pin until the SignalR package bumps its transitive dependency past the advisories. -->
+    <PackageReference Include="MessagePack" Version="3.1.7" />
 
     <!-- Multi-instance-safe file storage: uploads go to Azure Blob when configured, else local disk. -->
     <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />
@@ -42,6 +46,9 @@
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.3.0" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.9.0" />
+    <!-- Pin OpenTelemetry.Api past the advisory (GHSA-g94r-2vxg-569j) in the 1.12.0 the Azure Monitor
+         distro pulls transitively. Remove once the distro's transitive version clears it. -->
+    <PackageReference Include="OpenTelemetry.Api" Version="1.16.0" />
     <!-- Npgsql 8 ships its own "Npgsql" ActivitySource; enabled via .AddSource("Npgsql") in
          tracing, so no separate Npgsql.OpenTelemetry package (its 8.x line is unpublished). -->
   </ItemGroup>

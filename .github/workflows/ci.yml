@@ -41,6 +41,16 @@ jobs:
       - name: Build (zero warnings)
         run: dotnet build --no-restore --configuration Release -warnaserror
 
+      - name: Audit dependencies for known vulnerabilities
+        # Fails the build if any (transitive) package has a known advisory, so a vulnerable
+        # dependency can't land silently. `grep -q` returns success when a match is found.
+        run: |
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee vuln.txt
+          if grep -q -E "Critical|High|Moderate|Low" vuln.txt; then
+            echo "::error::Vulnerable NuGet packages detected — see the list above."
+            exit 1
+          fi
+
       - name: Run tests
         run: dotnet test --no-build --configuration Release --verbosity normal
         env:
