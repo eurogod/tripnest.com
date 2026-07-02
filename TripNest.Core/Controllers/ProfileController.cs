@@ -17,12 +17,14 @@ public class ProfileController : ControllerBase
 {
     private readonly IUserRepository _userRepository;
     private readonly IFileStorage _fileStorage;
+    private readonly IPhoneNumberValidator _phoneValidator;
     private readonly ILogger<ProfileController> _logger;
 
-    public ProfileController(IUserRepository userRepository, IFileStorage fileStorage, ILogger<ProfileController> logger)
+    public ProfileController(IUserRepository userRepository, IFileStorage fileStorage, IPhoneNumberValidator phoneValidator, ILogger<ProfileController> logger)
     {
         _userRepository = userRepository;
         _fileStorage = fileStorage;
+        _phoneValidator = phoneValidator;
         _logger = logger;
     }
 
@@ -44,24 +46,35 @@ public class ProfileController : ControllerBase
             return BadRequest(ApiResponse<object>.BadRequest(
                 "Your identity isn't verified yet, so a TripNest ID card can't be issued."));
 
-        var pdf = Pdf.IdCardPdf.Render(user, TryReadPhoto(user.ProfilePhotoPath));
+        var pdf = Pdf.IdCardPdf.Render(user, await TryReadPhotoAsync(user.ProfilePhotoPath));
         return File(pdf, "application/pdf", $"tripnest-id-{user.TripNestId}.pdf");
     }
 
     // Best-effort load of the profile photo for embedding; placeholder initials are used if missing.
-    private static byte[]? TryReadPhoto(string? path)
+    // Reads through IFileStorage so the same stored path works under both local disk and Azure Blob,
+    // and so the read is constrained to the uploads area (no arbitrary-path reads).
+    private async Task<byte[]?> TryReadPhotoAsync(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
             return null;
         try
         {
-            var full = Path.IsPathRooted(path)
-                ? path
-                : Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", path.TrimStart('/'));
-            return System.IO.File.Exists(full) ? System.IO.File.ReadAllBytes(full) : null;
+            await using var stream = await _fileStorage.OpenReadAsync(path);
+            if (stream is null)
+                return null;
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            return buffer.ToArray();
         }
-        catch
+        catch (Exceptions.ValidationException)
         {
+            // Path outside the uploads area — treat as no photo rather than surfacing an error.
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load profile photo for ID card");
             return null;
         }
     }
@@ -119,13 +132,24 @@ public class ProfileController : ControllerBase
                 return NotFound(ApiResponse<object>.NotFound("User"));
 
             user.FullName = request.FullName ?? user.FullName;
-            user.Phone = request.Phone ?? user.Phone;
             user.Bio = request.Bio ?? user.Bio;
+
+            // Normalise the phone to E.164 (same as registration) so a profile edit can't store an
+            // invalid number that later breaks SMS/OTP delivery.
+            if (request.Phone is not null)
+            {
+                user.Phone = _phoneValidator.Normalize(request.Phone)
+                    ?? throw new InvalidOperationException("Please provide a valid phone number");
+            }
 
             await _userRepository.UpdateAsync(user);
             await _userRepository.SaveChangesAsync();
 
             return Ok(ApiResponse<object>.Ok("Profile updated", new { }));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {

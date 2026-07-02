@@ -71,17 +71,35 @@ public class AuthService : IAuthService
         return user;
     }
 
+    // Brute-force policy: after this many consecutive failures the account is locked for the window
+    // below. A correct login before the threshold clears the counter, so honest users are unaffected.
+    private const int MaxFailedLoginAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
     {
         var user = await _userRepository.GetByEmailAsync(request.Email)
             ?? throw new InvalidOperationException("Invalid email or password");
 
+        // Refuse while locked out — don't even check the password, so a locked account can't be probed.
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
+        {
+            _logger.LogWarning("Login blocked for locked-out account: {Email}", request.Email);
+            throw new InvalidOperationException("Account temporarily locked due to too many failed attempts. Please try again later.");
+        }
+
         if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        {
+            await RecordFailedLoginAsync(user);
             throw new InvalidOperationException("Invalid email or password");
+        }
 
         if (!user.IsActive)
             throw new InvalidOperationException("User account is inactive");
 
+        // Successful auth clears any accumulated failures / lockout.
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
         user.LastLoginAt = DateTime.UtcNow;
 
         var accessToken = await _tokenService.GenerateAccessTokenAsync(
@@ -246,6 +264,24 @@ public class AuthService : IAuthService
         await _userRepository.SaveChangesAsync();
 
         _logger.LogInformation("Password reset for user: {Email}", email);
+    }
+
+    /// <summary>
+    /// Records a failed login: increments the counter and, once it reaches the threshold, sets a
+    /// time-boxed lockout. Persisted immediately so the count survives across requests/instances.
+    /// </summary>
+    private async Task RecordFailedLoginAsync(User user)
+    {
+        user.FailedLoginAttempts++;
+        if (user.FailedLoginAttempts >= MaxFailedLoginAttempts)
+        {
+            user.LockoutEnd = DateTime.UtcNow.Add(LockoutDuration);
+            user.FailedLoginAttempts = 0; // reset the counter; the lockout window now governs access
+            _logger.LogWarning("Account locked after repeated failed logins: {Email}", user.Email);
+        }
+
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
     }
 
     /// <summary>

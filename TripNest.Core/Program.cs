@@ -72,6 +72,14 @@ if (!builder.Environment.IsDevelopment() && (jwtKey == InsecureDefaultJwtKey || 
         "Jwt:Key must be set to a strong, unique secret (at least 32 characters) outside Development. " +
         "Configure it via environment variable Jwt__Key or user-secrets — never the committed default.");
 
+// A missing Paystack secret makes the payment gateway *simulate* successful charges/verifications —
+// convenient for local dev and tests, but catastrophic in production where it would report money as
+// received that was never paid. Refuse to boot in Production without it.
+if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(builder.Configuration["PaystackSettings:SecretKey"]))
+    throw new InvalidOperationException(
+        "PaystackSettings:SecretKey must be configured in Production — the unconfigured gateway simulates " +
+        "successful payments and must never run against real bookings. Set it via env/secrets.");
+
 var key = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
@@ -102,6 +110,23 @@ builder.Services.AddAuthentication(options =>
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
             logger.LogWarning("JWT authentication failed: {Message}", context.Exception.Message);
             return Task.CompletedTask;
+        },
+        // Access tokens are bearer credentials valid until they expire, so a deactivated account would
+        // otherwise keep access until then. Re-check IsActive against the database on each validated
+        // token and reject deactivated users immediately. (One indexed primary-key lookup per request.)
+        OnTokenValidated = async context =>
+        {
+            var userId = context.Principal.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+            {
+                context.Fail("Token is missing a subject claim.");
+                return;
+            }
+
+            var userRepository = context.HttpContext.RequestServices.GetRequiredService<IUserRepository>();
+            var account = await userRepository.GetByIdAsync(userId);
+            if (account is null || !account.IsActive)
+                context.Fail("The account is no longer active.");
         },
         // SignalR over WebSockets can't send an Authorization header (browsers forbid it on
         // the WS handshake), so the JS client passes the token as ?access_token=... instead.
@@ -424,9 +449,36 @@ var forwardedOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 };
-forwardedOptions.KnownNetworks.Clear();
-forwardedOptions.KnownProxies.Clear();
+
+// Only honour X-Forwarded-* from proxies we explicitly trust. Blindly trusting the header (clearing
+// the known-proxy list) lets any client spoof their IP — which would defeat the per-IP rate limiter
+// and forge the client IP in logs. Configure the real reverse-proxy addresses/ranges via
+// ForwardedHeaders:KnownProxies / ForwardedHeaders:KnownNetworks (e.g. the Azure App Service subnet);
+// when none are configured we fall back to the framework default (loopback only), which is safe.
+var knownProxies = app.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>();
+var knownNetworks = app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>();
+if ((knownProxies is { Length: > 0 }) || (knownNetworks is { Length: > 0 }))
+{
+    forwardedOptions.KnownProxies.Clear();
+    forwardedOptions.KnownNetworks.Clear();
+
+    foreach (var proxy in knownProxies ?? Array.Empty<string>())
+        if (System.Net.IPAddress.TryParse(proxy, out var ip))
+            forwardedOptions.KnownProxies.Add(ip);
+
+    // Each network is "baseAddress/prefixLength", e.g. "10.0.0.0/8".
+    foreach (var network in knownNetworks ?? Array.Empty<string>())
+    {
+        var parts = network.Split('/', 2);
+        if (parts.Length == 2 && System.Net.IPAddress.TryParse(parts[0], out var baseIp) && int.TryParse(parts[1], out var prefix))
+            forwardedOptions.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(baseIp, prefix));
+    }
+}
 app.UseForwardedHeaders(forwardedOptions);
+
+// Baseline security response headers on every response (set via OnStarting so they survive the
+// exception handler's response rewrite).
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 // Catch-all error translation must wrap the whole pipeline.
 app.UseMiddleware<ExceptionHandlingMiddleware>();

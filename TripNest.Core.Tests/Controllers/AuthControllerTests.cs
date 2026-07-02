@@ -147,4 +147,53 @@ public class AuthControllerTests : TestBase
         var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
         Assert.False(body.GetProperty("success").GetBoolean());
     }
+
+    [Fact]
+    public async Task Register_WithTooShortPassword_ShouldReturnBadRequest()
+    {
+        // 9 chars — below the 10-char minimum, even though it has a letter and a digit.
+        var registerRequest = new RegisterRequest
+        {
+            FullName = "Short Pw",
+            Email = $"shortpw_{Guid.NewGuid():N}@example.com",
+            Password = "Abc12345!",
+            ConfirmPassword = "Abc12345!",
+            Phone = "+233501234567",
+            Role = Enums.UserRole.Tenant
+        };
+
+        var response = await _httpClient.PostAsJsonAsync("/api/auth/register", registerRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_AfterRepeatedFailures_LocksAccountEvenWithCorrectPassword()
+    {
+        var email = $"lockme_{Guid.NewGuid():N}@example.com";
+        var register = new RegisterRequest
+        {
+            FullName = "Lock Me",
+            Email = email,
+            Password = "Password@123",
+            ConfirmPassword = "Password@123",
+            Phone = "+233501234567",
+            Role = Enums.UserRole.Tenant
+        };
+        await _httpClient.PostAsJsonAsync("/api/auth/register", register);
+
+        // Five consecutive wrong passwords trip the lockout.
+        for (var i = 0; i < 5; i++)
+        {
+            var bad = await _httpClient.PostAsJsonAsync("/api/auth/login",
+                new LoginRequest { Email = email, Password = "WrongPassword@999" });
+            Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        }
+
+        // Now even the CORRECT password is refused while the lockout window is active.
+        var afterLock = await _httpClient.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest { Email = email, Password = "Password@123" });
+        Assert.Equal(HttpStatusCode.BadRequest, afterLock.StatusCode);
+        var body = JsonDocument.Parse(await afterLock.Content.ReadAsStringAsync()).RootElement;
+        Assert.Contains("locked", body.GetProperty("message").GetString()!, StringComparison.OrdinalIgnoreCase);
+    }
 }

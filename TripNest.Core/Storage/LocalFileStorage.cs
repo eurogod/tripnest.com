@@ -45,4 +45,23 @@ public sealed class LocalFileStorage : IFileStorage
 
         return Task.CompletedTask;
     }
+
+    public Task<Stream?> OpenReadAsync(string storedPath, CancellationToken cancellationToken = default)
+    {
+        // Resolve the stored web path to a physical path and confirm it stays within the uploads
+        // area. This is what stops a caller passing an arbitrary path (e.g. "/etc/passwd" or
+        // "/uploads/../../secrets") from reading files outside the upload directory.
+        var uploadsRoot = Path.GetFullPath(Path.Combine(_root, "uploads"));
+        var relative = (storedPath ?? string.Empty).TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        var fullPath = Path.GetFullPath(Path.Combine(_root, relative));
+
+        if (!fullPath.StartsWith(uploadsRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new Exceptions.ValidationException("Invalid file path.");
+
+        if (!File.Exists(fullPath))
+            return Task.FromResult<Stream?>(null);
+
+        Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return Task.FromResult<Stream?>(stream);
+    }
 }

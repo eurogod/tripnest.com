@@ -51,4 +51,25 @@ public sealed class BlobFileStorage : IFileStorage
         var blobName = Uri.UnescapeDataString(uri.AbsolutePath[(idx + prefix.Length)..]);
         await _container.DeleteBlobIfExistsAsync(blobName, cancellationToken: cancellationToken);
     }
+
+    public async Task<Stream?> OpenReadAsync(string storedPath, CancellationToken cancellationToken = default)
+    {
+        // Only accept a URL that points into this container — anything else (arbitrary paths/URLs)
+        // resolves to no blob, so this can never read files outside the configured storage.
+        if (string.IsNullOrWhiteSpace(storedPath) || !Uri.TryCreate(storedPath, UriKind.Absolute, out var uri))
+            return null;
+
+        var prefix = $"/{_container.Name}/";
+        var idx = uri.AbsolutePath.IndexOf(prefix, StringComparison.Ordinal);
+        if (idx < 0)
+            return null;
+
+        var blobName = Uri.UnescapeDataString(uri.AbsolutePath[(idx + prefix.Length)..]);
+        var blob = _container.GetBlobClient(blobName);
+        if (!await blob.ExistsAsync(cancellationToken))
+            return null;
+
+        var download = await blob.DownloadStreamingAsync(cancellationToken: cancellationToken);
+        return download.Value.Content;
+    }
 }

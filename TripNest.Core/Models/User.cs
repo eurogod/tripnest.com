@@ -38,6 +38,12 @@ public class User
 
     public DateTime? PasswordResetTokenExpiry { get; set; }
 
+    // Brute-force protection: consecutive failed logins and, once the threshold is hit, the time
+    // until which further login attempts are refused. Reset on a successful login.
+    public int FailedLoginAttempts { get; set; }
+
+    public DateTime? LockoutEnd { get; set; }
+
     // Phone-ownership (OTP) verification.
     public bool PhoneVerified { get; set; } = false;
     public string? PhoneOtpHash { get; set; }

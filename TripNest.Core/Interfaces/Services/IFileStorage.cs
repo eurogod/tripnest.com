@@ -18,4 +18,13 @@ public interface IFileStorage
 
     /// <summary>Best-effort removal of a previously stored file.</summary>
     Task DeleteAsync(string storedPath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Opens a previously stored file for reading. The path MUST be one this storage produced
+    /// (i.e. under the uploads area); implementations reject anything that escapes the storage root
+    /// so a caller cannot use this to read arbitrary server files. Returns <c>null</c> if the file
+    /// does not exist. Throws <see cref="TripNest.Core.Exceptions.ValidationException"/> if the path
+    /// is outside the allowed area.
+    /// </summary>
+    Task<Stream?> OpenReadAsync(string storedPath, CancellationToken cancellationToken = default);
 }
