@@ -19,6 +19,7 @@ public interface IEscrowService
     // webhook, so the service can reject under/over-payment before holding funds.
     Task VerifyAndHoldPaymentAsync(string bookingId, string reference, decimal paidAmount);
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
+    Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId);
     Task ReleaseEscrowAsync(string escrowId, string userId);
     Task RaiseDisputeAsync(string escrowId, string userId, string reason);
     Task ResolveDisputeAsync(string escrowId, bool approved);

@@ -221,6 +221,7 @@ public class PropertyService : IPropertyService
         return new PropertyResponse
         {
             PropertyId = property.Id,
+            OwnerId = property.UserId,
             Title = property.Title,
             Description = property.Description,
             Location = property.Location,

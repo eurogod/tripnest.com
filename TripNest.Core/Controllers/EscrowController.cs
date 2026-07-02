@@ -172,6 +172,33 @@ public class EscrowController : ControllerBase
     }
 
     /// <summary>
+    /// Get the escrow attached to a booking (tenant or property owner only)
+    /// </summary>
+    [HttpGet("booking/{bookingId}")]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<EscrowResponse>>> GetEscrowByBooking(string bookingId)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+
+            var escrow = await _escrowService.GetEscrowByBookingAsync(bookingId, userId);
+            if (escrow == null)
+                return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
+
+            return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving escrow for booking");
+            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
     /// Release held escrow funds
     /// </summary>
     [HttpPost("{id}/release")]

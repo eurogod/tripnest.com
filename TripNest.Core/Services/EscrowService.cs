@@ -129,6 +129,23 @@ public class EscrowService : IEscrowService
         return MapToResponse(escrow);
     }
 
+    public async Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId)
+    {
+        var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
+        if (escrow == null)
+            return null;
+
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(escrow.BookingId);
+        if (booking == null)
+            return null;
+
+        var landlordId = booking.Property?.UserId;
+        if (booking.TenantId != userId && landlordId != userId)
+            return null;
+
+        return MapToResponse(escrow);
+    }
+
     public async Task ReleaseEscrowAsync(string escrowId, string userId)
     {
         var escrow = await _escrowRepository.GetByIdAsync(escrowId);
