@@ -17,6 +17,7 @@ public class PersonalDashboardController : ControllerBase
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IEscrowRepository _escrowRepository;
+    private readonly IWalkthroughRepository _walkthroughRepository;
     private readonly ITrustScoreSnapshotRepository _trustScoreRepository;
     private readonly ILogger<PersonalDashboardController> _logger;
 
@@ -25,6 +26,7 @@ public class PersonalDashboardController : ControllerBase
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
         IEscrowRepository escrowRepository,
+        IWalkthroughRepository walkthroughRepository,
         ITrustScoreSnapshotRepository trustScoreRepository,
         ILogger<PersonalDashboardController> logger)
     {
@@ -32,6 +34,7 @@ public class PersonalDashboardController : ControllerBase
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
         _escrowRepository = escrowRepository;
+        _walkthroughRepository = walkthroughRepository;
         _trustScoreRepository = trustScoreRepository;
         _logger = logger;
     }
@@ -149,23 +152,22 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            // BUG (pre-existing, not yet fixed): Property.Walkthroughs is never eager-loaded here
-            // (no Include, lazy loading disabled), so every metric derived from it below is 0/empty.
-            // This also loads the whole properties table into memory. Fix by aggregating over the
-            // walkthrough table directly (counts/sum via IWalkthroughRepository) instead of GetAllAsync.
-            var allProperties = await _propertyRepository.GetAllAsync();
-            var allWalkthroughs = allProperties.SelectMany(p => p.Walkthroughs).ToList();
+            // Aggregate directly over the walkthrough table in the database. (Previously this loaded
+            // all properties and read p.Walkthroughs — a navigation that is never eager-loaded here —
+            // so every metric was silently 0.)
+            var stats = await _walkthroughRepository.GetStatsAsync(DateTime.UtcNow.AddDays(-30));
+            var totalProperties = await _propertyRepository.CountAsync(_ => true);
 
             var dashboard = new
             {
-                TotalWalkthroughs = allWalkthroughs.Count(),
-                PropertiesWithWalkthroughs = allProperties.Count(p => p.Walkthroughs.Any()),
-                PropertiesWithoutWalkthroughs = allProperties.Count(p => !p.Walkthroughs.Any()),
-                RecentWalkthroughsCount = allWalkthroughs.Where(w => w.CreatedAt > DateTime.UtcNow.AddDays(-30)).Count(),
+                TotalWalkthroughs = stats.Total,
+                PropertiesWithWalkthroughs = stats.DistinctPropertyCount,
+                PropertiesWithoutWalkthroughs = totalProperties - stats.DistinctPropertyCount,
+                RecentWalkthroughsCount = stats.RecentCount,
                 RecentActivity = new
                 {
-                    LastWalkthroughDate = allWalkthroughs.OrderByDescending(w => w.CreatedAt).FirstOrDefault()?.CreatedAt,
-                    TotalVideoHours = Math.Round(allWalkthroughs.Sum(w => w.DurationSeconds) / 3600.0, 2)
+                    LastWalkthroughDate = stats.LastCreatedAt,
+                    TotalVideoHours = Math.Round(stats.TotalDurationSeconds / 3600.0, 2)
                 }
             };
 
