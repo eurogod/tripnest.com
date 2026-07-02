@@ -261,6 +261,9 @@ public class EscrowService : IEscrowService
         ReleasedAt = e.ReleasedAt,
         ReleaseReason = e.ReleaseReason,
         PaymentReference = e.PaymentReference,
-        CheckoutUrl = checkoutUrl
+        CheckoutUrl = checkoutUrl,
+        // A Released escrow records payout intent; funds don't actually reach the host until
+        // Paystack Transfers are wired (see ReleaseEscrowAsync). Flag it so the UI stays honest.
+        DisbursementPending = e.Status == EscrowStatus.Released
     };
 }
