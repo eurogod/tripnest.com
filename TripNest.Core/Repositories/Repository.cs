@@ -39,6 +39,25 @@ public class Repository<T> : IRepository<T> where T : class
         return await _dbSet.CountAsync(predicate);
     }
 
+    public async Task<(IReadOnlyList<T> Items, int TotalCount)> FindPageAsync(
+        Expression<Func<T, bool>>? predicate,
+        Func<IQueryable<T>, IOrderedQueryable<T>> orderBy,
+        int page,
+        int pageSize)
+    {
+        var query = _dbSet.AsNoTracking().AsQueryable();
+        if (predicate is not null)
+            query = query.Where(predicate);
+
+        var totalCount = await query.CountAsync();
+        var items = await orderBy(query)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
     public async Task<T> AddAsync(T entity)
     {
         await _dbSet.AddAsync(entity);

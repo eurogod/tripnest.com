@@ -34,15 +34,18 @@ public class ExchangeService : IExchangeService
 
     public async Task<PagedResult<ExchangePostResponse>> GetPostsAsync(int page, int pageSize)
     {
-        var posts = (await _postRepository.GetAllAsync())
-            .OrderByDescending(p => p.Pinned)
-            .ThenByDescending(p => p.CreatedAt)
-            .ToList();
+        var (pageNum, size) = Paging.Clamp(page, pageSize);
+        var (posts, totalCount) = await _postRepository.FindPageAsync(
+            null,
+            q => q.OrderByDescending(p => p.Pinned).ThenByDescending(p => p.CreatedAt),
+            pageNum, size);
 
+        // Authors and reply counts only for the page's posts, not the whole table.
+        var postIds = posts.Select(p => p.Id).ToList();
         var authorIds = posts.Select(p => p.AuthorId).Distinct().ToList();
         var authors = (await _userRepository.FindAsync(u => authorIds.Contains(u.Id)))
             .ToDictionary(u => u.Id, u => u.FullName);
-        var replyCounts = (await _replyRepository.GetAllAsync())
+        var replyCounts = (await _replyRepository.FindAsync(r => postIds.Contains(r.PostId)))
             .GroupBy(r => r.PostId)
             .ToDictionary(g => g.Key, g => g.Count());
 
@@ -59,7 +62,7 @@ public class ExchangeService : IExchangeService
             CreatedAt = p.CreatedAt
         }).ToList();
 
-        return Paging.Page(mapped, page, pageSize);
+        return Paging.Result(mapped, totalCount, pageNum, size);
     }
 
     public async Task<ExchangePostResponse> CreatePostAsync(CreateExchangePostRequest request, string authorId)
@@ -176,11 +179,12 @@ public class HostTaskService : IHostTaskService
 
     public async Task<PagedResult<HostTaskResponse>> GetMineAsync(string landlordId, int page, int pageSize)
     {
-        var tasks = (await _repository.FindAsync(t => t.LandlordId == landlordId))
-            .OrderByDescending(t => t.CreatedAt)
-            .Select(Map)
-            .ToList();
-        return Paging.Page(tasks, page, pageSize);
+        var (pageNum, size) = Paging.Clamp(page, pageSize);
+        var (tasks, totalCount) = await _repository.FindPageAsync(
+            t => t.LandlordId == landlordId,
+            q => q.OrderByDescending(t => t.CreatedAt),
+            pageNum, size);
+        return Paging.Result(tasks.Select(Map).ToList(), totalCount, pageNum, size);
     }
 
     public async Task<HostTaskResponse> CreateAsync(CreateHostTaskRequest request, string landlordId)
