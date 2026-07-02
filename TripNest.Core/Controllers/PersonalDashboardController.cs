@@ -51,8 +51,9 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var allBookings = await _bookingRepository.GetAllAsync();
-            var tenantBookings = allBookings.Where(b => b.TenantId == userId).OrderByDescending(b => b.CreatedAt).ToList();
+            // Only this tenant's bookings, filtered in the database.
+            var tenantBookings = (await _bookingRepository.FindAsync(b => b.TenantId == userId))
+                .OrderByDescending(b => b.CreatedAt).ToList();
 
             var dashboard = new
             {
@@ -96,14 +97,12 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var allProperties = await _propertyRepository.GetAllAsync();
-            var allBookings = await _bookingRepository.GetAllAsync();
-            var allEscrows = await _escrowRepository.GetAllAsync();
-
-            var landlordProperties = allProperties.Where(p => p.UserId == userId).ToList();
+            // Scope each query to this landlord in the database instead of loading whole tables.
+            var landlordProperties = (await _propertyRepository.FindAsync(p => p.UserId == userId)).ToList();
             var propertyIds = landlordProperties.Select(p => p.Id).ToList();
-            var landlordBookings = allBookings.Where(b => propertyIds.Contains(b.PropertyId)).ToList();
-            var landlordEscrows = allEscrows.Where(e => landlordBookings.Any(b => b.Id == e.BookingId)).ToList();
+            var landlordBookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId))).ToList();
+            var bookingIds = landlordBookings.Select(b => b.Id).ToList();
+            var landlordEscrows = (await _escrowRepository.FindAsync(e => bookingIds.Contains(e.BookingId))).ToList();
 
             var dashboard = new
             {
@@ -150,6 +149,10 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
+            // BUG (pre-existing, not yet fixed): Property.Walkthroughs is never eager-loaded here
+            // (no Include, lazy loading disabled), so every metric derived from it below is 0/empty.
+            // This also loads the whole properties table into memory. Fix by aggregating over the
+            // walkthrough table directly (counts/sum via IWalkthroughRepository) instead of GetAllAsync.
             var allProperties = await _propertyRepository.GetAllAsync();
             var allWalkthroughs = allProperties.SelectMany(p => p.Walkthroughs).ToList();
 

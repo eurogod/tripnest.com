@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Dashboard;
 using TripNest.Core.DTOs.TrustScore;
+using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Response;
 
@@ -45,28 +46,30 @@ public class DashboardController : ControllerBase
     {
         try
         {
-            var allUsers = await _userRepository.GetAllAsync();
-            var allProperties = await _propertyRepository.GetAllAsync();
-            var allBookings = await _bookingRepository.GetAllAsync();
-            var allEscrows = await _escrowRepository.GetAllAsync();
+            // Aggregate in the database (COUNT / scoped filters) instead of loading whole tables into
+            // memory. Strongly-typed enum comparisons translate to SQL and also fix the previous
+            // stringly-typed check for held escrow ("Held" never matched the enum name HeldInEscrow,
+            // so TotalEscrowHeld was always 0).
+            var heldEscrows = await _escrowRepository.FindAsync(e => e.Status == EscrowStatus.HeldInEscrow);
+            var releasedEscrows = await _escrowRepository.FindAsync(e => e.Status == EscrowStatus.Released);
 
             var stats = new DashboardStatsResponse
             {
-                TotalUsers = allUsers.Count(),
-                TotalTenants = allUsers.Count(u => u.Role.ToString() == "Tenant"),
-                TotalLandlords = allUsers.Count(u => u.Role.ToString() == "Landlord"),
-                TotalAgents = allUsers.Count(u => u.Role.ToString() == "Agent"),
-                TotalCaretakers = allUsers.Count(u => u.Role.ToString() == "Caretaker"),
-                VerifiedUsers = allUsers.Count(u => u.IsVerified),
-                TotalProperties = allProperties.Count(),
-                ActiveProperties = allProperties.Count(p => p.Status.ToString() == "Active"),
-                TotalBookings = allBookings.Count(),
-                ConfirmedBookings = allBookings.Count(b => b.Status.ToString() == "Confirmed"),
-                CompletedBookings = allBookings.Count(b => b.Status.ToString() == "Completed"),
-                CancelledBookings = allBookings.Count(b => b.Status.ToString() == "Cancelled"),
-                TotalEscrowHeld = allEscrows.Where(e => e.Status.ToString() == "Held").Sum(e => e.Amount),
-                TotalEscrowReleased = allEscrows.Where(e => e.Status.ToString() == "Released").Sum(e => e.Amount),
-                OpenDisputes = allEscrows.Count(e => e.Status.ToString() == "Disputed"),
+                TotalUsers = await _userRepository.CountAsync(_ => true),
+                TotalTenants = await _userRepository.CountAsync(u => u.Role == UserRole.Tenant),
+                TotalLandlords = await _userRepository.CountAsync(u => u.Role == UserRole.Landlord),
+                TotalAgents = await _userRepository.CountAsync(u => u.Role == UserRole.Agent),
+                TotalCaretakers = await _userRepository.CountAsync(u => u.Role == UserRole.Caretaker),
+                VerifiedUsers = await _userRepository.CountAsync(u => u.IsVerified),
+                TotalProperties = await _propertyRepository.CountAsync(_ => true),
+                ActiveProperties = await _propertyRepository.CountAsync(p => p.Status == PropertyStatus.Active),
+                TotalBookings = await _bookingRepository.CountAsync(_ => true),
+                ConfirmedBookings = await _bookingRepository.CountAsync(b => b.Status == BookingStatus.Confirmed),
+                CompletedBookings = await _bookingRepository.CountAsync(b => b.Status == BookingStatus.Completed),
+                CancelledBookings = await _bookingRepository.CountAsync(b => b.Status == BookingStatus.Cancelled),
+                TotalEscrowHeld = heldEscrows.Sum(e => e.Amount),
+                TotalEscrowReleased = releasedEscrows.Sum(e => e.Amount),
+                OpenDisputes = await _escrowRepository.CountAsync(e => e.Status == EscrowStatus.Disputed),
                 AverageTrustScore = 75m
             };
 
