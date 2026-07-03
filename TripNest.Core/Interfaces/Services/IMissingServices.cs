@@ -18,6 +18,9 @@ public interface IEscrowService
     // paidAmount: amount actually paid (major currency units) from the signature-verified provider
     // webhook, so the service can reject under/over-payment before holding funds.
     Task VerifyAndHoldPaymentAsync(string bookingId, string reference, decimal paidAmount);
+    // Fallback/reconcile confirmation: actively asks the provider whether the booking's payment
+    // succeeded (rather than waiting for the webhook) and holds the funds if so. Idempotent.
+    Task<EscrowResponse> VerifyPaymentByBookingAsync(string bookingId, string userId);
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
     Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId);
     Task ReleaseEscrowAsync(string escrowId, string userId);

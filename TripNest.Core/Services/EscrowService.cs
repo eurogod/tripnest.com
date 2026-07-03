@@ -112,6 +112,38 @@ public class EscrowService : IEscrowService
             escrow.Id, bookingId, reference);
     }
 
+    public async Task<EscrowResponse> VerifyPaymentByBookingAsync(string bookingId, string userId)
+    {
+        var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId)
+            ?? throw new InvalidOperationException($"No escrow found for booking '{bookingId}'");
+
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId)
+            ?? throw new InvalidOperationException($"Booking '{bookingId}' not found");
+
+        // Only the tenant who owns the booking may verify its payment.
+        if (booking.TenantId != userId)
+            throw new InvalidOperationException("Only the booking's tenant can verify its payment");
+
+        // Already held — nothing to do (idempotent with the webhook path).
+        if (escrow.Status == EscrowStatus.HeldInEscrow)
+            return MapToResponse(escrow);
+
+        if (string.IsNullOrEmpty(escrow.PaymentReference))
+            throw new InvalidOperationException("No payment has been started for this booking yet.");
+
+        // Ask the provider directly whether the charge succeeded, instead of waiting for the webhook.
+        var result = await _paymentGateway.VerifyPaymentAsync(escrow.PaymentReference);
+        if (!result.Success)
+            throw new InvalidOperationException("Payment has not been completed for this booking yet.");
+
+        // Reuse the exact same guarded transition the webhook uses: it re-checks the amount and is
+        // idempotent, so a verify racing the webhook can't double-hold or hold the wrong amount.
+        await VerifyAndHoldPaymentAsync(bookingId, escrow.PaymentReference, result.Amount);
+
+        var updated = await _escrowRepository.GetByBookingIdAsync(bookingId);
+        return MapToResponse(updated!);
+    }
+
     public async Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId)
     {
         var escrow = await _escrowRepository.GetByIdAsync(escrowId);

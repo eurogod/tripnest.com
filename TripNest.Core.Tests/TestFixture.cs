@@ -50,6 +50,11 @@ public class TestFixture : WebApplicationFactory<Program>
             services.AddSingleton<RecordingEmailSender>();
             services.AddSingleton<ISmsSender>(sp => sp.GetRequiredService<RecordingSmsSender>());
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<RecordingEmailSender>());
+
+            // Deterministic payment gateway so escrow flows don't depend on a real Paystack account.
+            services.RemoveAll<IPaymentGateway>();
+            services.AddSingleton<StubPaymentGateway>();
+            services.AddSingleton<IPaymentGateway>(sp => sp.GetRequiredService<StubPaymentGateway>());
         });
 
         builder.UseEnvironment("Testing");

@@ -26,3 +26,19 @@ public class RecordingEmailSender : IEmailSender
         return Task.FromResult(true);
     }
 }
+
+/// <summary>Test double for the payment gateway with configurable verify behaviour.</summary>
+public class StubPaymentGateway : IPaymentGateway
+{
+    public bool VerifySucceeds { get; set; } = true;
+    public decimal VerifyAmount { get; set; }
+
+    public Task<PaymentInitResult> InitiatePaymentAsync(decimal amount, string currency, string customerEmail, string bookingId, string? callbackUrl = null)
+        => Task.FromResult(new PaymentInitResult(true, "https://stub.checkout/pay", $"STUB-{bookingId}"));
+
+    public Task<PaymentVerifyResult> VerifyPaymentAsync(string reference)
+        => Task.FromResult(new PaymentVerifyResult(VerifySucceeds, VerifyAmount));
+
+    public Task<bool> RefundAsync(string reference, decimal amount)
+        => Task.FromResult(true);
+}

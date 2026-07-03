@@ -145,6 +145,37 @@ public class EscrowController : ControllerBase
     }
 
     /// <summary>
+    /// Actively verify a booking's payment with the provider and hold the funds if it succeeded.
+    /// A reliable fallback to the webhook — call it on the post-checkout redirect, or to reconcile a
+    /// booking whose webhook was missed. Idempotent: if the escrow is already held, it just returns it.
+    /// </summary>
+    [HttpPost("booking/{bookingId}/verify")]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<EscrowResponse>>> VerifyPayment(string bookingId)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+
+            var result = await _escrowService.VerifyPaymentByBookingAsync(bookingId, userId);
+            return Ok(ApiResponse<EscrowResponse>.Ok("Payment verified", result));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<EscrowResponse>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verifying payment for booking {BookingId}", bookingId);
+            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
     /// Get escrow transaction details
     /// </summary>
     [HttpGet("{id}")]
