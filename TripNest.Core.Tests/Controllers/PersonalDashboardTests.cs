@@ -58,4 +58,54 @@ public class PersonalDashboardTests : TestBase
         // 3600 + 1800 = 5400s = 1.5h — previously always 0 because the navigation was never loaded.
         Assert.Equal(1.5d, data.GetProperty("recentActivity").GetProperty("totalVideoHours").GetDouble());
     }
+
+    [Fact]
+    public async Task LandlordDashboard_ReportsHeldEscrowAndWalkthroughs()
+    {
+        var (landlordId, _) = await RegisterAndLoginAsync(UserRole.Landlord);
+
+        string propertyId;
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var property = new Property
+            {
+                UserId = landlordId,
+                Title = "Held Escrow Property",
+                Description = "d",
+                Location = "Accra",
+                Latitude = 5.6,
+                Longitude = -0.2,
+                Bedrooms = 1,
+                Bathrooms = 1,
+                MonthlyRent = 900m,
+                DailyRate = 40m,
+                PropertyType = "Apartment"
+            };
+            db.Set<Property>().Add(property);
+            propertyId = property.Id;
+
+            var booking = new Booking
+            {
+                TenantId = "some-tenant",
+                PropertyId = property.Id,
+                TotalAmount = 500m,
+                Status = BookingStatus.Confirmed
+            };
+            db.Set<Booking>().Add(booking);
+            db.Set<Escrow>().Add(new Escrow { BookingId = booking.Id, Amount = 500m, Status = EscrowStatus.HeldInEscrow });
+            db.Set<Walkthrough>().Add(new Walkthrough { PropertyId = property.Id, Title = "W", VideoPath = "/uploads/v.mp4", DurationSeconds = 60 });
+            await db.SaveChangesAsync();
+        }
+
+        var res = await _httpClient.GetAsync("/api/personaldashboard/landlord");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var data = JsonDocument.Parse(await res.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("data");
+
+        // Both were previously always 0: EscrowHeld ("Held" != enum "HeldInEscrow") and
+        // PendingWalkthroughs (Walkthroughs navigation never loaded).
+        Assert.Equal(500m, data.GetProperty("escrowHeld").GetDecimal());
+        Assert.Equal(1, data.GetProperty("pendingWalkthroughs").GetInt32());
+    }
 }

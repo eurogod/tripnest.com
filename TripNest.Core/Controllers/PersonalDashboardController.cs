@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
@@ -60,10 +61,10 @@ public class PersonalDashboardController : ControllerBase
 
             var dashboard = new
             {
-                ActiveBookings = tenantBookings.Count(b => b.Status.ToString() == "Confirmed"),
-                CompletedStays = tenantBookings.Count(b => b.Status.ToString() == "Completed"),
-                CancelledBookings = tenantBookings.Count(b => b.Status.ToString() == "Cancelled"),
-                UpcomingCheckIns = tenantBookings.Where(b => b.Status.ToString() == "Confirmed" && b.CheckInDate > DateTime.UtcNow).Count(),
+                ActiveBookings = tenantBookings.Count(b => b.Status == BookingStatus.Confirmed),
+                CompletedStays = tenantBookings.Count(b => b.Status == BookingStatus.Completed),
+                CancelledBookings = tenantBookings.Count(b => b.Status == BookingStatus.Cancelled),
+                UpcomingCheckIns = tenantBookings.Where(b => b.Status == BookingStatus.Confirmed && b.CheckInDate > DateTime.UtcNow).Count(),
                 RecentBookings = tenantBookings.Take(5).Select(b => new
                 {
                     b.Id,
@@ -73,7 +74,7 @@ public class PersonalDashboardController : ControllerBase
                     b.Status,
                     b.TotalAmount
                 }),
-                TotalSpent = tenantBookings.Where(b => b.Status.ToString() == "Completed").Sum(b => b.TotalAmount)
+                TotalSpent = tenantBookings.Where(b => b.Status == BookingStatus.Completed).Sum(b => b.TotalAmount)
             };
 
             return Ok(ApiResponse<object>.Ok("Tenant dashboard retrieved", dashboard));
@@ -107,17 +108,23 @@ public class PersonalDashboardController : ControllerBase
             var bookingIds = landlordBookings.Select(b => b.Id).ToList();
             var landlordEscrows = (await _escrowRepository.FindAsync(e => bookingIds.Contains(e.BookingId))).ToList();
 
+            // Count properties that actually have a walkthrough, queried from the walkthrough table.
+            // (Property.Walkthroughs is never eager-loaded here, so p.Walkthroughs.Any() was always false.)
+            var propertiesWithWalkthroughs = (await _walkthroughRepository.FindAsync(w => propertyIds.Contains(w.PropertyId)))
+                .Select(w => w.PropertyId).Distinct().Count();
+
             var dashboard = new
             {
                 TotalProperties = landlordProperties.Count(),
-                ActiveProperties = landlordProperties.Count(p => p.Status.ToString() == "Active"),
+                ActiveProperties = landlordProperties.Count(p => p.Status == PropertyStatus.Active),
                 TotalBookings = landlordBookings.Count(),
-                ConfirmedBookings = landlordBookings.Count(b => b.Status.ToString() == "Confirmed"),
-                CompletedBookings = landlordBookings.Count(b => b.Status.ToString() == "Completed"),
-                PendingWalkthroughs = landlordProperties.Count(p => p.Walkthroughs.Any()),
-                EscrowHeld = landlordEscrows.Where(e => e.Status.ToString() == "Held").Sum(e => e.Amount),
-                EscrowReleased = landlordEscrows.Where(e => e.Status.ToString() == "Released").Sum(e => e.Amount),
-                OpenDisputes = landlordEscrows.Count(e => e.Status.ToString() == "Disputed"),
+                ConfirmedBookings = landlordBookings.Count(b => b.Status == BookingStatus.Confirmed),
+                CompletedBookings = landlordBookings.Count(b => b.Status == BookingStatus.Completed),
+                PendingWalkthroughs = propertiesWithWalkthroughs,
+                // Was e.Status.ToString() == "Held", which never matched the enum name HeldInEscrow.
+                EscrowHeld = landlordEscrows.Where(e => e.Status == EscrowStatus.HeldInEscrow).Sum(e => e.Amount),
+                EscrowReleased = landlordEscrows.Where(e => e.Status == EscrowStatus.Released).Sum(e => e.Amount),
+                OpenDisputes = landlordEscrows.Count(e => e.Status == EscrowStatus.Disputed),
                 RecentProperties = landlordProperties.OrderByDescending(p => p.CreatedAt).Take(5).Select(p => new
                 {
                     p.Id,
