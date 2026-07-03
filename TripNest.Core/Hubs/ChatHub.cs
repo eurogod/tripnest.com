@@ -16,16 +16,56 @@ public class ChatHub : Hub
 {
     private readonly IMessageRepository _messageRepository;
     private readonly IConversationRepository _conversationRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IPresenceTracker _presence;
     private readonly ILogger<ChatHub> _logger;
 
     public ChatHub(
         IMessageRepository messageRepository,
         IConversationRepository conversationRepository,
+        IUserRepository userRepository,
+        IPresenceTracker presence,
         ILogger<ChatHub> logger)
     {
         _messageRepository = messageRepository;
         _conversationRepository = conversationRepository;
+        _userRepository = userRepository;
+        _presence = presence;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Marks the connecting user online and, if they just came online, tells their conversation
+    /// partners so their UI can flip the presence indicator without polling.
+    /// </summary>
+    public override async Task OnConnectedAsync()
+    {
+        var userId = Context.User.GetUserId();
+        if (!string.IsNullOrEmpty(userId) && _presence.Connect(userId, Context.ConnectionId))
+            await NotifyPartnersOfPresenceAsync(userId, isOnline: true, lastSeenAt: null);
+
+        await base.OnConnectedAsync();
+    }
+
+    /// <summary>Sends the caller the current presence (online / last-seen) of a specific user.</summary>
+    public async Task<object> GetPresence(string userId)
+    {
+        if (_presence.IsOnline(userId))
+            return new { userId, isOnline = true, lastSeenAt = (DateTime?)null };
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        return new { userId, isOnline = false, lastSeenAt = user?.LastSeenAt };
+    }
+
+    private async Task NotifyPartnersOfPresenceAsync(string userId, bool isOnline, DateTime? lastSeenAt)
+    {
+        var conversations = await _conversationRepository.GetUserConversationsAsync(userId);
+        var partnerIds = conversations
+            .Select(c => c.User1Id == userId ? c.User2Id : c.User1Id)
+            .Distinct()
+            .ToList();
+        if (partnerIds.Count > 0)
+            await Clients.Users(partnerIds).SendAsync("PresenceChanged", new { userId, isOnline, lastSeenAt });
     }
 
     /// <summary>
@@ -227,6 +267,22 @@ public class ChatHub : Hub
 
         var userId = Context.User.GetUserId();
         _logger.LogInformation("User {UserId} disconnected from chat", userId ?? "unknown");
+
+        // If that was the user's last connection, they're now offline: stamp last-seen and let their
+        // conversation partners know so their UI can switch from "online" to "last seen …".
+        if (!string.IsNullOrEmpty(userId) && _presence.Disconnect(userId, Context.ConnectionId))
+        {
+            var now = DateTime.UtcNow;
+            var user = await _userRepository.GetByIdAsync(userId);
+            if (user is not null)
+            {
+                user.LastSeenAt = now;
+                await _userRepository.UpdateAsync(user);
+                await _userRepository.SaveChangesAsync();
+            }
+
+            await NotifyPartnersOfPresenceAsync(userId, isOnline: false, lastSeenAt: now);
+        }
 
         await base.OnDisconnectedAsync(exception);
     }

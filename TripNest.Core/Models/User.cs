@@ -30,6 +30,9 @@ public class User
 
     public DateTime? LastLoginAt { get; set; }
 
+    // Updated when the user's last chat connection drops; used to show "last seen" for offline users.
+    public DateTime? LastSeenAt { get; set; }
+
     public string? RefreshToken { get; set; }
 
     public DateTime? RefreshTokenExpiryTime { get; set; }

@@ -12,17 +12,20 @@ public class ChatService : IChatService
     private readonly IConversationRepository _conversationRepository;
     private readonly IMessageRepository _messageRepository;
     private readonly IRepository<User> _userRepository;
+    private readonly Hubs.IPresenceTracker _presence;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
         IConversationRepository conversationRepository,
         IMessageRepository messageRepository,
         IRepository<User> userRepository,
+        Hubs.IPresenceTracker presence,
         ILogger<ChatService> logger)
     {
         _conversationRepository = conversationRepository;
         _messageRepository = messageRepository;
         _userRepository = userRepository;
+        _presence = presence;
         _logger = logger;
     }
 
@@ -40,8 +43,8 @@ public class ChatService : IChatService
                 .Select(c => c.User1Id == userId ? c.User2Id : c.User1Id)
                 .Distinct()
                 .ToList();
-            var names = (await _userRepository.FindAsync(u => otherIds.Contains(u.Id)))
-                .ToDictionary(u => u.Id, u => u.FullName);
+            var otherUsers = (await _userRepository.FindAsync(u => otherIds.Contains(u.Id)))
+                .ToDictionary(u => u.Id);
 
             var conversationIds = conversations.Select(c => c.Id).ToList();
             var messages = (await _messageRepository.FindAsync(m => conversationIds.Contains(m.ConversationId))).ToList();
@@ -56,11 +59,14 @@ public class ChatService : IChatService
             return conversations.Select(c =>
             {
                 var otherId = c.User1Id == userId ? c.User2Id : c.User1Id;
+                var otherUser = otherUsers.GetValueOrDefault(otherId);
                 var response = MapConversation(c);
                 response.OtherUserId = otherId;
-                response.OtherUserName = names.GetValueOrDefault(otherId);
+                response.OtherUserName = otherUser?.FullName;
                 response.LastMessagePreview = lastMessageByConversation.GetValueOrDefault(c.Id);
                 response.UnreadCount = unreadByConversation.GetValueOrDefault(c.Id);
+                response.OtherUserIsOnline = _presence.IsOnline(otherId);
+                response.OtherUserLastSeenAt = response.OtherUserIsOnline ? null : otherUser?.LastSeenAt;
                 return response;
             }).ToList();
         }
@@ -112,7 +118,15 @@ public class ChatService : IChatService
             if (conversation.User1Id != userId && conversation.User2Id != userId)
                 return null;
 
-            return MapConversation(conversation);
+            var otherId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+            var otherUser = await _userRepository.GetByIdAsync(otherId);
+
+            var response = MapConversation(conversation);
+            response.OtherUserId = otherId;
+            response.OtherUserName = otherUser?.FullName;
+            response.OtherUserIsOnline = _presence.IsOnline(otherId);
+            response.OtherUserLastSeenAt = response.OtherUserIsOnline ? null : otherUser?.LastSeenAt;
+            return response;
         }
         catch (Exception ex)
         {

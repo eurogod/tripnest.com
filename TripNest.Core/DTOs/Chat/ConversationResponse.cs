@@ -15,4 +15,9 @@ public class ConversationResponse
     public string? OtherUserName { get; set; }
     public string? LastMessagePreview { get; set; }
     public int UnreadCount { get; set; }
+
+    // Presence of the other participant: online now, or the last time they were seen (day + time).
+    // For an offline user the client renders "last seen {OtherUserLastSeenAt}".
+    public bool OtherUserIsOnline { get; set; }
+    public DateTime? OtherUserLastSeenAt { get; set; }
 }

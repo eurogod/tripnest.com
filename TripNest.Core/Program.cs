@@ -341,6 +341,9 @@ if (!string.IsNullOrWhiteSpace(redisConnection))
     builder.Services.AddSingleton<IConnectionMultiplexer>(redisMux);
 }
 
+// Tracks online/offline for chat presence (in-memory, per-instance).
+builder.Services.AddSingleton<TripNest.Core.Hubs.IPresenceTracker, TripNest.Core.Hubs.PresenceTracker>();
+
 // SignalR: a Redis backplane is required to scale the chat hub beyond one instance (Groups/Clients
 // are per-server otherwise). Reuse the shared multiplexer when present.
 var signalR = builder.Services.AddSignalR();
