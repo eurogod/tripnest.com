@@ -105,6 +105,7 @@ public class ProfileController : ControllerBase
                 user.PhoneVerified,
                 user.TripNestId,
                 user.ProfilePhotoPath,
+                user.Username,
                 user.Bio
             };
 
@@ -133,6 +134,8 @@ public class ProfileController : ControllerBase
 
             user.FullName = request.FullName ?? user.FullName;
             user.Bio = request.Bio ?? user.Bio;
+            if (request.Username is not null)
+                user.Username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
 
             // Normalise the phone to E.164 (same as registration) so a profile edit can't store an
             // invalid number that later breaks SMS/OTP delivery.

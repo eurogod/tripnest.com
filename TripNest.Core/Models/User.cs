@@ -22,6 +22,9 @@ public class User
 
     public string? ProfilePhotoPath { get; set; }
 
+    // Optional public display handle / nickname the user can set.
+    public string? Username { get; set; }
+
     public string? Bio { get; set; }
 
     public bool IsActive { get; set; } = true;

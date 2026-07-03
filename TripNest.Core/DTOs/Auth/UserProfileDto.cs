@@ -29,4 +29,6 @@ public class UpdateProfileRequest
     public string? Phone { get; set; }
 
     public string? Bio { get; set; }
+
+    public string? Username { get; set; }
 }
