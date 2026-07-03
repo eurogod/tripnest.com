@@ -85,4 +85,15 @@ public class ReceiptRepository : Repository<Receipt>, IReceiptRepository
             .Where(r => r.BookingId == bookingId)
             .ToListAsync();
     }
+
+    public async Task<IEnumerable<Receipt>> GetByBookingIdsAsync(IEnumerable<string> bookingIds)
+    {
+        var ids = bookingIds.ToList();
+        if (ids.Count == 0)
+            return new List<Receipt>();
+
+        return await _context.Set<Receipt>()
+            .Where(r => ids.Contains(r.BookingId))
+            .ToListAsync();
+    }
 }
