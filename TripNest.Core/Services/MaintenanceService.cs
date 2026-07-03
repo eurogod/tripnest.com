@@ -91,13 +91,22 @@ public class MaintenanceService : IMaintenanceService
         }
     }
 
-    public async Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId)
+    public async Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId, bool isAdmin)
     {
         try
         {
             var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
             if (maintenance == null)
                 throw new InvalidOperationException("Maintenance record not found");
+
+            // Only the property's owner (landlord) — or an admin — may change a maintenance status.
+            // Without this any authenticated user could update any property's maintenance record.
+            if (!isAdmin)
+            {
+                var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
+                if (property == null || property.UserId != userId)
+                    throw new UnauthorizedAccessException("You do not have permission to update this maintenance record");
+            }
 
             if (!Enum.TryParse<MaintenanceStatus>(status, ignoreCase: true, out var parsedStatus))
                 throw new ArgumentException($"Invalid maintenance status: {status}");

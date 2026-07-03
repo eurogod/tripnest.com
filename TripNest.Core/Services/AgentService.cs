@@ -107,7 +107,11 @@ public class AgentService : IAgentService
             if (viewingRequest == null)
                 throw new InvalidOperationException("Viewing request not found");
 
-            if (viewingRequest.TenantId != userId && viewingRequest.AgentId != userId)
+            // TenantId is a user id, but AgentId is the Agent *entity* id — resolve the caller's agent
+            // profile so an agent can act on their own request (not just the tenant).
+            var myAgent = await _agentRepository.GetByUserIdAsync(userId);
+            var callerIsAssignedAgent = myAgent is not null && viewingRequest.AgentId == myAgent.Id;
+            if (viewingRequest.TenantId != userId && !callerIsAssignedAgent)
                 throw new UnauthorizedAccessException("You are not authorized to update this viewing request");
 
             if (!Enum.TryParse<ViewingRequestStatus>(status, ignoreCase: true, out var parsedStatus))

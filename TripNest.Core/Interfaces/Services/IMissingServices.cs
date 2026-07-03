@@ -55,7 +55,7 @@ public interface IMaintenanceService
     Task<MaintenanceResponse> ReportMaintenanceAsync(CreateMaintenanceRequest request, string tenantId);
     Task<List<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId);
     Task<List<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId);
-    Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId);
+    Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId, bool isAdmin);
     Task<ServiceRequestResponse> ConvertToServiceRequestAsync(string maintenanceId, string? caretakerId, string landlordId);
 }
 
