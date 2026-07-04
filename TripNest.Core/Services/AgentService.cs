@@ -131,6 +131,28 @@ public class AgentService : IAgentService
         }
     }
 
+    public async Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId)
+    {
+        try
+        {
+            // The caller may be the requesting tenant and/or an assigned agent.
+            var agent = await _agentRepository.GetByUserIdAsync(userId);
+            var agentId = agent?.Id;
+            var requests = await _viewingRequestRepository.FindAsync(
+                v => v.TenantId == userId || (agentId != null && v.AgentId == agentId));
+
+            return requests
+                .OrderByDescending(v => v.ScheduledAt)
+                .Select(MapToViewingRequest)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving viewing requests for user {UserId}", userId);
+            throw;
+        }
+    }
+
     private static AgentResponse MapToAgent(Agent a) => new AgentResponse
     {
         AgentId = a.Id,

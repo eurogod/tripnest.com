@@ -122,4 +122,28 @@ public class AgentsController : ControllerBase
             return StatusCode(500, ApiResponse<ViewingRequestResponse>.InternalServerError());
         }
     }
+
+    /// <summary>
+    /// Viewing requests the caller is part of — as the requesting tenant and/or the assigned agent.
+    /// </summary>
+    [HttpGet("viewing-requests/mine")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<List<ViewingRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<ViewingRequestResponse>>>> GetMyViewingRequests()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<List<ViewingRequestResponse>>.UnAuthorized());
+
+            var requests = await _agentService.GetMyViewingRequestsAsync(userId);
+            return Ok(ApiResponse<List<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving viewing requests");
+            return StatusCode(500, ApiResponse<List<ViewingRequestResponse>>.InternalServerError());
+        }
+    }
 }

@@ -67,6 +67,8 @@ public interface IAgentService
     Task<AgentResponse?> GetAgentProfileAsync(string agentId);
     Task<ViewingRequestResponse> CreateViewingRequestAsync(string agentId, string propertyId, DateTime scheduledAt, string tenantId, string? notes);
     Task UpdateViewingRequestStatusAsync(string requestId, string status, string userId);
+    // Viewing requests the caller is party to — as the requesting tenant and/or the assigned agent.
+    Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId);
 }
 
 public interface IReviewService
