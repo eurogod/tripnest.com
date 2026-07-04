@@ -144,6 +144,21 @@ public class EscrowService : IEscrowService
         return MapToResponse(updated!);
     }
 
+    public async Task<List<EscrowResponse>> GetMyEscrowsAsync(string userId)
+    {
+        // The caller's bookings as a tenant, then the escrows attached to them.
+        var bookings = await _bookingRepository.FindAsync(b => b.TenantId == userId);
+        var bookingIds = bookings.Select(b => b.Id).ToList();
+        if (bookingIds.Count == 0)
+            return new List<EscrowResponse>();
+
+        var escrows = await _escrowRepository.FindAsync(e => bookingIds.Contains(e.BookingId));
+        return escrows
+            .OrderByDescending(e => e.CreatedAt)
+            .Select(e => MapToResponse(e))
+            .ToList();
+    }
+
     public async Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId)
     {
         var escrow = await _escrowRepository.GetByIdAsync(escrowId);

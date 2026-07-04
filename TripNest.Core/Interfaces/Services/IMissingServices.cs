@@ -23,6 +23,8 @@ public interface IEscrowService
     Task<EscrowResponse> VerifyPaymentByBookingAsync(string bookingId, string userId);
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
     Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId);
+    // All escrows for the caller's own bookings (as the paying tenant), newest first.
+    Task<List<EscrowResponse>> GetMyEscrowsAsync(string userId);
     Task ReleaseEscrowAsync(string escrowId, string userId);
     Task RaiseDisputeAsync(string escrowId, string userId, string reason);
     Task ResolveDisputeAsync(string escrowId, bool approved);

@@ -176,6 +176,29 @@ public class EscrowController : ControllerBase
     }
 
     /// <summary>
+    /// List the caller's own escrows (as the paying tenant), for the payments "held funds" view.
+    /// </summary>
+    [HttpGet("mine")]
+    [ProducesResponseType(typeof(ApiResponse<List<EscrowResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<EscrowResponse>>>> GetMyEscrows()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<List<EscrowResponse>>.UnAuthorized());
+
+            var escrows = await _escrowService.GetMyEscrowsAsync(userId);
+            return Ok(ApiResponse<List<EscrowResponse>>.Ok("Escrows retrieved", escrows));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving escrows");
+            return StatusCode(500, ApiResponse<List<EscrowResponse>>.InternalServerError());
+        }
+    }
+
+    /// <summary>
     /// Get escrow transaction details
     /// </summary>
     [HttpGet("{id}")]
