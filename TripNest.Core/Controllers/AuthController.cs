@@ -15,11 +15,13 @@ namespace TripNest.Core.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IGoogleAuthService _googleAuth;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, IGoogleAuthService googleAuth, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _googleAuth = googleAuth;
         _logger = logger;
     }
 
@@ -79,6 +81,36 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during login");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
+    [HttpPost("google")]
+    [AllowAnonymous]
+    [EnableRateLimiting("otp")]
+    [ProducesResponseType(typeof(ApiResponse<LoginResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> GoogleSignIn([FromBody] GoogleSignInRequest request)
+    {
+        try
+        {
+            if (!_googleAuth.IsConfigured)
+                return BadRequest(ApiResponse<object>.BadRequest("Google sign-in is not configured on this server."));
+
+            var identity = await _googleAuth.ValidateAsync(request.IdToken);
+            if (identity is null)
+                return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Google sign-in."));
+
+            var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, identity.EmailVerified);
+            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Google", response));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during Google sign-in");
             return StatusCode(500, ApiResponse<object>.InternalServerError());
         }
     }

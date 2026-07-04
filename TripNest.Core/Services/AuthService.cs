@@ -130,6 +130,62 @@ public class AuthService : IAuthService
         };
     }
 
+    public async Task<LoginResponse> ExternalSignInAsync(string email, string fullName, bool emailVerified)
+    {
+        var user = await _userRepository.GetByEmailAsync(email);
+        if (user == null)
+        {
+            // First social sign-in: provision a Tenant account with an unusable random password
+            // (they authenticate via the provider, not a password).
+            user = new User
+            {
+                Id = Guid.NewGuid().ToString(),
+                FullName = fullName,
+                Email = email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToHexString(RandomNumberGenerator.GetBytes(32))),
+                Phone = string.Empty,
+                Role = UserRole.Tenant,
+                IsVerified = false,
+                IsActive = true,
+                EmailVerified = emailVerified,
+                CreatedAt = DateTime.UtcNow
+            };
+            await _userRepository.AddAsync(user);
+            _logger.LogInformation("Provisioned new user from external sign-in: {Email}", email);
+        }
+        else if (!user.IsActive)
+        {
+            throw new InvalidOperationException("User account is inactive");
+        }
+
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
+        user.LastLoginAt = DateTime.UtcNow;
+
+        var accessToken = await _tokenService.GenerateAccessTokenAsync(
+            user.Id, user.Email, user.FullName, user.Role.ToString());
+        var refreshToken = await _tokenService.GenerateRefreshTokenAsync();
+        user.RefreshToken = HashRefreshToken(refreshToken);
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
+
+        return new LoginResponse
+        {
+            UserId = user.Id,
+            FullName = user.FullName,
+            Email = user.Email,
+            Role = user.Role,
+            AccessToken = accessToken,
+            RefreshToken = refreshToken,
+            IsVerified = user.IsVerified,
+            EmailVerified = user.EmailVerified,
+            PhoneVerified = user.PhoneVerified,
+            TripNestId = user.TripNestId
+        };
+    }
+
     public async Task<LoginResponse> RefreshTokenAsync(string refreshToken)
     {
         var user = await _userRepository.GetByRefreshTokenAsync(HashRefreshToken(refreshToken));

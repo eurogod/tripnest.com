@@ -9,6 +9,10 @@ public interface IAuthService
 
     Task<LoginResponse> LoginAsync(LoginRequest request);
 
+    /// <summary>Signs in (or provisions on first use) a user from a verified external identity
+    /// (e.g. Google), issuing tokens exactly like a password login.</summary>
+    Task<LoginResponse> ExternalSignInAsync(string email, string fullName, bool emailVerified);
+
     Task<LoginResponse> RefreshTokenAsync(string refreshToken);
 
     Task ChangePasswordAsync(string userId, ChangePasswordRequest request);

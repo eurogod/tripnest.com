@@ -203,6 +203,7 @@ builder.Services.AddHttpClient<ISmsSender, TextBeeSmsSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
 builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
+builder.Services.AddHttpClient<IGoogleAuthService, GoogleAuthService>();
 
 builder.Services.AddSwaggerGen(options =>
 {
