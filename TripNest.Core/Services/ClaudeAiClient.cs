@@ -54,14 +54,14 @@ public class ClaudeAiClient : IAiClient
                     },
                 });
             }
-            content.Add(new TextBlockParam { Text = BuildFactsPrompt(property) });
+            content.Add(new TextBlockParam { Text = ListingCopyPrompts.Facts(property) });
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
                 Model = _model,
                 MaxTokens = 2048,
                 Thinking = new ThinkingConfigAdaptive(),
-                System = SystemPrompt,
+                System = ListingCopyPrompts.System,
                 // Structured output: the response is guaranteed to be valid JSON matching the
                 // schema, so parsing below cannot fail on chatty preamble or markdown fences.
                 OutputConfig = new OutputConfig
@@ -92,31 +92,6 @@ public class ClaudeAiClient : IAiClient
             _logger.LogError(ex, "AI listing copy generation failed for property {PropertyId}", property.Id);
             return null;
         }
-    }
-
-    private const string SystemPrompt =
-        "You write listing copy for TripNest, an accommodation-booking platform in Ghana. " +
-        "From the property facts (and photos when provided) draft copy that is warm, specific and honest. " +
-        "Never invent amenities, views or features that are not in the facts or clearly visible in the photos. " +
-        "Use plain English a broad audience understands; mention the location naturally. " +
-        "The title must be under 60 characters and must not start with generic filler like 'Cozy' or 'Stunning'. " +
-        "The description is 2-3 short paragraphs. Highlights are 3-5 short bullet phrases, each under 8 words.";
-
-    private static string BuildFactsPrompt(Models.Property p)
-    {
-        var rate = p.DailyRate is not null
-            ? $"GH₵{p.DailyRate:0.00} per night"
-            : $"GH₵{p.MonthlyRent:0.00} per month";
-        return $"""
-            Draft listing copy for this property:
-            - Type: {p.PropertyType} ({p.StayType})
-            - Location: {p.Location}
-            - Bedrooms: {p.Bedrooms}, Bathrooms: {p.Bathrooms}
-            - Rate: {rate}
-            - Amenities: {(string.IsNullOrWhiteSpace(p.Amenities) ? "not specified" : p.Amenities)}
-            - Host's current title: {p.Title}
-            - Host's current description: {p.Description}
-            """;
     }
 
     private static readonly Dictionary<string, JsonElement> SuggestionSchema = new()

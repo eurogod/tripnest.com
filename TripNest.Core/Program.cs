@@ -302,9 +302,14 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IDashboardStatsService, DashboardStatsService>();
-// AI (Claude). Singleton: the Anthropic SDK client is thread-safe and holds its own HttpClient.
-// Unconfigured (no Ai:ApiKey) it degrades gracefully — AI features return a friendly 400.
-builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
+// AI provider. Ai:Provider selects the implementation behind the IAiClient seam:
+//   "gemini" — Google Gemini via its AI Studio free tier (Ai:Gemini:ApiKey; no card needed)
+//   anything else (default "claude") — Claude via the Anthropic SDK (Ai:ApiKey)
+// Either way the unconfigured client degrades gracefully — AI features return a friendly 400.
+if (string.Equals(builder.Configuration["Ai:Provider"], "gemini", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
+else
+    builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {

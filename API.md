@@ -119,7 +119,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | PUT | `/{propertyId}` | 🔒 🛡️ |
 | DELETE | `/{propertyId}` | 🔒 🛡️ |
 | POST | `/{propertyId}/photos` | 🔒 🛡️ (multipart/form-data, owner only) |
-| POST | `/{propertyId}/generate-copy` | 🔒 🛡️ (owner only; AI-drafted `{title, description, highlights}` from facts + photos, for review — never auto-applied; 400 with a clear message when `Ai:ApiKey` is unconfigured) |
+| POST | `/{propertyId}/generate-copy` | 🔒 🛡️ (owner only; AI-drafted `{title, description, highlights}` from facts + photos, for review — never auto-applied; 400 with a clear message when no AI provider key is configured; `Ai:Provider` selects claude or gemini) |
 
 ### Availability — `api/properties/{propertyId}`
 | Method | Path | Access |
