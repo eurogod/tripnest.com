@@ -36,6 +36,21 @@ public class AppDbContext : DbContext
     public DbSet<PropertyPhoto> PropertyPhotos { get; set; }
     public DbSet<PropertyCaretakerAssignment> PropertyCaretakerAssignments { get; set; }
 
+    // Marketplace / operations modules (frontend parity).
+    public DbSet<PricingSettings> PricingSettings { get; set; }
+    public DbSet<Inquiry> Inquiries { get; set; }
+    public DbSet<SavedPaymentMethod> SavedPaymentMethods { get; set; }
+    public DbSet<ExchangePost> ExchangePosts { get; set; }
+    public DbSet<ExchangeReply> ExchangeReplies { get; set; }
+    public DbSet<HostTask> HostTasks { get; set; }
+    public DbSet<TeamMember> TeamMembers { get; set; }
+    public DbSet<ResourceItem> ResourceItems { get; set; }
+    public DbSet<PropertyTour> PropertyTours { get; set; }
+
+    // Host disbursements (Paystack Transfers).
+    public DbSet<Payout> Payouts { get; set; }
+    public DbSet<PayoutAccount> PayoutAccounts { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

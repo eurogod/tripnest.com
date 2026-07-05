@@ -8,3 +8,7 @@ tf-keras==2.16.0
 pydantic==2.7.4
 requests==2.32.3
 python-multipart==0.0.9
+# DeepFace's anti-spoofing/liveness model (MiniFASNet, used via extract_faces(anti_spoofing=True))
+# is implemented in PyTorch. Install the CPU-only wheel to avoid pulling ~2GB of CUDA libs:
+#   pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2

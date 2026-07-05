@@ -2,7 +2,9 @@
 
 A small Python service that wraps **DeepFace** to compare two face photos
 (e.g. the NIA Ghana Card photo vs a freshly uploaded selfie) and return a
-similarity score. Called by TripNest.Core's `FaceMatchClient` over HTTP.
+similarity score, plus a **liveness / anti-spoofing** score for the selfie
+that rejects printed-photo and screen-replay attacks. Called by
+TripNest.Core's `FaceMatchClient` over HTTP.
 
 This exists as a separate Python service because the best open-source face
 recognition models (FaceNet, ArcFace, etc., bundled inside DeepFace) are
@@ -21,6 +23,14 @@ pip install -r requirements.txt
 
 First install will take a while — `tensorflow` and DeepFace's model weights
 are large downloads.
+
+Liveness/anti-spoofing uses DeepFace's MiniFASNet model, which is implemented
+in **PyTorch**. `requirements.txt` pins `torch`, but the default wheel pulls
+~2GB of CUDA libraries — install the CPU-only wheel instead:
+
+```bash
+pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+```
 
 ## Run
 
@@ -57,6 +67,8 @@ will typically use:
 {
   "verified": true,
   "similarity_score": 91.4,
+  "liveness_score": 88.0,
+  "liveness_passed": true,
   "distance": 0.21,
   "threshold": 0.4,
   "model": "Facenet512",
@@ -67,6 +79,11 @@ will typically use:
 - `similarity_score` is 0-100, scaled from DeepFace's raw distance metric —
   this is the number TripNest.Core's `IFaceMatchClient` reads and compares
   against the configurable face match threshold (default 80).
+- `liveness_score` is 0-100 from the anti-spoofing model run on the **selfie**
+  (`photo2`) only — the NIA reference photo is trusted and a printed government
+  photo would fail a spoof check anyway. TripNest.Core gates verification on it
+  against `Verification:LivenessThreshold` (default 75); `liveness_passed` is the
+  model's own real/spoof verdict, surfaced for reference.
 - If no face is detected in either photo, returns `422` with a clear message.
 - If a photo URL can't be fetched, returns `424 Failed Dependency`.
 

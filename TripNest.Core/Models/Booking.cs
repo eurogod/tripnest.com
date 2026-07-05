@@ -11,6 +11,10 @@ public class Booking
     public Property? Property { get; set; }
     public DateTime CheckInDate { get; set; }
     public DateTime CheckOutDate { get; set; }
+
+    /// <summary>How many guests the stay is for. At least 1.</summary>
+    public int Guests { get; set; } = 1;
+
     public decimal TotalAmount { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

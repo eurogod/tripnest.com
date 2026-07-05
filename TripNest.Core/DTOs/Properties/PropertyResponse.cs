@@ -5,6 +5,8 @@ namespace TripNest.Core.DTOs.Properties;
 public class PropertyResponse
 {
     public required string PropertyId { get; set; }
+    /// <summary>Listing owner — lets clients start a conversation / attribute inquiries.</summary>
+    public string? OwnerId { get; set; }
     public required string Title { get; set; }
     public required string Description { get; set; }
     public required string Location { get; set; }

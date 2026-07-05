@@ -79,10 +79,13 @@ public class AgreementService : IAgreementService
 
     public async Task<List<AgreementResponse>> GetUserAgreementsAsync(string userId)
     {
-        var allAgreements = await _agreementRepository.GetAllAsync();
+        // Narrow to the user's agreements in the database (tenant on the booking, or the property's
+        // landlord) instead of loading every agreement and filtering in memory.
+        var agreements = await _agreementRepository.FindAsync(
+            a => a.Booking!.TenantId == userId || a.Booking!.Property!.UserId == userId);
         var result = new List<AgreementResponse>();
 
-        foreach (var agreement in allAgreements)
+        foreach (var agreement in agreements)
         {
             var booking = agreement.Booking
                 ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId);
@@ -183,14 +186,14 @@ public class AgreementService : IAgreementService
             throw new InvalidOperationException("Agreement not found");
 
         var booking = agreement.Booking
-            ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId);
+            ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId)
+            // Authorisation is derived from the booking's parties — without it we cannot prove the
+            // caller's right to the document, so deny rather than serve it to anyone.
+            ?? throw new InvalidOperationException("Booking associated with agreement not found");
 
-        if (booking != null)
-        {
-            var landlordId = booking.Property?.UserId;
-            if (booking.TenantId != userId && landlordId != userId)
-                throw new UnauthorizedAccessException("User is not authorised to download this agreement");
-        }
+        var landlordId = booking.Property?.UserId;
+        if (booking.TenantId != userId && landlordId != userId)
+            throw new UnauthorizedAccessException("User is not authorised to download this agreement");
 
         var bytes = Pdf.AgreementPdf.Render(agreement, booking);
         var filename = $"agreement-{agreementId}.pdf";

@@ -36,6 +36,15 @@ public class ReviewService : IReviewService
             if (booking == null)
                 throw new InvalidOperationException("Booking not found");
 
+            // Review integrity: only the tenant who actually stayed may review, and only the
+            // property that booking was for — otherwise anyone holding a completed booking id
+            // could plant reviews on arbitrary listings or on someone else's stay.
+            if (booking.TenantId != reviewerId)
+                throw new InvalidOperationException("Only the booking's tenant can review this stay");
+
+            if (booking.PropertyId != propertyId)
+                throw new InvalidOperationException("The booking does not belong to this property");
+
             if (booking.Status != BookingStatus.Completed)
                 throw new InvalidOperationException("Reviews can only be submitted for completed bookings");
 

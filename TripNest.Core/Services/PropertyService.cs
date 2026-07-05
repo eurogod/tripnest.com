@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Properties;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -11,43 +12,41 @@ public class PropertyService : IPropertyService
 {
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<PropertyPhoto> _photoRepository;
+    private readonly IFileStorage _fileStorage;
     private readonly ILogger<PropertyService> _logger;
 
     public PropertyService(
         IPropertyRepository propertyRepository,
         IRepository<PropertyPhoto> photoRepository,
+        IFileStorage fileStorage,
         ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
         _photoRepository = photoRepository;
+        _fileStorage = fileStorage;
         _logger = logger;
     }
 
     public async Task<List<string>> AddPhotosAsync(string propertyId, string userId, IFormFileCollection files)
     {
         var property = await _propertyRepository.GetByIdAsync(propertyId)
-            ?? throw new InvalidOperationException("Property not found");
+            ?? throw new NotFoundException("Property");
         if (property.UserId != userId)
-            throw new InvalidOperationException("You are not authorised to add photos to this property");
+            throw new ForbiddenException("You are not authorised to add photos to this property");
         if (files == null || files.Count == 0)
-            throw new InvalidOperationException("No photos were provided");
+            throw new ValidationException("No photos were provided");
 
-        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "properties");
-        Directory.CreateDirectory(uploadDir);
-
-        var existing = (await _photoRepository.GetAllAsync()).Count(p => p.PropertyId == propertyId);
+        // Count existing photos in the database (don't load the whole table).
+        var existing = await _photoRepository.CountAsync(p => p.PropertyId == propertyId);
         var savedPaths = new List<string>();
         var index = existing;
 
         foreach (var file in files)
         {
             if (file.Length == 0) continue;
-            var fileName = $"{Guid.NewGuid():N}{Path.GetExtension(file.FileName)}";
-            var fullPath = Path.Combine(uploadDir, fileName);
-            await using (var stream = new FileStream(fullPath, FileMode.Create))
-                await file.CopyToAsync(stream);
 
-            var relativePath = $"/uploads/properties/{fileName}";
+            // Storage validates type + size and returns a servable path/URL.
+            var relativePath = await _fileStorage.SaveAsync("properties", file, UploadKind.Image);
             await _photoRepository.AddAsync(new PropertyPhoto
             {
                 PropertyId = propertyId,
@@ -222,6 +221,7 @@ public class PropertyService : IPropertyService
         return new PropertyResponse
         {
             PropertyId = property.Id,
+            OwnerId = property.UserId,
             Title = property.Title,
             Description = property.Description,
             Location = property.Location,

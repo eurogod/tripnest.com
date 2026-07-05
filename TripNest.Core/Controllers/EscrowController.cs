@@ -17,12 +17,18 @@ namespace TripNest.Core.Controllers;
 public class EscrowController : ControllerBase
 {
     private readonly IEscrowService _escrowService;
+    private readonly IPayoutService _payoutService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<EscrowController> _logger;
 
-    public EscrowController(IEscrowService escrowService, IConfiguration configuration, ILogger<EscrowController> logger)
+    public EscrowController(
+        IEscrowService escrowService,
+        IPayoutService payoutService,
+        IConfiguration configuration,
+        ILogger<EscrowController> logger)
     {
         _escrowService = escrowService;
+        _payoutService = payoutService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -92,6 +98,20 @@ public class EscrowController : ControllerBase
             var root = doc.RootElement;
             var eventType = root.TryGetProperty("event", out var ev) ? ev.GetString() : null;
 
+            // Transfer lifecycle events drive payouts to Paid/Failed. The transfer reference is
+            // the payout id; same HMAC signature verified above covers these events too.
+            if (eventType is "transfer.success" or "transfer.failed" or "transfer.reversed")
+            {
+                var transferData = root.GetProperty("data");
+                var transferRef = transferData.TryGetProperty("reference", out var tr) ? tr.GetString() : null;
+                var failure = transferData.TryGetProperty("reason", out var rs) ? rs.GetString() : null;
+
+                if (!string.IsNullOrEmpty(transferRef))
+                    await _payoutService.HandleTransferWebhookAsync(eventType, transferRef, failure);
+
+                return Ok(ApiResponse<object>.Ok("Transfer event processed", null));
+            }
+
             // Only a successful charge moves funds into escrow; ignore other events.
             if (eventType != "charge.success")
                 return Ok(ApiResponse<object>.Ok("Event ignored", null));
@@ -104,7 +124,13 @@ public class EscrowController : ControllerBase
             if (string.IsNullOrEmpty(bookingId) || string.IsNullOrEmpty(reference))
                 return BadRequest(ApiResponse<object>.BadRequest("Missing booking or payment reference"));
 
-            await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference);
+            // Paystack reports the charged amount in the minor unit (pesewas); convert to GHS so the
+            // service can verify it matches what the booking is owed before holding the funds.
+            var paidAmount = data.TryGetProperty("amount", out var amt) && amt.TryGetDecimal(out var minor)
+                ? minor / 100m
+                : 0m;
+
+            await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference, paidAmount);
             return Ok(ApiResponse<object>.Ok("Payment verified", null));
         }
         catch (JsonException)
@@ -139,6 +165,60 @@ public class EscrowController : ControllerBase
     }
 
     /// <summary>
+    /// Actively verify a booking's payment with the provider and hold the funds if it succeeded.
+    /// A reliable fallback to the webhook — call it on the post-checkout redirect, or to reconcile a
+    /// booking whose webhook was missed. Idempotent: if the escrow is already held, it just returns it.
+    /// </summary>
+    [HttpPost("booking/{bookingId}/verify")]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<EscrowResponse>>> VerifyPayment(string bookingId)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+
+            var result = await _escrowService.VerifyPaymentByBookingAsync(bookingId, userId);
+            return Ok(ApiResponse<EscrowResponse>.Ok("Payment verified", result));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<EscrowResponse>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verifying payment for booking {BookingId}", bookingId);
+            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
+    /// List the caller's own escrows (as the paying tenant), for the payments "held funds" view.
+    /// </summary>
+    [HttpGet("mine")]
+    [ProducesResponseType(typeof(ApiResponse<List<EscrowResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<EscrowResponse>>>> GetMyEscrows()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<List<EscrowResponse>>.UnAuthorized());
+
+            var escrows = await _escrowService.GetMyEscrowsAsync(userId);
+            return Ok(ApiResponse<List<EscrowResponse>>.Ok("Escrows retrieved", escrows));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving escrows");
+            return StatusCode(500, ApiResponse<List<EscrowResponse>>.InternalServerError());
+        }
+    }
+
+    /// <summary>
     /// Get escrow transaction details
     /// </summary>
     [HttpGet("{id}")]
@@ -161,6 +241,33 @@ public class EscrowController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving escrow");
+            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
+    /// Get the escrow attached to a booking (tenant or property owner only)
+    /// </summary>
+    [HttpGet("booking/{bookingId}")]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<EscrowResponse>>> GetEscrowByBooking(string bookingId)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+
+            var escrow = await _escrowService.GetEscrowByBookingAsync(bookingId, userId);
+            if (escrow == null)
+                return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
+
+            return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving escrow for booking");
             return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
         }
     }

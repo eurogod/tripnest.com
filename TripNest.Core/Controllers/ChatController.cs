@@ -151,6 +151,10 @@ public class ChatController : ControllerBase
 
             return Created($"api/messages/{message.MessageId}", ApiResponse<MessageResponse>.Created("Message", message));
         }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(403, ApiResponse<MessageResponse>.Forbidden("You are not a participant in this conversation"));
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(ApiResponse<MessageResponse>.BadRequest(ex.Message));
@@ -177,6 +181,14 @@ public class ChatController : ControllerBase
 
             await _chatService.MarkMessageAsReadAsync(id, userId);
             return Ok(ApiResponse<MessageResponse>.Ok("Message marked as read", null));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return StatusCode(403, ApiResponse<MessageResponse>.Forbidden("You are not a participant in this conversation"));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<MessageResponse>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {

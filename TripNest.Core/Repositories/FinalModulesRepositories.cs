@@ -35,6 +35,18 @@ public class AuditLogRepository : Repository<AuditLog>, IAuditLogRepository
             .OrderByDescending(a => a.CreatedAt)
             .ToListAsync();
     }
+
+    public async Task<IEnumerable<AuditLog>> GetRecentAsync(int limit, string? userId = null)
+    {
+        var query = _context.Set<AuditLog>().AsNoTracking().AsQueryable();
+        if (!string.IsNullOrEmpty(userId))
+            query = query.Where(a => a.UserId == userId);
+
+        return await query
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
 }
 
 public class TrustScoreSnapshotRepository : Repository<TrustScoreSnapshot>, ITrustScoreSnapshotRepository

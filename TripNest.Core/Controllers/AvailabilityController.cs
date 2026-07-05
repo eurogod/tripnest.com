@@ -60,13 +60,16 @@ public class AvailabilityController : ControllerBase
             if (property is null)
                 return NotFound(ApiResponse<object>.NotFound("Property"));
 
-            var allBlockedDates = await _blockedDateRepository.GetAllAsync();
+            // Filter by property and (optional) date window in the database rather than loading
+            // every property's blocked dates into memory.
+            var start = startDate;
+            var end = endDate;
+            var blockedDates = await _blockedDateRepository.FindAsync(b =>
+                b.PropertyId == propertyId &&
+                (!start.HasValue || b.EndDate >= start.Value) &&
+                (!end.HasValue || b.StartDate <= end.Value));
 
-            var filtered = allBlockedDates
-                .Where(b => b.PropertyId == propertyId)
-                .Where(b =>
-                    (!startDate.HasValue || b.EndDate >= startDate.Value) &&
-                    (!endDate.HasValue || b.StartDate <= endDate.Value))
+            var filtered = blockedDates
                 .Select(b => (object)new
                 {
                     b.Id,

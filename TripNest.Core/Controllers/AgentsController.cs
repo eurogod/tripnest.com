@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Agents;
 using TripNest.Core.Interfaces.Services;
@@ -27,6 +28,7 @@ public class AgentsController : ControllerBase
     /// Get list of verified agents, optionally filtered by service area
     /// </summary>
     [HttpGet]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<List<AgentResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<AgentResponse>>>> GetAgents([FromQuery] string? serviceArea)
     {
@@ -43,9 +45,61 @@ public class AgentsController : ControllerBase
     }
 
     /// <summary>
+    /// The caller's own directory profile (404 until they create one via PUT /api/agents/me).
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = "Agent,Admin")]
+    [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<AgentResponse>>> GetMyProfile()
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<AgentResponse>.UnAuthorized());
+
+        var profile = await _agentService.GetMyProfileAsync(userId);
+        if (profile is null)
+            return NotFound(ApiResponse<AgentResponse>.NotFound("Agent profile"));
+
+        return Ok(ApiResponse<AgentResponse>.Ok("Agent profile retrieved", profile));
+    }
+
+    /// <summary>
+    /// Create or update the caller's public directory profile — without it an Agent-role account
+    /// never appears in the agents list. Requires identity verification, like other agent actions.
+    /// </summary>
+    [HttpPut("me")]
+    [Authorize(Roles = "Agent,Admin")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<AgentResponse>>> UpsertMyProfile([FromBody] UpsertAgentProfileRequest request)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<AgentResponse>.UnAuthorized());
+
+            var profile = await _agentService.UpsertMyProfileAsync(userId, request);
+            return Ok(ApiResponse<AgentResponse>.Ok("Agent profile saved", profile));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<AgentResponse>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving agent profile");
+            return StatusCode(500, ApiResponse<AgentResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
     /// Get agent profile with rating
     /// </summary>
     [HttpGet("{id}")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<AgentResponse>>> GetAgent(string id)
@@ -117,6 +171,30 @@ public class AgentsController : ControllerBase
         {
             _logger.LogError(ex, "Error updating status");
             return StatusCode(500, ApiResponse<ViewingRequestResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
+    /// Viewing requests the caller is part of — as the requesting tenant and/or the assigned agent.
+    /// </summary>
+    [HttpGet("viewing-requests/mine")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<List<ViewingRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<ViewingRequestResponse>>>> GetMyViewingRequests()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<List<ViewingRequestResponse>>.UnAuthorized());
+
+            var requests = await _agentService.GetMyViewingRequestsAsync(userId);
+            return Ok(ApiResponse<List<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving viewing requests");
+            return StatusCode(500, ApiResponse<List<ViewingRequestResponse>>.InternalServerError());
         }
     }
 }

@@ -54,6 +54,17 @@ public class AgentRepository : Repository<Agent>, IAgentRepository
         return await _context.Set<Agent>()
             .FirstOrDefaultAsync(a => a.UserId == userId);
     }
+
+    public async Task<IReadOnlyList<Agent>> SearchByNameAsync(string? query, int take)
+    {
+        var q = _context.Set<Agent>().AsNoTracking().Include(a => a.User).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var ql = query.ToLower();
+            q = q.Where(a => a.User != null && a.User.FullName.ToLower().Contains(ql));
+        }
+        return await q.Take(take).ToListAsync();
+    }
 }
 
 public class ReceiptRepository : Repository<Receipt>, IReceiptRepository
@@ -72,6 +83,17 @@ public class ReceiptRepository : Repository<Receipt>, IReceiptRepository
     {
         return await _context.Set<Receipt>()
             .Where(r => r.BookingId == bookingId)
+            .ToListAsync();
+    }
+
+    public async Task<IEnumerable<Receipt>> GetByBookingIdsAsync(IEnumerable<string> bookingIds)
+    {
+        var ids = bookingIds.ToList();
+        if (ids.Count == 0)
+            return new List<Receipt>();
+
+        return await _context.Set<Receipt>()
+            .Where(r => ids.Contains(r.BookingId))
             .ToListAsync();
     }
 }

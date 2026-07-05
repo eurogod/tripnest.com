@@ -58,11 +58,18 @@ public class BookingsController : ControllerBase
     }
 
     [HttpGet("{bookingId}")]
+    [Authorize]
     [ProducesResponseType(typeof(ApiResponse<BookingResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<BookingResponse>>> GetBooking(string bookingId)
     {
-        var response = await _bookingService.GetBookingAsync(bookingId);
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        // Only the booking's tenant or the property's landlord may read it.
+        var response = await _bookingService.GetBookingAsync(bookingId, userId);
         return Ok(ApiResponse<BookingResponse>.Ok("Booking retrieved", response));
     }
 
@@ -91,7 +98,7 @@ public class BookingsController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        var response = await _bookingService.CancelBookingAsync(bookingId);
+        var response = await _bookingService.CancelBookingAsync(bookingId, userId);
         return Ok(ApiResponse<BookingResponse>.Ok("Booking cancelled successfully", response));
     }
 }

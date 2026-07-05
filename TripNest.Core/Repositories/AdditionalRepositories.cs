@@ -92,4 +92,15 @@ public class CaretakerRepository : Repository<Caretaker>, ICaretakerRepository
             .Where(c => c.UserId == userId)
             .ToListAsync();
     }
+
+    public async Task<IReadOnlyList<Caretaker>> SearchByNameAsync(string? query, int take)
+    {
+        var q = _context.Set<Caretaker>().AsNoTracking().Include(c => c.User).AsQueryable();
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var ql = query.ToLower();
+            q = q.Where(c => c.User != null && c.User.FullName.ToLower().Contains(ql));
+        }
+        return await q.Take(take).ToListAsync();
+    }
 }

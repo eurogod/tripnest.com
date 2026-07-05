@@ -22,6 +22,9 @@ public class User
 
     public string? ProfilePhotoPath { get; set; }
 
+    // Optional public display handle / nickname the user can set.
+    public string? Username { get; set; }
+
     public string? Bio { get; set; }
 
     public bool IsActive { get; set; } = true;
@@ -30,6 +33,9 @@ public class User
 
     public DateTime? LastLoginAt { get; set; }
 
+    // Updated when the user's last chat connection drops; used to show "last seen" for offline users.
+    public DateTime? LastSeenAt { get; set; }
+
     public string? RefreshToken { get; set; }
 
     public DateTime? RefreshTokenExpiryTime { get; set; }
@@ -37,6 +43,12 @@ public class User
     public string? PasswordResetToken { get; set; }
 
     public DateTime? PasswordResetTokenExpiry { get; set; }
+
+    // Brute-force protection: consecutive failed logins and, once the threshold is hit, the time
+    // until which further login attempts are refused. Reset on a successful login.
+    public int FailedLoginAttempts { get; set; }
+
+    public DateTime? LockoutEnd { get; set; }
 
     // Phone-ownership (OTP) verification.
     public bool PhoneVerified { get; set; } = false;

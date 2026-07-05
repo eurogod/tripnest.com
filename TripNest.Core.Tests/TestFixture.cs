@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -20,6 +21,12 @@ public class TestFixture : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // The app refuses to boot outside Development with the committed placeholder JWT key, and the
+        // test host runs as "Testing". Supply a strong, test-only signing key so the guard is satisfied
+        // while still exercising the production startup path. UseSetting has higher precedence than
+        // appsettings.json under the minimal-hosting model, so it actually overrides the committed key.
+        builder.UseSetting("Jwt:Key", "tripnest-test-signing-key-please-do-not-use-in-production-0123456789");
+
         builder.ConfigureServices(services =>
         {
             // Remove the current DbContext registration
@@ -43,6 +50,11 @@ public class TestFixture : WebApplicationFactory<Program>
             services.AddSingleton<RecordingEmailSender>();
             services.AddSingleton<ISmsSender>(sp => sp.GetRequiredService<RecordingSmsSender>());
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<RecordingEmailSender>());
+
+            // Deterministic payment gateway so escrow flows don't depend on a real Paystack account.
+            services.RemoveAll<IPaymentGateway>();
+            services.AddSingleton<StubPaymentGateway>();
+            services.AddSingleton<IPaymentGateway>(sp => sp.GetRequiredService<StubPaymentGateway>());
         });
 
         builder.UseEnvironment("Testing");
@@ -81,7 +93,7 @@ public class TestBase : IAsyncLifetime
     /// email so tests don't collide.
     /// </summary>
     protected async Task<(string UserId, string Token)> RegisterAndLoginAsync(
-        UserRole role, string? email = null)
+        UserRole role, string? email = null, string? phone = null)
     {
         email ??= $"user_{Guid.NewGuid():N}@example.com";
 
@@ -91,7 +103,7 @@ public class TestBase : IAsyncLifetime
             Email = email,
             Password = "Password@123",
             ConfirmPassword = "Password@123",
-            Phone = "+233501234567",
+            Phone = phone ?? "+233501234567",
             Role = role
         };
         await _httpClient.PostAsJsonAsync("/api/auth/register", register);

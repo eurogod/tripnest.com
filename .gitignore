@@ -75,3 +75,7 @@ desktop.ini
 *.pyc
 .deepface/
 .pytest_cache/
+
+# Local secrets export — never commit
+api-keys.local.json
+*.local.json

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.TrustScore;
 using TripNest.Core.Interfaces.Repositories;
@@ -36,6 +37,7 @@ public class TrustScoreController : ControllerBase
     }
 
     [HttpGet("property/{propertyId}")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<TrustScoreResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TrustScoreResponse>>> GetPropertyTrustScore(string propertyId)
     {
@@ -56,6 +58,7 @@ public class TrustScoreController : ControllerBase
     }
 
     [HttpGet("user/{userId}")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<TrustScoreResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TrustScoreResponse>>> GetUserTrustScore(string userId)
     {
