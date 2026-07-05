@@ -52,12 +52,14 @@ public sealed class PresenceTracker : IPresenceTracker
             existing.Remove(connectionId);
             if (existing.Count > 0)
                 return false;
-        }
 
-        // Last connection gone — remove the user. TryRemove guards against a concurrent reconnect
-        // having repopulated the set between the lock and here.
-        _connections.TryRemove(userId, out _);
-        return true;
+            // Last connection gone — remove the entry while still holding the set's lock. A
+            // concurrent Connect for this user blocks on the same lock inside AddOrUpdate's update
+            // path; once the entry is removed, its TryUpdate fails and AddOrUpdate retries as a
+            // fresh add (reporting the user online again), so the reconnect is never lost.
+            _connections.TryRemove(new KeyValuePair<string, HashSet<string>>(userId, existing));
+            return true;
+        }
     }
 
     public bool IsOnline(string userId) =>

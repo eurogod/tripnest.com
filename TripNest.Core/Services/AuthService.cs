@@ -132,7 +132,16 @@ public class AuthService : IAuthService
 
     public async Task<LoginResponse> ExternalSignInAsync(string email, string fullName, bool emailVerified)
     {
+        // The provider's email claim is only trustworthy once the provider itself has verified it
+        // (Google ID tokens can carry email_verified=false). Signing in on an unverified claim would
+        // let anyone who controls a Google identity asserting someone else's address take over the
+        // existing TripNest account registered under that email.
+        if (!emailVerified)
+            throw new InvalidOperationException(
+                "The Google account's email address is not verified. Verify it with Google and try again.");
+
         var user = await _userRepository.GetByEmailAsync(email);
+        var isNewUser = user == null;
         if (user == null)
         {
             // First social sign-in: provision a Tenant account with an unusable random password
@@ -150,8 +159,6 @@ public class AuthService : IAuthService
                 EmailVerified = emailVerified,
                 CreatedAt = DateTime.UtcNow
             };
-            await _userRepository.AddAsync(user);
-            _logger.LogInformation("Provisioned new user from external sign-in: {Email}", email);
         }
         else if (!user.IsActive)
         {
@@ -168,7 +175,17 @@ public class AuthService : IAuthService
         user.RefreshToken = HashRefreshToken(refreshToken);
         user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
 
-        await _userRepository.UpdateAsync(user);
+        // Add exactly once for a new user (calling Update on an entity already tracked as Added
+        // re-marks it Modified, making EF issue an UPDATE for a row that doesn't exist yet).
+        if (isNewUser)
+        {
+            await _userRepository.AddAsync(user);
+            _logger.LogInformation("Provisioned new user from external sign-in: {Email}", email);
+        }
+        else
+        {
+            await _userRepository.UpdateAsync(user);
+        }
         await _userRepository.SaveChangesAsync();
 
         return new LoginResponse

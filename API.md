@@ -87,6 +87,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 |---|---|---|
 | POST | `/register` | 🌐 |
 | POST | `/login` | 🌐 |
+| POST | `/google` | 🌐 (Google ID token → sign-in/provision; requires `GoogleAuth:ClientId` config and a Google-verified email, else 400) |
 | POST | `/refresh-token` | 🌐 |
 | POST | `/forgot-password` | 🌐 |
 | POST | `/reset-password` | 🌐 |

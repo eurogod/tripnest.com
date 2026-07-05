@@ -31,8 +31,12 @@ public class GoogleAuthService : IGoogleAuthService
 
         try
         {
-            using var resp = await _httpClient.GetAsync(
-                $"https://oauth2.googleapis.com/tokeninfo?id_token={Uri.EscapeDataString(idToken)}");
+            // Send the token in the POST body, not the query string: request URLs are recorded by
+            // the HttpClient tracing instrumentation (and often by proxies), and an ID token is a
+            // bearer-equivalent credential that must not end up in logs.
+            using var resp = await _httpClient.PostAsync(
+                "https://oauth2.googleapis.com/tokeninfo",
+                new FormUrlEncodedContent(new Dictionary<string, string> { ["id_token"] = idToken }));
             if (!resp.IsSuccessStatusCode)
                 return null;
 

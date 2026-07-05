@@ -47,9 +47,25 @@ public class ChatHub : Hub
         await base.OnConnectedAsync();
     }
 
-    /// <summary>Sends the caller the current presence (online / last-seen) of a specific user.</summary>
+    /// <summary>
+    /// Sends the caller the current presence (online / last-seen) of a specific user. Presence is
+    /// only visible to the user themself and their conversation partners — the same audience the
+    /// PresenceChanged push goes to — so arbitrary users can't be watched.
+    /// </summary>
     public async Task<object> GetPresence(string userId)
     {
+        var callerId = Context.User.GetUserId();
+        if (string.IsNullOrEmpty(callerId))
+            throw new HubException("Unauthorized");
+
+        if (callerId != userId)
+        {
+            var conversations = await _conversationRepository.GetUserConversationsAsync(callerId);
+            var isPartner = conversations.Any(c => c.User1Id == userId || c.User2Id == userId);
+            if (!isPartner)
+                throw new HubException("You can only view presence for your conversation partners.");
+        }
+
         if (_presence.IsOnline(userId))
             return new { userId, isOnline = true, lastSeenAt = (DateTime?)null };
 
