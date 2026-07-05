@@ -47,7 +47,8 @@ public class ReservationsTests : TestBase
         var (tenantId, _) = await RegisterAndLoginAsync(UserRole.Tenant);
         var (landlordId, _) = await RegisterAndLoginAsync(UserRole.Landlord);
 
-        // 3 nights at ₵1266 total → nightly 422; default 20% fee → 253.20 fee, 1012.80 payout.
+        // 3 nights at ₵1266 total → nightly 422; the configured 10% platform fee
+        // (Platform:ManagementFeePercent) → 126.60 fee, 1139.40 payout.
         var (bookingId, propertyId) = await SeedBookingAsync(
             tenantId, landlordId, BookingStatus.Completed, daysFromNow: -10, guests: 2, total: 1266m, nights: 3);
 
@@ -78,8 +79,8 @@ public class ReservationsTests : TestBase
         Assert.Equal("TripNest", data.GetProperty("bookedThrough").GetString());
         Assert.Equal(422m, data.GetProperty("nightlyRate").GetDecimal());
         Assert.Equal(1266m, data.GetProperty("netRevenue").GetDecimal());
-        Assert.Equal(253.20m, data.GetProperty("managementFee").GetDecimal());
-        Assert.Equal(1012.80m, data.GetProperty("ownerPayout").GetDecimal());
+        Assert.Equal(126.60m, data.GetProperty("managementFee").GetDecimal());
+        Assert.Equal(1139.40m, data.GetProperty("ownerPayout").GetDecimal());
 
         var reviews = data.GetProperty("guestReviews");
         Assert.Equal(1, reviews.GetArrayLength());
