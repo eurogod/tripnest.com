@@ -193,17 +193,24 @@ public class PaymentMethodService : IPaymentMethodService
 
 public class StatementService : IStatementService
 {
-    // Platform management fee applied to gross booking revenue.
-    private const decimal ManagementFeeRate = 0.10m;
-
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
+    private readonly IConfiguration _configuration;
 
-    public StatementService(IPropertyRepository propertyRepository, IBookingRepository bookingRepository)
+    public StatementService(
+        IPropertyRepository propertyRepository,
+        IBookingRepository bookingRepository,
+        IConfiguration configuration)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
+        _configuration = configuration;
     }
+
+    // Same fee source as the reservation-details breakdown — statements and per-reservation
+    // earnings must never disagree about what the platform keeps.
+    private decimal ManagementFeeRate =>
+        _configuration.GetValue("Platform:ManagementFeePercent", 20m) / 100m;
 
     public async Task<List<StatementResponse>> GetForLandlordAsync(string landlordId)
     {

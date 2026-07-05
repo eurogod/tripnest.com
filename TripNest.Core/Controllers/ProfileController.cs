@@ -135,7 +135,24 @@ public class ProfileController : ControllerBase
             user.FullName = request.FullName ?? user.FullName;
             user.Bio = request.Bio ?? user.Bio;
             if (request.Username is not null)
-                user.Username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
+            {
+                var username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
+
+                // A handle identifies one account: refuse any username another user already holds
+                // (case-insensitively, so "Kwame" can't impersonate "kwame"). The unique index is
+                // the backstop; this check gives a clean 400 instead of a database error.
+                if (username is not null)
+                {
+                    var lowered = username.ToLowerInvariant();
+                    var taken = (await _userRepository.FindAsync(u =>
+                            u.Id != userId && u.Username != null && u.Username.ToLower() == lowered))
+                        .Any();
+                    if (taken)
+                        throw new InvalidOperationException("That username is already taken");
+                }
+
+                user.Username = username;
+            }
 
             // Normalise the phone to E.164 (same as registration) so a profile edit can't store an
             // invalid number that later breaks SMS/OTP delivery.
