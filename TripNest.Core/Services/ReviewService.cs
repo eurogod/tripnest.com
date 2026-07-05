@@ -83,23 +83,14 @@ public class ReviewService : IReviewService
 
     public async Task<PagedResult<ReviewResponse>> GetPropertyReviewsAsync(string propertyId, int page, int pageSize)
     {
-        var all = await _reviewRepository.GetByPropertyIdAsync(propertyId);
-        var list = all.ToList();
+        // Page in the database — popular properties accumulate reviews without bound.
+        var (pageNum, size) = Paging.Clamp(page, pageSize);
+        var (items, totalCount) = await _reviewRepository.FindPageAsync(
+            r => r.PropertyId == propertyId,
+            q => q.OrderByDescending(r => r.CreatedAt),
+            pageNum, size);
 
-        var totalCount = list.Count;
-        var items = list
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(MapToResponse)
-            .ToList();
-
-        return new PagedResult<ReviewResponse>
-        {
-            Items = items,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize
-        };
+        return Paging.Result(items.Select(MapToResponse).ToList(), totalCount, pageNum, size);
     }
 
     public async Task<List<ReviewResponse>> GetUserReviewsAsync(string userId)

@@ -101,27 +101,15 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<LoginResponse>>> GoogleSignIn([FromBody] GoogleSignInRequest request)
     {
-        try
-        {
-            if (!_googleAuth.IsConfigured)
-                return BadRequest(ApiResponse<object>.BadRequest("Google sign-in is not configured on this server."));
+        if (!_googleAuth.IsConfigured)
+            return BadRequest(ApiResponse<object>.BadRequest("Google sign-in is not configured on this server."));
 
-            var identity = await _googleAuth.ValidateAsync(request.IdToken);
-            if (identity is null)
-                return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Google sign-in."));
+        var identity = await _googleAuth.ValidateAsync(request.IdToken);
+        if (identity is null)
+            return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Google sign-in."));
 
-            var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, identity.EmailVerified);
-            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Google", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during Google sign-in");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, identity.EmailVerified);
+        return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Google", response));
     }
 
     [HttpPost("facebook")]
@@ -131,34 +119,22 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<LoginResponse>>> FacebookSignIn([FromBody] FacebookSignInRequest request)
     {
-        try
-        {
-            if (!_facebookAuth.IsConfigured)
-                return BadRequest(ApiResponse<object>.BadRequest("Facebook sign-in is not configured on this server."));
+        if (!_facebookAuth.IsConfigured)
+            return BadRequest(ApiResponse<object>.BadRequest("Facebook sign-in is not configured on this server."));
 
-            var identity = await _facebookAuth.ValidateAsync(request.AccessToken);
-            if (identity is null)
-                return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Facebook sign-in."));
+        var identity = await _facebookAuth.ValidateAsync(request.AccessToken);
+        if (identity is null)
+            return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Facebook sign-in."));
 
-            // Facebook accounts registered with a phone number carry no email, and the account
-            // model keys external sign-ins on a provider-verified email.
-            if (string.IsNullOrWhiteSpace(identity.Email))
-                return BadRequest(ApiResponse<object>.BadRequest(
-                    "Your Facebook account has no email address. Please sign in with your phone number or email instead."));
+        // Facebook accounts registered with a phone number carry no email, and the account
+        // model keys external sign-ins on a provider-verified email.
+        if (string.IsNullOrWhiteSpace(identity.Email))
+            return BadRequest(ApiResponse<object>.BadRequest(
+                "Your Facebook account has no email address. Please sign in with your phone number or email instead."));
 
-            // Facebook only exposes emails it has confirmed, so the claim counts as verified.
-            var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, emailVerified: true);
-            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Facebook", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during Facebook sign-in");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        // Facebook only exposes emails it has confirmed, so the claim counts as verified.
+        var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, emailVerified: true);
+        return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Facebook", response));
     }
 
     [HttpPost("phone-login/send-otp")]
@@ -168,17 +144,9 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<object>>> PhoneLoginSendOtp([FromBody] PhoneLoginStartRequest request)
     {
-        try
-        {
-            // Always the same response, registered or not — phone numbers can't be enumerated here.
-            await _phoneVerification.SendLoginOtpAsync(request.Phone);
-            return Ok(ApiResponse<object>.Ok("If this phone number is registered, a login code has been sent.", null));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error sending phone login code");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        // Always the same response, registered or not — phone numbers can't be enumerated here.
+        await _phoneVerification.SendLoginOtpAsync(request.Phone);
+        return Ok(ApiResponse<object>.Ok("If this phone number is registered, a login code has been sent.", null));
     }
 
     [HttpPost("phone-login/verify-otp")]
@@ -189,20 +157,8 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<LoginResponse>>> PhoneLoginVerifyOtp([FromBody] PhoneLoginVerifyRequest request)
     {
-        try
-        {
-            var response = await _authService.PhoneLoginAsync(request.Phone, request.Code);
-            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with phone number", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during phone login");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _authService.PhoneLoginAsync(request.Phone, request.Code);
+        return Ok(ApiResponse<LoginResponse>.Ok("Signed in with phone number", response));
     }
 
     [HttpPost("refresh-token")]
@@ -238,31 +194,23 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public ActionResult<ApiResponse<UserProfileDto>> GetCurrentUser()
     {
-        try
+        var userId = User.GetUserId();
+        var email = User.FindFirst(ClaimTypes.Email)?.Value;
+        var fullName = User.FindFirst(ClaimTypes.Name)?.Value;
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var userProfile = new UserProfileDto
         {
-            var userId = User.GetUserId();
-            var email = User.FindFirst(ClaimTypes.Email)?.Value;
-            var fullName = User.FindFirst(ClaimTypes.Name)?.Value;
-            var role = User.FindFirst(ClaimTypes.Role)?.Value;
+            UserId = userId,
+            FullName = fullName ?? "Unknown",
+            Email = email ?? "Unknown",
+            Role = Enum.Parse<TripNest.Core.Enums.UserRole>(role ?? "Tenant")
+        };
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            var userProfile = new UserProfileDto
-            {
-                UserId = userId,
-                FullName = fullName ?? "Unknown",
-                Email = email ?? "Unknown",
-                Role = Enum.Parse<TripNest.Core.Enums.UserRole>(role ?? "Tenant")
-            };
-
-            return Ok(ApiResponse<UserProfileDto>.Ok("User profile retrieved", userProfile));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error retrieving user profile");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Ok(ApiResponse<UserProfileDto>.Ok("User profile retrieved", userProfile));
     }
 
     [HttpPost("logout")]
@@ -271,20 +219,12 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<object>>> Logout()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            await _authService.LogoutAsync(userId);
-            return Ok(ApiResponse<object>.Ok("Logged out successfully", null));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during logout");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _authService.LogoutAsync(userId);
+        return Ok(ApiResponse<object>.Ok("Logged out successfully", null));
     }
 
     [HttpPost("change-password")]

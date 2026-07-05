@@ -1,9 +1,11 @@
+using Microsoft.Extensions.Options;
 using TripNest.Core.DTOs.Payouts;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
+using TripNest.Core.Options;
 
 namespace TripNest.Core.Services;
 
@@ -13,7 +15,7 @@ public class PayoutService : IPayoutService
     private readonly IRepository<PayoutAccount> _accountRepository;
     private readonly IPaymentGateway _paymentGateway;
     private readonly INotificationService _notificationService;
-    private readonly IConfiguration _configuration;
+    private readonly PlatformOptions _platform;
     private readonly ILogger<PayoutService> _logger;
 
     public PayoutService(
@@ -21,14 +23,14 @@ public class PayoutService : IPayoutService
         IRepository<PayoutAccount> accountRepository,
         IPaymentGateway paymentGateway,
         INotificationService notificationService,
-        IConfiguration configuration,
+        IOptions<PlatformOptions> platformOptions,
         ILogger<PayoutService> logger)
     {
         _payoutRepository = payoutRepository;
         _accountRepository = accountRepository;
         _paymentGateway = paymentGateway;
         _notificationService = notificationService;
-        _configuration = configuration;
+        _platform = platformOptions.Value;
         _logger = logger;
     }
 
@@ -56,7 +58,7 @@ public class PayoutService : IPayoutService
         // so a payout can never be sent to an unregistered account.
         var recipient = await _paymentGateway.CreateTransferRecipientAsync(
             request.AccountName.Trim(), request.AccountNumber.Trim(), request.ProviderCode.Trim().ToUpperInvariant(),
-            channel, "GHS");
+            channel, _platform.Currency);
         if (!recipient.Success)
             throw new ValidationException(recipient.Error ?? "The payout account was rejected by the payment provider.");
 
@@ -108,8 +110,7 @@ public class PayoutService : IPayoutService
 
             // Same fee source as statements and the reservation breakdown — the money that moves
             // must match the money the UI promised.
-            var feePercent = _configuration.GetValue("Platform:ManagementFeePercent", 20m);
-            var fee = Math.Round(escrow.Amount * feePercent / 100m, 2);
+            var fee = Math.Round(escrow.Amount * _platform.ManagementFeePercent / 100m, 2);
 
             var payout = new Payout
             {
@@ -213,7 +214,7 @@ public class PayoutService : IPayoutService
         }
 
         var result = await _paymentGateway.InitiateTransferAsync(
-            payout.Amount, "GHS", account.RecipientCode, payout.Id,
+            payout.Amount, _platform.Currency, account.RecipientCode, payout.Id,
             $"TripNest payout for booking {payout.BookingId}");
 
         if (result.Success)

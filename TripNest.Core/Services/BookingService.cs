@@ -15,6 +15,7 @@ public class BookingService : IBookingService
     private readonly IAvailabilityService _availabilityService;
     private readonly ICancellationPolicyService _cancellationPolicyService;
     private readonly IPaymentGateway _paymentGateway;
+    private readonly IRepository<EscrowEvent> _escrowEventRepository;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -24,6 +25,7 @@ public class BookingService : IBookingService
         IAvailabilityService availabilityService,
         ICancellationPolicyService cancellationPolicyService,
         IPaymentGateway paymentGateway,
+        IRepository<EscrowEvent> escrowEventRepository,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -32,15 +34,22 @@ public class BookingService : IBookingService
         _availabilityService = availabilityService;
         _cancellationPolicyService = cancellationPolicyService;
         _paymentGateway = paymentGateway;
+        _escrowEventRepository = escrowEventRepository;
         _logger = logger;
     }
 
     public async Task<BookingResponse> CreateBookingAsync(string tenantId, CreateBookingRequest request)
     {
+        // Booking dates are date-only by intent. Clients often send bare dates ("2026-08-04")
+        // which deserialize with Kind=Unspecified — Npgsql refuses those for "timestamp with
+        // time zone" columns, so normalize to UTC midnight before anything touches the database.
+        var checkIn = DateTime.SpecifyKind(request.CheckInDate.Date, DateTimeKind.Utc);
+        var checkOut = DateTime.SpecifyKind(request.CheckOutDate.Date, DateTimeKind.Utc);
+
         // Validate the date range before touching the database.
-        if (request.CheckOutDate.Date <= request.CheckInDate.Date)
+        if (checkOut <= checkIn)
             throw new ValidationException("Check-out date must be after the check-in date");
-        if (request.CheckInDate.Date < DateTime.UtcNow.Date)
+        if (checkIn < DateTime.UtcNow.Date)
             throw new ValidationException("Check-in date cannot be in the past");
         if (request.Guests is < 1 or > 16)
             throw new ValidationException("Guests must be between 1 and 16");
@@ -51,17 +60,17 @@ public class BookingService : IBookingService
         // Friendly pre-check (confirmed bookings + landlord-blocked dates). The authoritative
         // guard against double-booking is the Postgres exclusion constraint on confirmed
         // bookings (see migration), which closes the race this in-memory check cannot.
-        if (!await _availabilityService.IsRangeAvailable(request.PropertyId, request.CheckInDate, request.CheckOutDate))
+        if (!await _availabilityService.IsRangeAvailable(request.PropertyId, checkIn, checkOut))
             throw new ConflictException("The selected dates are not available for this property");
 
-        var totalAmount = CalculateTotalAmount(property, request.CheckInDate, request.CheckOutDate);
+        var totalAmount = CalculateTotalAmount(property, checkIn, checkOut);
 
         var booking = new Booking
         {
             TenantId = tenantId,
             PropertyId = request.PropertyId,
-            CheckInDate = request.CheckInDate,
-            CheckOutDate = request.CheckOutDate,
+            CheckInDate = checkIn,
+            CheckOutDate = checkOut,
             Guests = request.Guests,
             TotalAmount = totalAmount,
             Status = BookingStatus.Pending
@@ -98,12 +107,6 @@ public class BookingService : IBookingService
     public async Task<IEnumerable<BookingResponse>> GetUserBookingsAsync(string tenantId)
     {
         var bookings = await _bookingRepository.GetByTenantIdAsync(tenantId);
-        return bookings.Select(MapToResponse);
-    }
-
-    public async Task<IEnumerable<BookingResponse>> GetPropertyBookingsAsync(string propertyId)
-    {
-        var bookings = await _bookingRepository.GetByPropertyIdAsync(propertyId);
         return bookings.Select(MapToResponse);
     }
 
@@ -144,13 +147,16 @@ public class BookingService : IBookingService
                         throw new InvalidOperationException("Refund could not be processed by the payment provider. Please retry.");
                 }
 
-                escrow.Status = EscrowStatus.Refunded;
-                escrow.ReleaseReason = $"Cancelled — {refundPercentage:0}% refund (GH₵{Math.Round(escrow.Amount * refundPercentage / 100m, 2)}) per cancellation policy";
+                var refundReason = $"Cancelled — {refundPercentage:0}% refund (GH₵{Math.Round(escrow.Amount * refundPercentage / 100m, 2)}) per cancellation policy";
+                await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+                    escrow, EscrowStatus.Refunded, actor: userId, reason: refundReason));
+                escrow.ReleaseReason = refundReason;
             }
             else if (escrow.Status == EscrowStatus.Pending)
             {
                 // No money was ever captured; just void the pending escrow — no provider call.
-                escrow.Status = EscrowStatus.Refunded;
+                await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+                    escrow, EscrowStatus.Refunded, actor: userId, reason: "Cancelled before payment was captured"));
                 escrow.ReleaseReason = "Cancelled before payment was captured";
             }
             // Released/Refunded/Disputed escrows are left untouched here (handled via the dispute flow).
@@ -172,10 +178,16 @@ public class BookingService : IBookingService
             throw new ForbiddenException("You do not have access to this booking");
     }
 
+    /// <summary>Pricing policy: nightly rate for properties listed with only a monthly rent —
+    /// the month is pro-rated over a fixed 30 days regardless of calendar month length.</summary>
+    private const int ProRataDaysPerMonth = 30;
+
     private decimal CalculateTotalAmount(Property property, DateTime checkIn, DateTime checkOut)
     {
         var nights = (checkOut - checkIn).Days;
-        return (property.DailyRate ?? (property.MonthlyRent / 30)) * nights;
+        // Round to pesewas: the monthly-rent pro-rating yields repeating decimals, and the
+        // API response must show the same 2-dp amount the database stores and Paystack charges.
+        return Math.Round((property.DailyRate ?? (property.MonthlyRent / ProRataDaysPerMonth)) * nights, 2);
     }
 
     private BookingResponse MapToResponse(Booking booking)

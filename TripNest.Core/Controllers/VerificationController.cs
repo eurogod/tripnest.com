@@ -37,27 +37,15 @@ public class VerificationController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<object>>> UploadSelfie(IFormFile selfie)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (selfie == null || selfie.Length == 0)
-                return BadRequest(ApiResponse<object>.BadRequest("Selfie file is required"));
+        if (selfie == null || selfie.Length == 0)
+            return BadRequest(ApiResponse<object>.BadRequest("Selfie file is required"));
 
-            var path = await _fileStorage.SaveAsync($"verifications/{userId}", selfie, UploadKind.Image);
-            return Ok(ApiResponse<object>.Ok("Selfie uploaded", new { selfiePhotoPath = path }));
-        }
-        catch (TripNest.Core.Exceptions.ValidationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading verification selfie");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var path = await _fileStorage.SaveAsync($"verifications/{userId}", selfie, UploadKind.Image);
+        return Ok(ApiResponse<object>.Ok("Selfie uploaded", new { selfiePhotoPath = path }));
     }
 
     [HttpPost("start")]

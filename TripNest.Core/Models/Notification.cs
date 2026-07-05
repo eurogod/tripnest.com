@@ -15,6 +15,12 @@ public class Notification
     // Which channels this notification was actually dispatched on (in addition to in-app).
     public bool SentViaSms { get; set; }
     public bool SentViaEmail { get; set; }
+
+    // Dispatch intent persisted with the row, so queued-but-unsent SMS/email survive a process
+    // restart: the dispatcher requeues rows where these are still true on startup (mirroring the
+    // verification queue's recovery pattern) and clears them once a delivery attempt is made.
+    public bool PendingSmsDispatch { get; set; }
+    public bool PendingEmailDispatch { get; set; }
     // True only when a SafetyAlert bypassed the user's opt-out — auditable.
     public bool IsEmergencyOverride { get; set; }
 

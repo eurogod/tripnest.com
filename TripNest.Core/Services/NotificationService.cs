@@ -61,7 +61,11 @@ public class NotificationService : INotificationService
 
         // Non-emergency: persist the in-app record now (the source of truth, a fast DB write) and hand
         // the slow external SMS/email off to the background dispatcher so it never blocks the request.
-        var notification = await PersistNotificationAsync(userId, type, title, body, sentViaSms: false, sentViaEmail: false, isEmergency: false);
+        // Dispatch intent is persisted on the row BEFORE enqueueing, so a restart that loses the
+        // in-memory queue can requeue from the database instead of silently dropping the send.
+        var notification = await PersistNotificationAsync(userId, type, title, body,
+            sentViaSms: false, sentViaEmail: false, isEmergency: false,
+            pendingSms: shouldSms, pendingEmail: shouldEmail);
 
         if (shouldSms || shouldEmail)
         {
@@ -76,7 +80,8 @@ public class NotificationService : INotificationService
 
     private async Task<Notification> PersistNotificationAsync(
         string userId, NotificationType type, string title, string body,
-        bool sentViaSms, bool sentViaEmail, bool isEmergency)
+        bool sentViaSms, bool sentViaEmail, bool isEmergency,
+        bool pendingSms = false, bool pendingEmail = false)
     {
         var notification = new Notification
         {
@@ -86,7 +91,9 @@ public class NotificationService : INotificationService
             Message = body,
             SentViaSms = sentViaSms,
             SentViaEmail = sentViaEmail,
-            IsEmergencyOverride = isEmergency
+            IsEmergencyOverride = isEmergency,
+            PendingSmsDispatch = pendingSms,
+            PendingEmailDispatch = pendingEmail
         };
 
         await _notificationRepository.AddAsync(notification);
@@ -161,22 +168,14 @@ public class NotificationService : INotificationService
     {
         try
         {
-            var all = await _notificationRepository.GetByUserIdAsync(userId);
-            var list = all.ToList();
-            var totalCount = list.Count;
-            var items = list
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(Map)
-                .ToList();
+            // Page in the database — a user's notification history grows unbounded.
+            var (pageNum, size) = Paging.Clamp(page, pageSize);
+            var (items, totalCount) = await _notificationRepository.FindPageAsync(
+                n => n.UserId == userId,
+                q => q.OrderByDescending(n => n.CreatedAt),
+                pageNum, size);
 
-            return new PagedResult<NotificationResponse>
-            {
-                Items = items,
-                TotalCount = totalCount,
-                Page = page,
-                PageSize = pageSize
-            };
+            return Paging.Result(items.Select(Map).ToList(), totalCount, pageNum, size);
         }
         catch (Exception ex)
         {

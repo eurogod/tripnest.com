@@ -79,7 +79,7 @@ public class PaystackPaymentGateway : IPaymentGateway
         if (!Configured)
         {
             _logger.LogInformation("[Paystack not configured] simulating verify success for ref {Reference}", reference);
-            return new PaymentVerifyResult(true, 0m);
+            return new PaymentVerifyResult(true, 0m, Simulated: true);
         }
 
         try

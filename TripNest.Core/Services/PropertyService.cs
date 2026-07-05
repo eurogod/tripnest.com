@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Properties;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -182,18 +183,13 @@ public class PropertyService : IPropertyService
         }
     }
 
-    public async Task<IEnumerable<PropertyResponse>> SearchPropertiesAsync(string location, int minBedrooms, int maxBedrooms)
+    public async Task<PagedResult<PropertyResponse>> SearchPropertiesAsync(
+        string location, int minBedrooms, int maxBedrooms, int page, int pageSize)
     {
-        try
-        {
-            var properties = await _propertyRepository.SearchAsync(location, minBedrooms, maxBedrooms);
-            return properties.Select(MapToResponse);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error searching properties");
-            throw;
-        }
+        var (pageNum, size) = Paging.Clamp(page, pageSize);
+        var (items, totalCount) = await _propertyRepository.SearchPageAsync(
+            location, minBedrooms, maxBedrooms, pageNum, size);
+        return Paging.Result(items.Select(MapToResponse).ToList(), totalCount, pageNum, size);
     }
 
     public async Task DeletePropertyAsync(string propertyId)

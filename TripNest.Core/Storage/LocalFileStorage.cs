@@ -39,8 +39,11 @@ public sealed class LocalFileStorage : IFileStorage
         var relative = storedPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
         var fullPath = Path.GetFullPath(Path.Combine(_root, relative));
 
-        // Guard against path traversal — only delete within the web root.
-        if (fullPath.StartsWith(Path.GetFullPath(_root), StringComparison.Ordinal) && File.Exists(fullPath))
+        // Guard against path traversal — only delete within the uploads area, mirroring
+        // OpenReadAsync. The trailing separator matters: a bare prefix test would also match
+        // sibling directories (e.g. "wwwroot-evil" passes a StartsWith("wwwroot") check).
+        var uploadsRoot = Path.GetFullPath(Path.Combine(_root, "uploads"));
+        if (fullPath.StartsWith(uploadsRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal) && File.Exists(fullPath))
             File.Delete(fullPath);
 
         return Task.CompletedTask;

@@ -276,6 +276,18 @@ else
             .AddHttpClientInstrumentation());
 }
 
+// Typed, validated configuration. ValidateOnStart makes a bad value (fee out of range, blank
+// currency, absurd grace period) fail the boot instead of surfacing mid-payout, and gives every
+// consumer one source of truth instead of scattered raw IConfiguration reads with per-site defaults.
+builder.Services.AddOptions<TripNest.Core.Options.PlatformOptions>()
+    .BindConfiguration(TripNest.Core.Options.PlatformOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddOptions<TripNest.Core.Options.EscrowOptions>()
+    .BindConfiguration(TripNest.Core.Options.EscrowOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 // Register DatabaseSeeder
 builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
 
@@ -289,6 +301,7 @@ builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IDashboardStatsService, DashboardStatsService>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {

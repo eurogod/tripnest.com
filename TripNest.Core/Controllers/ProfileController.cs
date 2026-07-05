@@ -83,99 +83,79 @@ public class ProfileController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> GetProfile()
     {
-        try
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return NotFound(ApiResponse<object>.NotFound("User"));
+
+        var profile = new
         {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+            user.Id,
+            user.FullName,
+            user.Email,
+            user.Phone,
+            user.Role,
+            user.IsVerified,
+            user.EmailVerified,
+            user.PhoneVerified,
+            user.TripNestId,
+            user.ProfilePhotoPath,
+            user.Username,
+            user.Bio
+        };
 
-            var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null)
-                return NotFound(ApiResponse<object>.NotFound("User"));
-
-            var profile = new
-            {
-                user.Id,
-                user.FullName,
-                user.Email,
-                user.Phone,
-                user.Role,
-                user.IsVerified,
-                user.EmailVerified,
-                user.PhoneVerified,
-                user.TripNestId,
-                user.ProfilePhotoPath,
-                user.Username,
-                user.Bio
-            };
-
-            return Ok(ApiResponse<object>.Ok("Profile retrieved", profile));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving profile");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Ok(ApiResponse<object>.Ok("Profile retrieved", profile));
     }
 
     [HttpPut("me")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> UpdateProfile([FromBody] UpdateProfileRequest request)
     {
-        try
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return NotFound(ApiResponse<object>.NotFound("User"));
+
+        user.FullName = request.FullName ?? user.FullName;
+        user.Bio = request.Bio ?? user.Bio;
+        if (request.Username is not null)
         {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+            var username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
 
-            var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null)
-                return NotFound(ApiResponse<object>.NotFound("User"));
-
-            user.FullName = request.FullName ?? user.FullName;
-            user.Bio = request.Bio ?? user.Bio;
-            if (request.Username is not null)
+            // A handle identifies one account: refuse any username another user already holds
+            // (case-insensitively, so "Kwame" can't impersonate "kwame"). The unique index is
+            // the backstop; this check gives a clean 400 instead of a database error.
+            if (username is not null)
             {
-                var username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
-
-                // A handle identifies one account: refuse any username another user already holds
-                // (case-insensitively, so "Kwame" can't impersonate "kwame"). The unique index is
-                // the backstop; this check gives a clean 400 instead of a database error.
-                if (username is not null)
-                {
-                    var lowered = username.ToLowerInvariant();
-                    var taken = (await _userRepository.FindAsync(u =>
-                            u.Id != userId && u.Username != null && u.Username.ToLower() == lowered))
-                        .Any();
-                    if (taken)
-                        throw new InvalidOperationException("That username is already taken");
-                }
-
-                user.Username = username;
+                var lowered = username.ToLowerInvariant();
+                var taken = (await _userRepository.FindAsync(u =>
+                        u.Id != userId && u.Username != null && u.Username.ToLower() == lowered))
+                    .Any();
+                if (taken)
+                    throw new InvalidOperationException("That username is already taken");
             }
 
-            // Normalise the phone to E.164 (same as registration) so a profile edit can't store an
-            // invalid number that later breaks SMS/OTP delivery.
-            if (request.Phone is not null)
-            {
-                user.Phone = _phoneValidator.Normalize(request.Phone)
-                    ?? throw new InvalidOperationException("Please provide a valid phone number");
-            }
+            user.Username = username;
+        }
 
-            await _userRepository.UpdateAsync(user);
-            await _userRepository.SaveChangesAsync();
+        // Normalise the phone to E.164 (same as registration) so a profile edit can't store an
+        // invalid number that later breaks SMS/OTP delivery.
+        if (request.Phone is not null)
+        {
+            user.Phone = _phoneValidator.Normalize(request.Phone)
+                ?? throw new InvalidOperationException("Please provide a valid phone number");
+        }
 
-            return Ok(ApiResponse<object>.Ok("Profile updated", new { }));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating profile");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
+
+        return Ok(ApiResponse<object>.Ok("Profile updated", new { }));
     }
 
     [HttpPost("photo")]
@@ -183,37 +163,24 @@ public class ProfileController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> UploadProfilePhoto(IFormFile photo)
     {
-        try
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        if (photo == null || photo.Length == 0)
+            return BadRequest(ApiResponse<object>.BadRequest("Photo file is required"));
+
+        // Storage validates type + size and returns a servable path/URL (local disk or Azure Blob).
+        var photoPath = await _fileStorage.SaveAsync("profiles", photo, UploadKind.Image);
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user != null)
         {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            if (photo == null || photo.Length == 0)
-                return BadRequest(ApiResponse<object>.BadRequest("Photo file is required"));
-
-            // Storage validates type + size and returns a servable path/URL (local disk or Azure Blob).
-            var photoPath = await _fileStorage.SaveAsync("profiles", photo, UploadKind.Image);
-
-            var user = await _userRepository.GetByIdAsync(userId);
-            if (user != null)
-            {
-                user.ProfilePhotoPath = photoPath;
-                await _userRepository.UpdateAsync(user);
-                await _userRepository.SaveChangesAsync();
-            }
-
-            return Ok(ApiResponse<object>.Ok("Profile photo uploaded", new { photoPath }));
+            user.ProfilePhotoPath = photoPath;
+            await _userRepository.UpdateAsync(user);
+            await _userRepository.SaveChangesAsync();
         }
-        catch (TripNest.Core.Exceptions.ValidationException ex)
-        {
-            // Rejected type/size from the storage validator.
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading profile photo");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+
+        return Ok(ApiResponse<object>.Ok("Profile photo uploaded", new { photoPath }));
     }
 }

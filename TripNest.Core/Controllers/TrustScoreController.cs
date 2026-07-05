@@ -41,20 +41,12 @@ public class TrustScoreController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<TrustScoreResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TrustScoreResponse>>> GetPropertyTrustScore(string propertyId)
     {
-        try
-        {
-            var snapshot = await _snapshotRepository.GetLatestAsync("Property", propertyId);
-            if (snapshot == null)
-                return NotFound(ApiResponse<TrustScoreResponse>.NotFound("Trust score"));
+        var snapshot = await _snapshotRepository.GetLatestAsync("Property", propertyId);
+        if (snapshot == null)
+            return NotFound(ApiResponse<TrustScoreResponse>.NotFound("Trust score"));
 
-            var response = MapToResponse(snapshot);
-            return Ok(ApiResponse<TrustScoreResponse>.Ok("Property trust score retrieved", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving property trust score");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = MapToResponse(snapshot);
+        return Ok(ApiResponse<TrustScoreResponse>.Ok("Property trust score retrieved", response));
     }
 
     [HttpGet("user/{userId}")]
@@ -62,20 +54,12 @@ public class TrustScoreController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<TrustScoreResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<TrustScoreResponse>>> GetUserTrustScore(string userId)
     {
-        try
-        {
-            var snapshot = await _snapshotRepository.GetLatestAsync("User", userId);
-            if (snapshot == null)
-                return NotFound(ApiResponse<TrustScoreResponse>.NotFound("Trust score"));
+        var snapshot = await _snapshotRepository.GetLatestAsync("User", userId);
+        if (snapshot == null)
+            return NotFound(ApiResponse<TrustScoreResponse>.NotFound("Trust score"));
 
-            var response = MapToResponse(snapshot);
-            return Ok(ApiResponse<TrustScoreResponse>.Ok("User trust score retrieved", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving user trust score");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = MapToResponse(snapshot);
+        return Ok(ApiResponse<TrustScoreResponse>.Ok("User trust score retrieved", response));
     }
 
     [HttpPost("stay-feedback")]
@@ -83,45 +67,37 @@ public class TrustScoreController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<object>>> SubmitStayFeedback([FromBody] StayFeedbackRequest request)
     {
-        try
+        var tenantId = User.GetUserId();
+        if (string.IsNullOrEmpty(tenantId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var booking = await _bookingRepository.GetByIdAsync(request.BookingId);
+        if (booking == null || booking.TenantId != tenantId)
+            return BadRequest(ApiResponse<object>.BadRequest("Invalid booking"));
+
+        var existing = await _feedbackRepository.GetByBookingIdAsync(request.BookingId);
+        if (existing != null)
+            return BadRequest(ApiResponse<object>.BadRequest("Feedback already submitted for this booking"));
+
+        var feedback = new StayFeedback
         {
-            var tenantId = User.GetUserId();
-            if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+            BookingId = request.BookingId,
+            PropertyId = booking.PropertyId,
+            LandlordId = booking.Property?.UserId ?? "",
+            TenantId = tenantId,
+            AccuracyRating = request.AccuracyRating,
+            CleanlinessRating = request.CleanlinessRating,
+            SafetyRating = request.SafetyRating,
+            Comment = request.Comment
+        };
 
-            var booking = await _bookingRepository.GetByIdAsync(request.BookingId);
-            if (booking == null || booking.TenantId != tenantId)
-                return BadRequest(ApiResponse<object>.BadRequest("Invalid booking"));
+        await _feedbackRepository.AddAsync(feedback);
+        await _feedbackRepository.SaveChangesAsync();
 
-            var existing = await _feedbackRepository.GetByBookingIdAsync(request.BookingId);
-            if (existing != null)
-                return BadRequest(ApiResponse<object>.BadRequest("Feedback already submitted for this booking"));
+        await _trustScoreService.RecalculateNowAsync("Property", booking.PropertyId);
+        await _trustScoreService.RecalculateNowAsync("User", booking.Property?.UserId ?? "");
 
-            var feedback = new StayFeedback
-            {
-                BookingId = request.BookingId,
-                PropertyId = booking.PropertyId,
-                LandlordId = booking.Property?.UserId ?? "",
-                TenantId = tenantId,
-                AccuracyRating = request.AccuracyRating,
-                CleanlinessRating = request.CleanlinessRating,
-                SafetyRating = request.SafetyRating,
-                Comment = request.Comment
-            };
-
-            await _feedbackRepository.AddAsync(feedback);
-            await _feedbackRepository.SaveChangesAsync();
-
-            await _trustScoreService.RecalculateNowAsync("Property", booking.PropertyId);
-            await _trustScoreService.RecalculateNowAsync("User", booking.Property?.UserId ?? "");
-
-            return Created($"api/trust-score/feedback/{feedback.Id}", ApiResponse<object>.Created("Feedback", new { }));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error submitting stay feedback");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Created($"api/trust-score/feedback/{feedback.Id}", ApiResponse<object>.Created("Feedback", new { }));
     }
 
     private TrustScoreResponse MapToResponse(TrustScoreSnapshot snapshot)
