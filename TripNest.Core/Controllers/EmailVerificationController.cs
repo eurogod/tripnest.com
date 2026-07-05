@@ -36,24 +36,8 @@ public class EmailVerificationController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        try
-        {
-            await _emailVerificationService.SendOtpAsync(userId);
-            return Ok(ApiResponse<object>.Ok("Verification code sent", new { }));
-        }
-        catch (TooManyRequestsException ex)
-        {
-            return StatusCode(StatusCodes.Status429TooManyRequests, ApiResponse<object>.TooManyRequests(ex.Message));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending email OTP");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _emailVerificationService.SendOtpAsync(userId);
+        return Ok(ApiResponse<object>.Ok("Verification code sent", new { }));
     }
 
     /// <summary>Confirms ownership by checking the code; marks the email verified on success.</summary>
@@ -66,21 +50,9 @@ public class EmailVerificationController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        try
-        {
-            var ok = await _emailVerificationService.VerifyOtpAsync(userId, request.Code);
-            return ok
-                ? Ok(ApiResponse<object>.Ok("Email address verified", new { }))
-                : BadRequest(ApiResponse<object>.BadRequest("Incorrect code"));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error verifying email OTP");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var ok = await _emailVerificationService.VerifyOtpAsync(userId, request.Code);
+        return ok
+            ? Ok(ApiResponse<object>.Ok("Email address verified", new { }))
+            : BadRequest(ApiResponse<object>.BadRequest("Incorrect code"));
     }
 }

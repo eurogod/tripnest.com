@@ -41,27 +41,15 @@ public class WalkthroughsController : ControllerBase
         [FromForm] string title,
         IFormFile videoFile)
     {
-        try
-        {
-            var landlordId = User.GetUserId();
-            if (string.IsNullOrEmpty(landlordId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (videoFile == null || videoFile.Length == 0)
-                return BadRequest(ApiResponse<object>.BadRequest("No video file was provided"));
+        if (videoFile == null || videoFile.Length == 0)
+            return BadRequest(ApiResponse<object>.BadRequest("No video file was provided"));
 
-            var response = await _walkthroughService.UploadWalkthroughAsync(propertyId, landlordId, title, videoFile);
-            return StatusCode(201, ApiResponse<WalkthroughResponse>.Created("Walkthrough", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading walkthrough for property {PropertyId}", propertyId);
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _walkthroughService.UploadWalkthroughAsync(propertyId, landlordId, title, videoFile);
+        return StatusCode(201, ApiResponse<WalkthroughResponse>.Created("Walkthrough", response));
     }
 
     /// <summary>
@@ -79,29 +67,17 @@ public class WalkthroughsController : ControllerBase
         string propertyId,
         [FromBody] ReviewWalkthroughRequest request)
     {
-        try
-        {
-            var reviewerId = User.GetUserId();
-            if (string.IsNullOrEmpty(reviewerId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var reviewerId = User.GetUserId();
+        if (string.IsNullOrEmpty(reviewerId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (!request.Approved && string.IsNullOrWhiteSpace(request.RejectionReason))
-                return BadRequest(ApiResponse<object>.BadRequest("A rejection reason is required when declining a walkthrough"));
+        if (!request.Approved && string.IsNullOrWhiteSpace(request.RejectionReason))
+            return BadRequest(ApiResponse<object>.BadRequest("A rejection reason is required when declining a walkthrough"));
 
-            var response = await _walkthroughService.ReviewWalkthroughAsync(propertyId, reviewerId, request.Approved, request.RejectionReason);
-            return Ok(ApiResponse<PropertyWalkthroughStatusResponse>.Ok(
-                request.Approved ? "Walkthrough approved — property can now be set to Active" : "Walkthrough rejected",
-                response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error reviewing walkthrough for property {PropertyId}", propertyId);
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _walkthroughService.ReviewWalkthroughAsync(propertyId, reviewerId, request.Approved, request.RejectionReason);
+        return Ok(ApiResponse<PropertyWalkthroughStatusResponse>.Ok(
+            request.Approved ? "Walkthrough approved — property can now be set to Active" : "Walkthrough rejected",
+            response));
     }
 
     /// <summary>
@@ -112,16 +88,8 @@ public class WalkthroughsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyWalkthroughStatusResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyWalkthroughStatusResponse>>>> GetPendingWalkthroughs()
     {
-        try
-        {
-            var pending = await _walkthroughService.GetPendingWalkthroughsAsync();
-            return Ok(ApiResponse<IEnumerable<PropertyWalkthroughStatusResponse>>.Ok("Pending walkthroughs retrieved", pending));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving pending walkthroughs");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var pending = await _walkthroughService.GetPendingWalkthroughsAsync();
+        return Ok(ApiResponse<IEnumerable<PropertyWalkthroughStatusResponse>>.Ok("Pending walkthroughs retrieved", pending));
     }
 
     /// <summary>Get all walkthrough videos for a property.</summary>
@@ -129,16 +97,8 @@ public class WalkthroughsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<WalkthroughResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<WalkthroughResponse>>>> GetPropertyWalkthroughs(string propertyId)
     {
-        try
-        {
-            var response = await _walkthroughService.GetPropertyWalkthroughsAsync(propertyId);
-            return Ok(ApiResponse<IEnumerable<WalkthroughResponse>>.Ok("Walkthroughs retrieved", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving walkthroughs");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _walkthroughService.GetPropertyWalkthroughsAsync(propertyId);
+        return Ok(ApiResponse<IEnumerable<WalkthroughResponse>>.Ok("Walkthroughs retrieved", response));
     }
 
     /// <summary>Get a single walkthrough video record.</summary>
@@ -170,19 +130,7 @@ public class WalkthroughsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteWalkthrough(string propertyId, string walkthroughId)
     {
-        try
-        {
-            await _walkthroughService.DeleteWalkthroughAsync(walkthroughId);
-            return Ok(ApiResponse<object>.Ok("Walkthrough deleted successfully"));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting walkthrough");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _walkthroughService.DeleteWalkthroughAsync(walkthroughId);
+        return Ok(ApiResponse<object>.Ok("Walkthrough deleted successfully"));
     }
 }

@@ -9,5 +9,6 @@ public class CreateBookingRequest
     public DateTime CheckOutDate { get; set; }
 
     /// <summary>Number of guests for the stay. Defaults to 1 for clients that don't send it.</summary>
+    [System.ComponentModel.DataAnnotations.Range(1, 16)]
     public int Guests { get; set; } = 1;
 }

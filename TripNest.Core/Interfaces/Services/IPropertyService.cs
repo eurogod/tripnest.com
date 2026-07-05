@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Properties;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Interfaces.Services;
 
@@ -12,6 +13,6 @@ public interface IPropertyService
     Task<PropertyResponse> GetPropertyAsync(string propertyId);
     Task<IEnumerable<PropertyResponse>> GetUserPropertiesAsync(string userId);
     Task<IEnumerable<PropertyResponse>> GetAllActivePropertiesAsync();
-    Task<IEnumerable<PropertyResponse>> SearchPropertiesAsync(string location, int minBedrooms, int maxBedrooms);
+    Task<PagedResult<PropertyResponse>> SearchPropertiesAsync(string location, int minBedrooms, int maxBedrooms, int page, int pageSize);
     Task DeletePropertyAsync(string propertyId);
 }

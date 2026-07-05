@@ -91,26 +91,18 @@ public class SettingsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteAccount()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null)
-                return NotFound(ApiResponse<object>.NotFound("User"));
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return NotFound(ApiResponse<object>.NotFound("User"));
 
-            user.IsActive = false;
-            await _userRepository.UpdateAsync(user);
-            await _userRepository.SaveChangesAsync();
+        user.IsActive = false;
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
 
-            return Ok(ApiResponse<object>.Ok("Account deactivated successfully", new { }));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deactivating account");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Ok(ApiResponse<object>.Ok("Account deactivated successfully", new { }));
     }
 }

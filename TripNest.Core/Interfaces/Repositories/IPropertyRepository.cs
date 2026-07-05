@@ -6,5 +6,5 @@ public interface IPropertyRepository : IRepository<Property>
 {
     Task<IEnumerable<Property>> GetByUserIdAsync(string userId);
     Task<IEnumerable<Property>> GetAllActiveAsync();
-    Task<IEnumerable<Property>> SearchAsync(string location, int minBedrooms, int maxBedrooms);
+    Task<(IReadOnlyList<Property> Items, int TotalCount)> SearchPageAsync(string location, int minBedrooms, int maxBedrooms, int page, int pageSize);
 }

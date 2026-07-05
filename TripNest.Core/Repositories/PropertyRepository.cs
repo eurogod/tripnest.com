@@ -25,13 +25,26 @@ public class PropertyRepository : Repository<Property>, IPropertyRepository
             .ToListAsync();
     }
 
-    public async Task<IEnumerable<Property>> SearchAsync(string location, int minBedrooms, int maxBedrooms)
+    public async Task<(IReadOnlyList<Property> Items, int TotalCount)> SearchPageAsync(
+        string location, int minBedrooms, int maxBedrooms, int page, int pageSize)
     {
-        return await _context.Set<Property>()
+        // ToLower().Contains translates to a case-insensitive LIKE on Postgres, served by the
+        // trigram (pg_trgm) expression index on lower(Location) — and it also evaluates correctly
+        // under the in-memory test provider. Paged in the database: listings grow without bound.
+        var lowered = location.ToLower();
+        var query = _context.Set<Property>()
+            .AsNoTracking()
             .Where(p => p.Status == Enums.PropertyStatus.Active &&
-                        p.Location.Contains(location) &&
+                        p.Location.ToLower().Contains(lowered) &&
                         p.Bedrooms >= minBedrooms &&
-                        p.Bedrooms <= maxBedrooms)
+                        p.Bedrooms <= maxBedrooms);
+
+        var totalCount = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .ToListAsync();
+        return (items, totalCount);
     }
 }

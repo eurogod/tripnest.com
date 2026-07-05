@@ -54,38 +54,30 @@ public class AvailabilityController : ControllerBase
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate)
     {
-        try
-        {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property is null)
-                return NotFound(ApiResponse<object>.NotFound("Property"));
+        var property = await _propertyRepository.GetByIdAsync(propertyId);
+        if (property is null)
+            return NotFound(ApiResponse<object>.NotFound("Property"));
 
-            // Filter by property and (optional) date window in the database rather than loading
-            // every property's blocked dates into memory.
-            var start = startDate;
-            var end = endDate;
-            var blockedDates = await _blockedDateRepository.FindAsync(b =>
-                b.PropertyId == propertyId &&
-                (!start.HasValue || b.EndDate >= start.Value) &&
-                (!end.HasValue || b.StartDate <= end.Value));
+        // Filter by property and (optional) date window in the database rather than loading
+        // every property's blocked dates into memory.
+        var start = startDate;
+        var end = endDate;
+        var blockedDates = await _blockedDateRepository.FindAsync(b =>
+            b.PropertyId == propertyId &&
+            (!start.HasValue || b.EndDate >= start.Value) &&
+            (!end.HasValue || b.StartDate <= end.Value));
 
-            var filtered = blockedDates
-                .Select(b => (object)new
-                {
-                    b.Id,
-                    b.StartDate,
-                    b.EndDate,
-                    b.Reason
-                })
-                .ToList();
+        var filtered = blockedDates
+            .Select(b => (object)new
+            {
+                b.Id,
+                b.StartDate,
+                b.EndDate,
+                b.Reason
+            })
+            .ToList();
 
-            return Ok(ApiResponse<IEnumerable<object>>.Ok("Blocked dates retrieved", filtered));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving availability for property {PropertyId}", propertyId);
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Ok(ApiResponse<IEnumerable<object>>.Ok("Blocked dates retrieved", filtered));
     }
 
     [HttpPost("blocked-dates")]
@@ -99,50 +91,42 @@ public class AvailabilityController : ControllerBase
         string propertyId,
         [FromBody] BlockDateRequest request)
     {
-        try
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var property = await _propertyRepository.GetByIdAsync(propertyId);
+        if (property is null)
+            return NotFound(ApiResponse<object>.NotFound("Property"));
+
+        if (property.UserId != landlordId)
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        if (request.StartDate >= request.EndDate)
+            return BadRequest(ApiResponse<object>.BadRequest("StartDate must be before EndDate"));
+
+        var blockedDate = new PropertyBlockedDate
         {
-            var landlordId = User.GetUserId();
-            if (string.IsNullOrEmpty(landlordId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+            PropertyId = propertyId,
+            BlockedByUserId = landlordId,
+            StartDate = request.StartDate,
+            EndDate = request.EndDate,
+            Reason = request.Reason
+        };
 
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property is null)
-                return NotFound(ApiResponse<object>.NotFound("Property"));
+        var created = await _blockedDateRepository.AddAsync(blockedDate);
+        await _blockedDateRepository.SaveChangesAsync();
 
-            if (property.UserId != landlordId)
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            if (request.StartDate >= request.EndDate)
-                return BadRequest(ApiResponse<object>.BadRequest("StartDate must be before EndDate"));
-
-            var blockedDate = new PropertyBlockedDate
-            {
-                PropertyId = propertyId,
-                BlockedByUserId = landlordId,
-                StartDate = request.StartDate,
-                EndDate = request.EndDate,
-                Reason = request.Reason
-            };
-
-            var created = await _blockedDateRepository.AddAsync(blockedDate);
-            await _blockedDateRepository.SaveChangesAsync();
-
-            var result = (object)new
-            {
-                created.Id,
-                created.StartDate,
-                created.EndDate,
-                created.Reason
-            };
-
-            return Created($"api/properties/{propertyId}/blocked-dates/{created.Id}",
-                ApiResponse<object>.Created("BlockedDate", result));
-        }
-        catch (Exception ex)
+        var result = (object)new
         {
-            _logger.LogError(ex, "Error creating blocked date for property {PropertyId}", propertyId);
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+            created.Id,
+            created.StartDate,
+            created.EndDate,
+            created.Reason
+        };
+
+        return Created($"api/properties/{propertyId}/blocked-dates/{created.Id}",
+            ApiResponse<object>.Created("BlockedDate", result));
     }
 
     [HttpDelete("blocked-dates/{blockedDateId}")]
@@ -155,33 +139,25 @@ public class AvailabilityController : ControllerBase
         string propertyId,
         string blockedDateId)
     {
-        try
-        {
-            var landlordId = User.GetUserId();
-            if (string.IsNullOrEmpty(landlordId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property is null)
-                return NotFound(ApiResponse<object>.NotFound("Property"));
+        var property = await _propertyRepository.GetByIdAsync(propertyId);
+        if (property is null)
+            return NotFound(ApiResponse<object>.NotFound("Property"));
 
-            if (property.UserId != landlordId)
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        if (property.UserId != landlordId)
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var blockedDate = await _blockedDateRepository.GetByIdAsync(blockedDateId);
-            if (blockedDate is null || blockedDate.PropertyId != propertyId)
-                return NotFound(ApiResponse<object>.NotFound("BlockedDate"));
+        var blockedDate = await _blockedDateRepository.GetByIdAsync(blockedDateId);
+        if (blockedDate is null || blockedDate.PropertyId != propertyId)
+            return NotFound(ApiResponse<object>.NotFound("BlockedDate"));
 
-            await _blockedDateRepository.DeleteAsync(blockedDate);
-            await _blockedDateRepository.SaveChangesAsync();
+        await _blockedDateRepository.DeleteAsync(blockedDate);
+        await _blockedDateRepository.SaveChangesAsync();
 
-            return Ok(ApiResponse<object>.Ok("Blocked date deleted successfully"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting blocked date {BlockedDateId}", blockedDateId);
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Ok(ApiResponse<object>.Ok("Blocked date deleted successfully"));
     }
 }
 

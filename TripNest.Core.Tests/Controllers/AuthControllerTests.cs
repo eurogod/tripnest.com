@@ -189,11 +189,14 @@ public class AuthControllerTests : TestBase
             Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
         }
 
-        // Now even the CORRECT password is refused while the lockout window is active.
+        // Now even the CORRECT password is refused while the lockout window is active — and the
+        // error is the same generic one as a wrong password, so the response doesn't confirm to
+        // an attacker that the account exists (no "locked" leak).
         var afterLock = await _httpClient.PostAsJsonAsync("/api/auth/login",
             new LoginRequest { Email = email, Password = "Password@123" });
         Assert.Equal(HttpStatusCode.BadRequest, afterLock.StatusCode);
         var body = JsonDocument.Parse(await afterLock.Content.ReadAsStringAsync()).RootElement;
-        Assert.Contains("locked", body.GetProperty("message").GetString()!, StringComparison.OrdinalIgnoreCase);
+        var message = body.GetProperty("message").GetString()!;
+        Assert.Equal("Invalid email or password", message);
     }
 }

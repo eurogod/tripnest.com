@@ -1,7 +1,9 @@
 namespace TripNest.Core.Interfaces.Services;
 
 public record PaymentInitResult(bool Success, string CheckoutUrl, string Reference);
-public record PaymentVerifyResult(bool Success, decimal Amount);
+/// <summary>Simulated=true means the gateway is unconfigured and couldn't know the real amount —
+/// callers should fall back to the amount they expect instead of treating 0 as an underpayment.</summary>
+public record PaymentVerifyResult(bool Success, decimal Amount, bool Simulated = false);
 public record TransferRecipientResult(bool Success, string? RecipientCode, string? Error);
 public record TransferResult(bool Success, string? TransferCode, string? Status, string? Error);
 

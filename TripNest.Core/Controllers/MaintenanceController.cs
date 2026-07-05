@@ -33,24 +33,12 @@ public class MaintenanceController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<MaintenanceResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MaintenanceResponse>>> ReportMaintenance([FromBody] CreateMaintenanceRequest request)
     {
-        try
-        {
-            var tenantId = User.GetUserId();
-            if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
+        var tenantId = User.GetUserId();
+        if (string.IsNullOrEmpty(tenantId))
+            return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
 
-            var maintenance = await _maintenanceService.ReportMaintenanceAsync(request, tenantId);
-            return Created($"api/maintenance-requests/{maintenance.MaintenanceId}", ApiResponse<MaintenanceResponse>.Created("Maintenance Request", maintenance));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<MaintenanceResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error reporting maintenance");
-            return StatusCode(500, ApiResponse<MaintenanceResponse>.InternalServerError());
-        }
+        var maintenance = await _maintenanceService.ReportMaintenanceAsync(request, tenantId);
+        return Created($"api/maintenance-requests/{maintenance.MaintenanceId}", ApiResponse<MaintenanceResponse>.Created("Maintenance Request", maintenance));
     }
 
     /// <summary>
@@ -114,20 +102,12 @@ public class MaintenanceController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<MaintenanceResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MaintenanceResponse>>> UpdateMaintenanceStatus(string id, [FromBody] UpdateMaintenanceStatusRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
 
-            await _maintenanceService.UpdateMaintenanceStatusAsync(id, request.Status, userId, User.IsInRole("Admin"));
-            return Ok(ApiResponse<MaintenanceResponse>.Ok("Status updated", null));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating status");
-            return StatusCode(500, ApiResponse<MaintenanceResponse>.InternalServerError());
-        }
+        await _maintenanceService.UpdateMaintenanceStatusAsync(id, request.Status, userId, User.IsInRole("Admin"));
+        return Ok(ApiResponse<MaintenanceResponse>.Ok("Status updated", null));
     }
 
     /// <summary>
@@ -140,19 +120,11 @@ public class MaintenanceController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> ConvertToServiceRequest(string id, [FromBody] ConvertToServiceRequestRequest request)
     {
-        try
-        {
-            var landlordId = User.GetUserId();
-            if (string.IsNullOrEmpty(landlordId))
-                return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
 
-            var serviceRequest = await _maintenanceService.ConvertToServiceRequestAsync(id, request.CaretakerId, landlordId);
-            return Created($"api/service-requests/{serviceRequest.ServiceRequestId}", ApiResponse<ServiceRequestResponse>.Created("Service Request", serviceRequest));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error converting to service request");
-            return StatusCode(500, ApiResponse<ServiceRequestResponse>.InternalServerError());
-        }
+        var serviceRequest = await _maintenanceService.ConvertToServiceRequestAsync(id, request.CaretakerId, landlordId);
+        return Created($"api/service-requests/{serviceRequest.ServiceRequestId}", ApiResponse<ServiceRequestResponse>.Created("Service Request", serviceRequest));
     }
 }

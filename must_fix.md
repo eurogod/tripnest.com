@@ -2,6 +2,21 @@
 
 _Reviewed as senior backend developer, project manager, and tester. Date: 2026-07-05._
 
+> ## ✅ Status: all items fixed — 2026-07-05
+>
+> | Item | Resolution |
+> |---|---|
+> | 🔴 High #1 — booking never `Confirmed` | `EscrowService.VerifyAndHoldPaymentAsync` now moves the booking `Pending → Confirmed` in the same save as the escrow hold. |
+> | 🔴 High #2 — initiate returns no checkout URL | `InitiatePaymentAsync` now starts (or restarts) the provider checkout for a `Pending` escrow — including the one created with the booking — stamping `PaymentReference` and returning `CheckoutUrl`. Held/terminal escrows are still returned as-is (idempotent). |
+> | 🟡 Medium — simulated verify breaks dev | `PaymentVerifyResult` gained a `Simulated` flag; the unconfigured gateway sets it, and `VerifyPaymentByBookingAsync` substitutes the escrow's expected amount so the guard passes. |
+> | 🟡 Low — in-memory pagination | Notifications and property reviews now page in the database via `FindPageAsync` (with `Paging.Clamp`, newest first). |
+> | 🧪 Tester's note — parallel flakiness | Assembly-level `[CollectionBehavior(DisableTestParallelization = true)]` — test classes (each a full in-process host) now run serially. Full suite: 237/237 green in ~70s. |
+> | ➕ E2E coverage | New `BookingLifecycleE2ETests` drives book → initiate (checkout URL) → verify (held + Confirmed) → agreement → double-book rejected (409). |
+> | ➕ Bonus (found while smoke-testing) | Bare booking dates ("2026-08-04") deserialized as `Kind=Unspecified` and made Npgsql throw on `timestamptz`, 500-ing booking creation against real Postgres (invisible to the in-memory test provider). `CreateBookingAsync` now normalizes both dates to UTC midnight. |
+>
+> Verified live against a running instance + PostgreSQL: full lifecycle completes and the
+> double-booking rejection engages.
+
 ## Summary
 
 Overall a well-built codebase: money paths guard idempotency and amount-tampering,
