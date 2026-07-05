@@ -194,7 +194,9 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Agents — `api/agents`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/` | 🌐 |
+| GET | `/` | 🌐 (lists agents with an Active directory profile — see PUT `/me`) |
+| GET | `/me` | 🔒 `[Agent]` own directory profile (404 until created) |
+| PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates) — required to appear in the list |
 | GET | `/{id}` | 🌐 |
 | POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` |
 | PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ |

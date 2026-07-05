@@ -65,6 +65,11 @@ public interface IAgentService
 {
     Task<List<AgentResponse>> GetVerifiedAgentsAsync(string? serviceArea);
     Task<AgentResponse?> GetAgentProfileAsync(string agentId);
+    /// <summary>The caller's own directory profile, or null if they haven't created one yet.</summary>
+    Task<AgentResponse?> GetMyProfileAsync(string userId);
+    /// <summary>Creates (or updates) the caller's directory profile — the only way an Agent-role
+    /// account becomes visible in the public agents list. A Suspended profile stays suspended.</summary>
+    Task<AgentResponse> UpsertMyProfileAsync(string userId, UpsertAgentProfileRequest request);
     Task<ViewingRequestResponse> CreateViewingRequestAsync(string agentId, string propertyId, DateTime scheduledAt, string tenantId, string? notes);
     Task UpdateViewingRequestStatusAsync(string requestId, string status, string userId);
     // Viewing requests the caller is party to — as the requesting tenant and/or the assigned agent.

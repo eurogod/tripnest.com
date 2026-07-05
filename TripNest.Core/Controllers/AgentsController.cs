@@ -45,6 +45,57 @@ public class AgentsController : ControllerBase
     }
 
     /// <summary>
+    /// The caller's own directory profile (404 until they create one via PUT /api/agents/me).
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = "Agent,Admin")]
+    [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<AgentResponse>>> GetMyProfile()
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<AgentResponse>.UnAuthorized());
+
+        var profile = await _agentService.GetMyProfileAsync(userId);
+        if (profile is null)
+            return NotFound(ApiResponse<AgentResponse>.NotFound("Agent profile"));
+
+        return Ok(ApiResponse<AgentResponse>.Ok("Agent profile retrieved", profile));
+    }
+
+    /// <summary>
+    /// Create or update the caller's public directory profile — without it an Agent-role account
+    /// never appears in the agents list. Requires identity verification, like other agent actions.
+    /// </summary>
+    [HttpPut("me")]
+    [Authorize(Roles = "Agent,Admin")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<AgentResponse>>> UpsertMyProfile([FromBody] UpsertAgentProfileRequest request)
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<AgentResponse>.UnAuthorized());
+
+            var profile = await _agentService.UpsertMyProfileAsync(userId, request);
+            return Ok(ApiResponse<AgentResponse>.Ok("Agent profile saved", profile));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<AgentResponse>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving agent profile");
+            return StatusCode(500, ApiResponse<AgentResponse>.InternalServerError());
+        }
+    }
+
+    /// <summary>
     /// Get agent profile with rating
     /// </summary>
     [HttpGet("{id}")]
