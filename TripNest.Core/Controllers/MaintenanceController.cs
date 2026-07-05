@@ -78,20 +78,12 @@ public class MaintenanceController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<MaintenanceResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<MaintenanceResponse>>>> GetMyMaintenance()
     {
-        try
-        {
-            var tenantId = User.GetUserId();
-            if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
+        var tenantId = User.GetUserId();
+        if (string.IsNullOrEmpty(tenantId))
+            return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
 
-            var requests = await _maintenanceService.GetTenantMaintenanceAsync(tenantId);
-            return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving maintenance requests");
-            return StatusCode(500, ApiResponse<List<MaintenanceResponse>>.InternalServerError());
-        }
+        var requests = await _maintenanceService.GetTenantMaintenanceAsync(tenantId);
+        return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
     }
 
     /// <summary>

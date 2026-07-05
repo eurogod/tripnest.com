@@ -106,6 +106,38 @@ public class EscrowService : IEscrowService
             return;
         }
 
+        // Already held under a DIFFERENT reference: the tenant paid twice for the same booking
+        // (re-initiating a Pending escrow mints a fresh checkout; both can be completed). The
+        // money for this second charge is real and sitting at the provider — refund it there
+        // rather than throwing, which would leave the duplicate charge captured but unrecorded.
+        // The webhook then gets a 200 so the provider stops retrying.
+        if (escrow.Status == EscrowStatus.HeldInEscrow)
+        {
+            _logger.LogWarning(
+                "Duplicate payment for booking {BookingId}: escrow {EscrowId} already held under {HeldReference}, " +
+                "new charge {Reference} for {Amount} — auto-refunding the duplicate",
+                bookingId, escrow.Id, escrow.PaymentReference, reference, paidAmount);
+
+            var refunded = paidAmount > 0 && await _paymentGateway.RefundAsync(reference, paidAmount);
+            if (!refunded)
+                throw new InvalidOperationException(
+                    $"Duplicate payment '{reference}' could not be auto-refunded — manual reconciliation required.");
+
+            // Not a status transition (the escrow stays held), but it IS money movement — record
+            // it on the audit trail directly so dispute forensics can see the duplicate refund.
+            await _escrowEventRepository.AddAsync(new EscrowEvent
+            {
+                EscrowId = escrow.Id,
+                BookingId = escrow.BookingId,
+                FromStatus = escrow.Status,
+                ToStatus = escrow.Status,
+                Actor = "payment-provider",
+                Reason = $"Duplicate charge {reference} ({paidAmount:0.00}) auto-refunded — escrow already held under {escrow.PaymentReference}"
+            });
+            await _escrowEventRepository.SaveChangesAsync();
+            return;
+        }
+
         // Funds can only move into escrow from the Pending state.
         if (escrow.Status != EscrowStatus.Pending)
             throw new InvalidOperationException($"Escrow cannot be held from status '{escrow.Status}'");

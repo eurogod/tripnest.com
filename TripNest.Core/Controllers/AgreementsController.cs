@@ -46,20 +46,12 @@ public class AgreementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<AgreementResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<AgreementResponse>>>> GetMyAgreements()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<AgreementResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<List<AgreementResponse>>.UnAuthorized());
 
-            var agreements = await _agreementService.GetUserAgreementsAsync(userId);
-            return Ok(ApiResponse<List<AgreementResponse>>.Ok("Agreements retrieved", agreements));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agreements");
-            return StatusCode(500, ApiResponse<List<AgreementResponse>>.InternalServerError());
-        }
+        var agreements = await _agreementService.GetUserAgreementsAsync(userId);
+        return Ok(ApiResponse<List<AgreementResponse>>.Ok("Agreements retrieved", agreements));
     }
 
     /// <summary>

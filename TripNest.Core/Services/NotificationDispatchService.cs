@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using TripNest.Core.Context;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 
@@ -46,11 +48,16 @@ public class NotificationDispatchService : BackgroundService
         }
     }
 
+    // Stable bigint identifying "the notification requeue pass" to Postgres advisory locking —
+    // distinct from the escrow auto-release key so the two passes never contend with each other.
+    private const long RequeueAdvisoryLockKey = 727_566_002;
+
     /// <summary>
     /// The channel is in-memory, so jobs queued but not yet sent die with the process. The dispatch
     /// intent, however, is persisted on the notification row — on startup, requeue those rows so a
     /// restart delays deliveries instead of dropping them (same recovery pattern as the
-    /// verification queue).
+    /// verification queue). A Postgres advisory lock keeps simultaneously-restarting instances from
+    /// requeueing (and double-sending) the same rows; skipped on non-relational providers.
     /// </summary>
     private async Task RequeuePendingAsync(CancellationToken cancellationToken)
     {
@@ -58,24 +65,32 @@ public class NotificationDispatchService : BackgroundService
         {
             using var scope = _serviceProvider.CreateScope();
             var notifications = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
-            var users = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var pending = (await notifications.FindAsync(
-                n => n.PendingSmsDispatch || n.PendingEmailDispatch)).ToList();
-            if (pending.Count == 0)
-                return;
-
-            foreach (var n in pending)
+            var useAdvisoryLock = context.Database.IsNpgsql();
+            if (useAdvisoryLock)
             {
-                var user = await users.GetByIdAsync(n.UserId);
-                if (user is null)
-                    continue;
-                _queue.Enqueue(new NotificationDispatchJob(
-                    n.Id, user.Phone, user.Email, n.Title, n.Message,
-                    n.PendingSmsDispatch, n.PendingEmailDispatch));
+                await context.Database.OpenConnectionAsync(cancellationToken);
+                var acquired = (await context.Database
+                    .SqlQueryRaw<bool>($"SELECT pg_try_advisory_lock({RequeueAdvisoryLockKey}) AS \"Value\"")
+                    .ToListAsync(cancellationToken)).Single();
+                if (!acquired)
+                {
+                    _logger.LogInformation("Notification requeue skipped: another instance holds the lock");
+                    return;
+                }
             }
 
-            _logger.LogInformation("Requeued {Count} undispatched notifications from before the restart", pending.Count);
+            try
+            {
+                await ClaimAndRequeueAsync(scope, notifications, cancellationToken);
+            }
+            finally
+            {
+                if (useAdvisoryLock)
+                    await context.Database.ExecuteSqlRawAsync(
+                        $"SELECT pg_advisory_unlock({RequeueAdvisoryLockKey})", cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -85,6 +100,41 @@ public class NotificationDispatchService : BackgroundService
         {
             _logger.LogError(ex, "Failed to requeue pending notification dispatches");
         }
+    }
+
+    private async Task ClaimAndRequeueAsync(IServiceScope scope, INotificationRepository notifications, CancellationToken cancellationToken)
+    {
+        var users = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+
+        var pending = (await notifications.FindAsync(
+            n => n.PendingSmsDispatch || n.PendingEmailDispatch)).ToList();
+        if (pending.Count == 0)
+            return;
+
+        // CLAIM the rows (clear the flags) before enqueueing, in one save under the advisory
+        // lock. The trade-off is a tiny loss window (crash between this save and the send drops
+        // those sends), which is the right side of the trade for notifications: the in-app row
+        // is already durable, and a missing SMS beats a double SMS.
+        var jobs = new List<NotificationDispatchJob>();
+        foreach (var n in pending)
+        {
+            var user = await users.GetByIdAsync(n.UserId);
+            var sendSms = n.PendingSmsDispatch;
+            var sendEmail = n.PendingEmailDispatch;
+            n.PendingSmsDispatch = false;
+            n.PendingEmailDispatch = false;
+            await notifications.UpdateAsync(n);
+
+            if (user is not null)
+                jobs.Add(new NotificationDispatchJob(
+                    n.Id, user.Phone, user.Email, n.Title, n.Message, sendSms, sendEmail));
+        }
+        await notifications.SaveChangesAsync();
+
+        foreach (var job in jobs)
+            _queue.Enqueue(job);
+
+        _logger.LogInformation("Requeued {Count} undispatched notifications from before the restart", jobs.Count);
     }
 
     private async Task ProcessOneAsync(NotificationDispatchJob job)

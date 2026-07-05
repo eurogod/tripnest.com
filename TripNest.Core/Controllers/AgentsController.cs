@@ -32,16 +32,8 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<AgentResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<AgentResponse>>>> GetAgents([FromQuery] string? serviceArea)
     {
-        try
-        {
-            var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea);
-            return Ok(ApiResponse<List<AgentResponse>>.Ok("Agents retrieved", agents));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agents");
-            return StatusCode(500, ApiResponse<List<AgentResponse>>.InternalServerError());
-        }
+        var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea);
+        return Ok(ApiResponse<List<AgentResponse>>.Ok("Agents retrieved", agents));
     }
 
     /// <summary>
@@ -142,19 +134,11 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<ViewingRequestResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ViewingRequestResponse>>>> GetMyViewingRequests()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<ViewingRequestResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<List<ViewingRequestResponse>>.UnAuthorized());
 
-            var requests = await _agentService.GetMyViewingRequestsAsync(userId);
-            return Ok(ApiResponse<List<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving viewing requests");
-            return StatusCode(500, ApiResponse<List<ViewingRequestResponse>>.InternalServerError());
-        }
+        var requests = await _agentService.GetMyViewingRequestsAsync(userId);
+        return Ok(ApiResponse<List<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
     }
 }
