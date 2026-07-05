@@ -311,7 +311,8 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Landlord workspace — `api/landlord`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/landlord/bookings?page=&pageSize=` | 🔒 `[Landlord,Admin]` incoming bookings (paged) |
+| GET | `/api/landlord/bookings?page=&pageSize=` | 🔒 `[Landlord,Admin]` incoming bookings (paged; incl. guests count + derived stage Upcoming/Active/Complete/Canceled) |
+| GET | `/api/landlord/reservations/{bookingId}` | 🔒 `[Landlord,Admin]` reservation details: trip facts, guest, earnings breakdown (nightly rate, management fee via `Platform:ManagementFeePercent`, owner payout), guest's reviews |
 | GET | `/api/landlord/tenants?page=&pageSize=` | 🔒 `[Landlord,Admin]` tenant roster (paged) |
 | GET | `/api/landlord/inquiries?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
 | PATCH | `/api/landlord/inquiries/{id}/status` | 🔒 `[Landlord,Admin]` |

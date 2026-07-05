@@ -42,6 +42,8 @@ public class BookingService : IBookingService
             throw new ValidationException("Check-out date must be after the check-in date");
         if (request.CheckInDate.Date < DateTime.UtcNow.Date)
             throw new ValidationException("Check-in date cannot be in the past");
+        if (request.Guests is < 1 or > 16)
+            throw new ValidationException("Guests must be between 1 and 16");
 
         var property = await _propertyRepository.GetByIdAsync(request.PropertyId)
             ?? throw new NotFoundException("Property");
@@ -60,6 +62,7 @@ public class BookingService : IBookingService
             PropertyId = request.PropertyId,
             CheckInDate = request.CheckInDate,
             CheckOutDate = request.CheckOutDate,
+            Guests = request.Guests,
             TotalAmount = totalAmount,
             Status = BookingStatus.Pending
         };
@@ -183,6 +186,7 @@ public class BookingService : IBookingService
             PropertyId = booking.PropertyId,
             CheckInDate = booking.CheckInDate,
             CheckOutDate = booking.CheckOutDate,
+            Guests = booking.Guests,
             TotalAmount = booking.TotalAmount,
             Status = booking.Status,
             CreatedAt = booking.CreatedAt

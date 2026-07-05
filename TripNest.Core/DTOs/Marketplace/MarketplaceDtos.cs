@@ -285,8 +285,56 @@ public class LandlordBookingResponse
     public DateTime CheckIn { get; set; }
     public DateTime CheckOut { get; set; }
     public int Nights { get; set; }
+    public int Guests { get; set; }
     public decimal Amount { get; set; }
     public BookingStatus Status { get; set; }
+
+    /// <summary>Display stage derived from status + dates: Upcoming / Active / Complete / Canceled —
+    /// what the reservations table shows without every client re-deriving it.</summary>
+    public required string Stage { get; set; }
+}
+
+/// <summary>
+/// Everything the host's "Reservation Details" panel shows for one booking: the trip facts,
+/// the guest, the earnings breakdown, and any reviews the guest left for this listing.
+/// </summary>
+public class ReservationDetailsResponse
+{
+    public required string BookingId { get; set; }
+    public required string PropertyId { get; set; }
+    public string? Listing { get; set; }
+    public DateTime CheckIn { get; set; }
+    public DateTime CheckOut { get; set; }
+    public int Nights { get; set; }
+    public int Guests { get; set; }
+    public string TripType { get; set; } = "Reservation";
+    public string BookedThrough { get; set; } = "TripNest";
+    public BookingStatus Status { get; set; }
+    public required string Stage { get; set; }
+
+    public required string GuestId { get; set; }
+    public string? GuestName { get; set; }
+    /// <summary>The guest's public TripNest identity id when they are identity-verified.</summary>
+    public string? GuestTripNestId { get; set; }
+
+    /// <summary>Average nightly rate actually paid (total / nights).</summary>
+    public decimal NightlyRate { get; set; }
+    /// <summary>Gross booking revenue (what the guest paid).</summary>
+    public decimal NetRevenue { get; set; }
+    public decimal ManagementFeePercent { get; set; }
+    public decimal ManagementFee { get; set; }
+    /// <summary>What the host receives after the platform's management fee.</summary>
+    public decimal OwnerPayout { get; set; }
+
+    /// <summary>Reviews this guest has written for this listing.</summary>
+    public List<GuestReviewItem> GuestReviews { get; set; } = new();
+}
+
+public class GuestReviewItem
+{
+    public int Rating { get; set; }
+    public string? Comment { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 public class LandlordTenantResponse

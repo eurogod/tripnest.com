@@ -74,4 +74,8 @@ public interface ILandlordWorkspaceService
 {
     Task<PagedResult<LandlordBookingResponse>> GetBookingsAsync(string landlordId, int page, int pageSize);
     Task<PagedResult<LandlordTenantResponse>> GetTenantsAsync(string landlordId, int page, int pageSize);
+
+    /// <summary>One reservation's full host-side view: trip facts, guest, earnings breakdown
+    /// (nightly rate, management fee, owner payout), and the guest's reviews of this listing.</summary>
+    Task<ReservationDetailsResponse> GetReservationAsync(string bookingId, string landlordId);
 }

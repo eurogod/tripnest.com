@@ -40,6 +40,24 @@ public class LandlordWorkspaceController : ControllerBase
         return Ok(ApiResponse<PagedResult<LandlordBookingResponse>>.Ok("Bookings retrieved", bookings));
     }
 
+    /// <summary>
+    /// One reservation's details for the host: trip facts, guest, earnings breakdown
+    /// (nightly rate, management fee, owner payout), and the guest's reviews of the listing.
+    /// </summary>
+    [HttpGet("reservations/{bookingId}")]
+    [ProducesResponseType(typeof(ApiResponse<ReservationDetailsResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ReservationDetailsResponse>>> GetReservation(string bookingId)
+    {
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<ReservationDetailsResponse>.UnAuthorized());
+
+        var reservation = await _workspaceService.GetReservationAsync(bookingId, landlordId);
+        return Ok(ApiResponse<ReservationDetailsResponse>.Ok("Reservation retrieved", reservation));
+    }
+
     /// <summary>The caller's tenant roster, derived from active bookings.</summary>
     [HttpGet("tenants")]
     [ProducesResponseType(typeof(ApiResponse<PagedResult<LandlordTenantResponse>>), StatusCodes.Status200OK)]

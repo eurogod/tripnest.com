@@ -295,16 +295,32 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IRepository<User> _userRepository;
+    private readonly IReviewRepository _reviewRepository;
+    private readonly IConfiguration _configuration;
 
     public LandlordWorkspaceService(
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
-        IRepository<User> userRepository)
+        IRepository<User> userRepository,
+        IReviewRepository reviewRepository,
+        IConfiguration configuration)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
         _userRepository = userRepository;
+        _reviewRepository = reviewRepository;
+        _configuration = configuration;
     }
+
+    /// <summary>Display stage for the reservations table, derived from status + dates.</summary>
+    private static string StageFor(Booking b) => b.Status switch
+    {
+        BookingStatus.Cancelled => "Canceled",
+        BookingStatus.Completed or BookingStatus.CheckedOut => "Complete",
+        _ when b.CheckOutDate.Date <= DateTime.UtcNow.Date => "Complete",
+        _ when b.CheckInDate.Date <= DateTime.UtcNow.Date => "Active",
+        _ => "Upcoming"
+    };
 
     public async Task<PagedResult<LandlordBookingResponse>> GetBookingsAsync(string landlordId, int page, int pageSize)
     {
@@ -331,12 +347,59 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
                 CheckIn = b.CheckInDate,
                 CheckOut = b.CheckOutDate,
                 Nights = Math.Max(0, (b.CheckOutDate.Date - b.CheckInDate.Date).Days),
+                Guests = b.Guests,
                 Amount = b.TotalAmount,
-                Status = b.Status
+                Status = b.Status,
+                Stage = StageFor(b)
             })
             .ToList();
 
         return Paging.Result(mapped, totalCount, pageNum, size);
+    }
+
+    public async Task<ReservationDetailsResponse> GetReservationAsync(string bookingId, string landlordId)
+    {
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId)
+            ?? throw new NotFoundException("Reservation");
+
+        // Only the landlord who owns the listing may see the reservation's details.
+        if (booking.Property?.UserId != landlordId)
+            throw new ForbiddenException("You do not own this listing");
+
+        var nights = Math.Max(1, (booking.CheckOutDate.Date - booking.CheckInDate.Date).Days);
+
+        // Earnings breakdown: the platform's management fee is a configurable percentage of the
+        // gross booking revenue; the host receives the remainder.
+        var feePercent = _configuration.GetValue("Platform:ManagementFeePercent", 20m);
+        var managementFee = Math.Round(booking.TotalAmount * feePercent / 100m, 2);
+
+        var guestReviews = (await _reviewRepository.GetByPropertyIdAsync(booking.PropertyId))
+            .Where(r => r.ReviewerId == booking.TenantId)
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new GuestReviewItem { Rating = r.Rating, Comment = r.Comment, CreatedAt = r.CreatedAt })
+            .ToList();
+
+        return new ReservationDetailsResponse
+        {
+            BookingId = booking.Id,
+            PropertyId = booking.PropertyId,
+            Listing = booking.Property?.Title,
+            CheckIn = booking.CheckInDate,
+            CheckOut = booking.CheckOutDate,
+            Nights = nights,
+            Guests = booking.Guests,
+            Status = booking.Status,
+            Stage = StageFor(booking),
+            GuestId = booking.TenantId,
+            GuestName = booking.Tenant?.FullName,
+            GuestTripNestId = booking.Tenant?.TripNestId,
+            NightlyRate = Math.Round(booking.TotalAmount / nights, 2),
+            NetRevenue = booking.TotalAmount,
+            ManagementFeePercent = feePercent,
+            ManagementFee = managementFee,
+            OwnerPayout = booking.TotalAmount - managementFee,
+            GuestReviews = guestReviews
+        };
     }
 
     public async Task<PagedResult<LandlordTenantResponse>> GetTenantsAsync(string landlordId, int page, int pageSize)
