@@ -94,6 +94,7 @@ public class EscrowAutoReleaseService : BackgroundService
                            e.HeldAt < cutoffTime &&
                            (e.Booking == null || e.Booking.CheckOutDate < cutoffTime))
                 .Include(e => e.Booking)
+                    .ThenInclude(b => b!.Property)
                 .ToListAsync(cancellationToken);
 
             foreach (var escrow in escrowsToRelease)
@@ -123,6 +124,16 @@ public class EscrowAutoReleaseService : BackgroundService
             {
                 await context.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Auto-released {EscrowCount} escrows", escrowsToRelease.Count);
+
+                // Disburse each released escrow to its host, exactly like a manual release.
+                // CreateForReleasedEscrowAsync is idempotent and never throws for provider issues.
+                var payoutService = scope.ServiceProvider.GetRequiredService<TripNest.Core.Interfaces.Services.IPayoutService>();
+                foreach (var escrow in escrowsToRelease)
+                {
+                    var landlordId = escrow.Booking?.Property?.UserId;
+                    if (landlordId is not null)
+                        await payoutService.CreateForReleasedEscrowAsync(escrow, landlordId);
+                }
             }
         }
         catch (Exception ex)

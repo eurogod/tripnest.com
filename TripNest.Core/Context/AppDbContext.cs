@@ -47,6 +47,10 @@ public class AppDbContext : DbContext
     public DbSet<ResourceItem> ResourceItems { get; set; }
     public DbSet<PropertyTour> PropertyTours { get; set; }
 
+    // Host disbursements (Paystack Transfers).
+    public DbSet<Payout> Payouts { get; set; }
+    public DbSet<PayoutAccount> PayoutAccounts { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

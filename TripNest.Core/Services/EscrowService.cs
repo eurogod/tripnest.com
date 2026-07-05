@@ -12,6 +12,7 @@ public class EscrowService : IEscrowService
     private readonly IBookingRepository _bookingRepository;
     private readonly IUserRepository _userRepository;
     private readonly IPaymentGateway _paymentGateway;
+    private readonly IPayoutService _payoutService;
     private readonly ILogger<EscrowService> _logger;
 
     public EscrowService(
@@ -19,12 +20,14 @@ public class EscrowService : IEscrowService
         IBookingRepository bookingRepository,
         IUserRepository userRepository,
         IPaymentGateway paymentGateway,
+        IPayoutService payoutService,
         ILogger<EscrowService> logger)
     {
         _escrowRepository = escrowRepository;
         _bookingRepository = bookingRepository;
         _userRepository = userRepository;
         _paymentGateway = paymentGateway;
+        _payoutService = payoutService;
         _logger = logger;
     }
 
@@ -222,6 +225,10 @@ public class EscrowService : IEscrowService
         await _escrowRepository.SaveChangesAsync();
 
         _logger.LogInformation("Escrow {EscrowId} released by landlord {UserId}", escrowId, userId);
+
+        // Kick off the actual disbursement (Paystack Transfer). Idempotent, and a payout
+        // hiccup never undoes the release — the payout stays visible for retry.
+        await _payoutService.CreateForReleasedEscrowAsync(escrow, userId);
     }
 
     public async Task RaiseDisputeAsync(string escrowId, string userId, string reason)
@@ -271,6 +278,18 @@ public class EscrowService : IEscrowService
             var booking = await _bookingRepository.GetByIdWithDetailsAsync(escrow.BookingId);
             if (booking != null)
                 booking.Status = BookingStatus.Completed;
+
+            // Disburse to the host, exactly like a manual release.
+            var landlordId = booking?.Property?.UserId;
+            if (landlordId is not null)
+            {
+                await _escrowRepository.UpdateAsync(escrow);
+                await _escrowRepository.SaveChangesAsync();
+                await _payoutService.CreateForReleasedEscrowAsync(escrow, landlordId);
+                _logger.LogInformation("Dispute resolved for escrow {EscrowId}: approved=True, new status={Status}",
+                    escrowId, escrow.Status);
+                return;
+            }
         }
         else
         {

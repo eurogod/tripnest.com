@@ -131,6 +131,100 @@ public class PaystackPaymentGateway : IPaymentGateway
         }
     }
 
+    public async Task<TransferRecipientResult> CreateTransferRecipientAsync(
+        string accountName, string accountNumber, string providerCode, string channel, string currency)
+    {
+        if (!Configured)
+        {
+            _logger.LogInformation("[Paystack not configured] simulating transfer recipient for {AccountName}", accountName);
+            return new TransferRecipientResult(true, $"RCP_SIM_{Guid.NewGuid():N}", null);
+        }
+
+        try
+        {
+            // Ghana: MoMo wallets use type "mobile_money" (codes MTN/ATL/VOD); banks use "ghipss".
+            var payload = new
+            {
+                type = channel,
+                name = accountName,
+                account_number = accountNumber,
+                bank_code = providerCode,
+                currency
+            };
+            using var resp = await _httpClient.PostAsync("transferrecipient", JsonBody(payload));
+            var json = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode)
+            {
+                _logger.LogError("Paystack create-recipient failed ({Status}): {Body}", resp.StatusCode, json);
+                return new TransferRecipientResult(false, null, ExtractMessage(json) ?? "The payout account was rejected by the payment provider.");
+            }
+
+            using var doc = JsonDocument.Parse(json);
+            var code = doc.RootElement.GetProperty("data").GetProperty("recipient_code").GetString();
+            return new TransferRecipientResult(!string.IsNullOrEmpty(code), code, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Paystack create-recipient error for {AccountName}", accountName);
+            return new TransferRecipientResult(false, null, "Could not reach the payment provider. Please retry.");
+        }
+    }
+
+    public async Task<TransferResult> InitiateTransferAsync(
+        decimal amount, string currency, string recipientCode, string reference, string reason)
+    {
+        if (!Configured)
+        {
+            _logger.LogInformation("[Paystack not configured] simulating transfer of {Amount} {Currency}, ref {Reference}", amount, currency, reference);
+            return new TransferResult(true, $"TRF_SIM_{Guid.NewGuid():N}", "success", null);
+        }
+
+        try
+        {
+            var payload = new
+            {
+                source = "balance",
+                amount = (long)(amount * 100), // pesewas
+                currency,
+                recipient = recipientCode,
+                reference,
+                reason
+            };
+            using var resp = await _httpClient.PostAsync("transfer", JsonBody(payload));
+            var json = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode)
+            {
+                _logger.LogError("Paystack transfer failed ({Status}): {Body}", resp.StatusCode, json);
+                return new TransferResult(false, null, null, ExtractMessage(json) ?? "The transfer was rejected by the payment provider.");
+            }
+
+            using var doc = JsonDocument.Parse(json);
+            var data = doc.RootElement.GetProperty("data");
+            var transferCode = data.TryGetProperty("transfer_code", out var tc) ? tc.GetString() : null;
+            var status = data.TryGetProperty("status", out var st) ? st.GetString() : null;
+            return new TransferResult(true, transferCode, status, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Paystack transfer error for ref {Reference}", reference);
+            return new TransferResult(false, null, null, "Could not reach the payment provider. Please retry.");
+        }
+    }
+
+    /// <summary>Pulls Paystack's human-readable "message" out of an error body, if present.</summary>
+    private static string? ExtractMessage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static StringContent JsonBody(object payload) =>
         new(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
 }

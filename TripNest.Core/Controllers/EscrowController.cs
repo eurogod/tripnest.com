@@ -17,12 +17,18 @@ namespace TripNest.Core.Controllers;
 public class EscrowController : ControllerBase
 {
     private readonly IEscrowService _escrowService;
+    private readonly IPayoutService _payoutService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<EscrowController> _logger;
 
-    public EscrowController(IEscrowService escrowService, IConfiguration configuration, ILogger<EscrowController> logger)
+    public EscrowController(
+        IEscrowService escrowService,
+        IPayoutService payoutService,
+        IConfiguration configuration,
+        ILogger<EscrowController> logger)
     {
         _escrowService = escrowService;
+        _payoutService = payoutService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -91,6 +97,20 @@ public class EscrowController : ControllerBase
             using var doc = JsonDocument.Parse(rawBody);
             var root = doc.RootElement;
             var eventType = root.TryGetProperty("event", out var ev) ? ev.GetString() : null;
+
+            // Transfer lifecycle events drive payouts to Paid/Failed. The transfer reference is
+            // the payout id; same HMAC signature verified above covers these events too.
+            if (eventType is "transfer.success" or "transfer.failed" or "transfer.reversed")
+            {
+                var transferData = root.GetProperty("data");
+                var transferRef = transferData.TryGetProperty("reference", out var tr) ? tr.GetString() : null;
+                var failure = transferData.TryGetProperty("reason", out var rs) ? rs.GetString() : null;
+
+                if (!string.IsNullOrEmpty(transferRef))
+                    await _payoutService.HandleTransferWebhookAsync(eventType, transferRef, failure);
+
+                return Ok(ApiResponse<object>.Ok("Transfer event processed", null));
+            }
 
             // Only a successful charge moves funds into escrow; ignore other events.
             if (eventType != "charge.success")

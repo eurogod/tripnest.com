@@ -201,6 +201,20 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` |
 | PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ |
 
+### Payouts — `api/payouts` (host disbursements via Paystack Transfers)
+| Method | Path | Access |
+|---|---|---|
+| GET | `/account` | 🔒 `[Landlord,Agent]` own payout destination (masked; 404 until registered) |
+| PUT | `/account` | 🔒 `[Landlord,Agent]` register MoMo wallet (`mobile_money`: MTN/ATL/VOD) or bank (`ghipss`) — validated with Paystack as a transfer recipient |
+| GET | `/mine` | 🔒 `[Landlord,Agent]` own payouts, newest first (gross, fee, net, status) |
+| POST | `/{id}/retry` | 🔒 `[Landlord,Agent]` re-attempt a Pending/Failed payout |
+
+Escrow release (manual, auto after checkout+grace, or dispute-approved) creates one payout per
+escrow (net of `Platform:ManagementFeePercent`) and initiates the transfer when the host has an
+account. Paystack `transfer.success` / `transfer.failed` / `transfer.reversed` webhooks (same
+signed `/api/escrow/webhook` endpoint; transfer reference = payout id) drive it to Paid/Failed,
+notifying the host either way.
+
 ### Maintenance — `api/maintenance`
 | Method | Path | Access |
 |---|---|---|

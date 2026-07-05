@@ -311,6 +311,11 @@ builder.Services.AddScoped<IRepository<TeamMember>, Repository<TeamMember>>();
 builder.Services.AddScoped<IRepository<ResourceItem>, Repository<ResourceItem>>();
 builder.Services.AddScoped<IRepository<PropertyTour>, Repository<PropertyTour>>();
 
+// Host disbursements (Paystack Transfers).
+builder.Services.AddScoped<IRepository<Payout>, Repository<Payout>>();
+builder.Services.AddScoped<IRepository<PayoutAccount>, Repository<PayoutAccount>>();
+builder.Services.AddScoped<IPayoutService, PayoutService>();
+
 builder.Services.AddScoped<IPricingService, PricingService>();
 builder.Services.AddScoped<ICalendarService, CalendarService>();
 builder.Services.AddScoped<IInquiryService, InquiryService>();
