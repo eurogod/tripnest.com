@@ -9,6 +9,7 @@ public interface IPropertyService
     Task<PropertyResponse> CreatePropertyAsync(string userId, CreatePropertyRequest request);
     /// <summary>Saves uploaded photos for a property (owner only) and returns their stored paths.</summary>
     Task<List<string>> AddPhotosAsync(string propertyId, string userId, IFormFileCollection files);
+    Task<ListingCopySuggestion> GenerateListingCopyAsync(string propertyId, string userId);
     Task<PropertyResponse> UpdatePropertyAsync(string propertyId, CreatePropertyRequest request);
     Task<PropertyResponse> GetPropertyAsync(string propertyId);
     Task<IEnumerable<PropertyResponse>> GetUserPropertiesAsync(string userId);

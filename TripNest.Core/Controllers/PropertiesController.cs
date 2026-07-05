@@ -141,6 +141,27 @@ public class PropertiesController : ControllerBase
         return Ok(ApiResponse<object>.Ok("Property deleted successfully", new { }));
     }
 
+    /// <summary>
+    /// Drafts AI listing copy (title, description, highlights) from the property's facts and
+    /// photos, for the owner to review and apply — never auto-applied. Returns 400 with a clear
+    /// message when AI is not configured on this server.
+    /// </summary>
+    [HttpPost("{propertyId}/generate-copy")]
+    [Authorize]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>>> GenerateListingCopy(string propertyId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var suggestion = await _propertyService.GenerateListingCopyAsync(propertyId, userId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>.Ok("Listing copy generated", suggestion));
+    }
+
     /// <summary>Uploads one or more photos for a property (owner only, multipart/form-data).</summary>
     [HttpPost("{propertyId}/photos")]
     [Authorize]

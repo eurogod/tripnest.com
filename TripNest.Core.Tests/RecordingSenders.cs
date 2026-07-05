@@ -27,6 +27,33 @@ public class RecordingEmailSender : IEmailSender
     }
 }
 
+/// <summary>Test double for the AI client with configurable availability and canned suggestions.</summary>
+public class StubAiClient : IAiClient
+{
+    /// <summary>When false, behaves like a server with no Ai:ApiKey configured.</summary>
+    public bool Configured { get; set; } = true;
+
+    /// <summary>What the next generation call returns; null simulates a provider failure.</summary>
+    public TripNest.Core.DTOs.Properties.ListingCopySuggestion? NextSuggestion { get; set; } = new()
+    {
+        Title = "Sunny 2-Bedroom Near Campus",
+        Description = "A bright apartment close to the university with reliable water and parking.",
+        Highlights = new List<string> { "5 min to campus", "Dedicated parking", "Backup water supply" },
+    };
+
+    /// <summary>Every generation request, so tests can assert what was sent to the model.</summary>
+    public ConcurrentBag<(string PropertyId, int PhotoCount)> Requests { get; } = new();
+
+    public bool IsConfigured => Configured;
+
+    public Task<TripNest.Core.DTOs.Properties.ListingCopySuggestion?> GenerateListingCopyAsync(
+        TripNest.Core.Models.Property property, IReadOnlyList<AiImage> photos, CancellationToken cancellationToken = default)
+    {
+        Requests.Add((property.Id, photos.Count));
+        return Task.FromResult(Configured ? NextSuggestion : null);
+    }
+}
+
 /// <summary>Test double for the payment gateway with configurable verify behaviour.</summary>
 public class StubPaymentGateway : IPaymentGateway
 {

@@ -302,6 +302,9 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IDashboardStatsService, DashboardStatsService>();
+// AI (Claude). Singleton: the Anthropic SDK client is thread-safe and holds its own HttpClient.
+// Unconfigured (no Ai:ApiKey) it degrades gracefully — AI features return a friendly 400.
+builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {

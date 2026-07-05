@@ -14,19 +14,85 @@ public class PropertyService : IPropertyService
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<PropertyPhoto> _photoRepository;
     private readonly IFileStorage _fileStorage;
+    private readonly IAiClient _aiClient;
     private readonly ILogger<PropertyService> _logger;
 
     public PropertyService(
         IPropertyRepository propertyRepository,
         IRepository<PropertyPhoto> photoRepository,
         IFileStorage fileStorage,
+        IAiClient aiClient,
         ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
         _photoRepository = photoRepository;
         _fileStorage = fileStorage;
+        _aiClient = aiClient;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Drafts AI listing copy for the host to review — never applied automatically. Feeds the
+    /// model the property's structured facts plus up to four listing photos.
+    /// </summary>
+    public async Task<ListingCopySuggestion> GenerateListingCopyAsync(string propertyId, string userId)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        if (property.UserId != userId)
+            throw new ForbiddenException("You are not authorised to generate copy for this property");
+
+        if (!_aiClient.IsConfigured)
+            throw new ValidationException("AI listing suggestions are not configured on this server.");
+
+        var photos = await LoadPhotosForAiAsync(propertyId);
+        var suggestion = await _aiClient.GenerateListingCopyAsync(property, photos);
+        return suggestion
+            ?? throw new ValidationException("Listing suggestions are unavailable right now. Please try again.");
+    }
+
+    // Claude accepts up to ~5MB per image; anything larger is skipped rather than resized —
+    // listing photos are usually smaller, and copy quality barely depends on any single one.
+    private const int MaxAiPhotos = 4;
+    private const long MaxAiPhotoBytes = 4_500_000;
+
+    private async Task<IReadOnlyList<AiImage>> LoadPhotosForAiAsync(string propertyId)
+    {
+        var photoRows = (await _photoRepository.FindAsync(p => p.PropertyId == propertyId))
+            .OrderByDescending(p => p.IsPrimary)
+            .ThenBy(p => p.SortOrder)
+            .Take(MaxAiPhotos)
+            .ToList();
+
+        var images = new List<AiImage>();
+        foreach (var row in photoRows)
+        {
+            var mediaType = MediaTypeFor(row.PhotoPath);
+            if (mediaType is null)
+                continue;
+
+            await using var stream = await _fileStorage.OpenReadAsync(row.PhotoPath);
+            if (stream is null)
+                continue;
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            if (buffer.Length == 0 || buffer.Length > MaxAiPhotoBytes)
+                continue;
+
+            images.Add(new AiImage(buffer.ToArray(), mediaType));
+        }
+        return images;
+    }
+
+    private static string? MediaTypeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".webp" => "image/webp",
+        ".gif" => "image/gif",
+        _ => null,
+    };
 
     public async Task<List<string>> AddPhotosAsync(string propertyId, string userId, IFormFileCollection files)
     {
