@@ -238,6 +238,11 @@ public class EscrowService : IEscrowService
         if (booking.TenantId != userId && landlordId != userId)
             throw new InvalidOperationException("Only the tenant or landlord can raise a dispute");
 
+        // Only funds actually sitting in escrow can be contested. Without this guard a dispute on a
+        // Released escrow could later be "resolved" into a refund — paying out the same money twice.
+        if (escrow.Status != EscrowStatus.HeldInEscrow)
+            throw new InvalidOperationException($"A dispute can only be raised while funds are held in escrow (current status: '{escrow.Status}')");
+
         escrow.Status = EscrowStatus.Disputed;
         escrow.ReleaseReason = reason;
 
@@ -257,9 +262,24 @@ public class EscrowService : IEscrowService
         if (escrow.Status != EscrowStatus.Disputed)
             throw new InvalidOperationException($"Only a disputed escrow can be resolved (current status: '{escrow.Status}')");
 
-        escrow.Status = approved ? EscrowStatus.Released : EscrowStatus.Refunded;
         if (approved)
+        {
+            escrow.Status = EscrowStatus.Released;
             escrow.ReleasedAt = DateTime.UtcNow;
+
+            // Parity with the release paths: a released stay is a completed stay.
+            var booking = await _bookingRepository.GetByIdWithDetailsAsync(escrow.BookingId);
+            if (booking != null)
+                booking.Status = BookingStatus.Completed;
+        }
+        else
+        {
+            // Resolving in the tenant's favour means money actually moves back — go through the
+            // provider exactly like an admin refund, and only record Refunded if it accepted.
+            await ExecuteProviderRefundAsync(escrow);
+            escrow.Status = EscrowStatus.Refunded;
+            escrow.ReleaseReason = $"Dispute resolved in tenant's favour. {escrow.ReleaseReason}".Trim();
+        }
 
         await _escrowRepository.UpdateAsync(escrow);
         await _escrowRepository.SaveChangesAsync();
@@ -278,15 +298,7 @@ public class EscrowService : IEscrowService
         if (escrow.Status is not (EscrowStatus.HeldInEscrow or EscrowStatus.Disputed))
             throw new InvalidOperationException($"Escrow cannot be refunded from status '{escrow.Status}'");
 
-        // Issue the refund through the provider before recording it locally. Only mark the escrow
-        // refunded if the provider actually accepted it — otherwise the status would lie about money
-        // that never moved. (The provider call is idempotent on the same transaction reference.)
-        if (!string.IsNullOrEmpty(escrow.PaymentReference))
-        {
-            var refunded = await _paymentGateway.RefundAsync(escrow.PaymentReference, escrow.Amount);
-            if (!refunded)
-                throw new InvalidOperationException("Refund could not be processed by the payment provider. Please retry.");
-        }
+        await ExecuteProviderRefundAsync(escrow);
 
         escrow.Status = EscrowStatus.Refunded;
         escrow.ReleaseReason = reason;
@@ -295,6 +307,22 @@ public class EscrowService : IEscrowService
         await _escrowRepository.SaveChangesAsync();
 
         _logger.LogInformation("Escrow {EscrowId} refunded: {Reason}", escrowId, reason);
+    }
+
+    /// <summary>
+    /// Issues the full-amount refund through the payment provider before anything is recorded
+    /// locally — the escrow may only be marked Refunded if the provider actually accepted it,
+    /// otherwise the status would lie about money that never moved. (The provider call is
+    /// idempotent on the same transaction reference.)
+    /// </summary>
+    private async Task ExecuteProviderRefundAsync(Escrow escrow)
+    {
+        if (string.IsNullOrEmpty(escrow.PaymentReference))
+            return;
+
+        var refunded = await _paymentGateway.RefundAsync(escrow.PaymentReference, escrow.Amount);
+        if (!refunded)
+            throw new InvalidOperationException("Refund could not be processed by the payment provider. Please retry.");
     }
 
     private static EscrowResponse MapToResponse(Escrow e, string? checkoutUrl = null) => new EscrowResponse

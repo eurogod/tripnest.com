@@ -88,16 +88,8 @@ public class DashboardController : ControllerBase
     {
         try
         {
-            IEnumerable<object> logs;
-            if (!string.IsNullOrEmpty(userId))
-            {
-                var userLogs = await _auditRepository.GetByUserIdAsync(userId);
-                logs = userLogs.Take(limit ?? 100).Cast<object>();
-            }
-            else
-            {
-                logs = (await _auditRepository.GetAllAsync()).OrderByDescending(l => l.CreatedAt).Take(limit ?? 100).Cast<object>();
-            }
+            var cappedLimit = Math.Clamp(limit ?? 100, 1, 500);
+            var logs = (await _auditRepository.GetRecentAsync(cappedLimit, userId)).Cast<object>();
 
             return Ok(ApiResponse<IEnumerable<object>>.Ok("Audit logs retrieved", logs));
         }

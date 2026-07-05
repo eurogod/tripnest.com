@@ -33,6 +33,9 @@ public class StubPaymentGateway : IPaymentGateway
     public bool VerifySucceeds { get; set; } = true;
     public decimal VerifyAmount { get; set; }
 
+    /// <summary>Every refund issued through the gateway, so tests can assert money actually moved.</summary>
+    public ConcurrentBag<(string Reference, decimal Amount)> Refunds { get; } = new();
+
     public Task<PaymentInitResult> InitiatePaymentAsync(decimal amount, string currency, string customerEmail, string bookingId, string? callbackUrl = null)
         => Task.FromResult(new PaymentInitResult(true, "https://stub.checkout/pay", $"STUB-{bookingId}"));
 
@@ -40,5 +43,8 @@ public class StubPaymentGateway : IPaymentGateway
         => Task.FromResult(new PaymentVerifyResult(VerifySucceeds, VerifyAmount));
 
     public Task<bool> RefundAsync(string reference, decimal amount)
-        => Task.FromResult(true);
+    {
+        Refunds.Add((reference, amount));
+        return Task.FromResult(true);
+    }
 }

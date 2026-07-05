@@ -100,23 +100,40 @@ public class AuthService : IAuthService
         if (!user.IsActive)
             throw new InvalidOperationException("User account is inactive");
 
-        // Successful auth clears any accumulated failures / lockout.
+        _logger.LogInformation("User logged in successfully: {Email}", request.Email);
+
+        return await SignInAndIssueTokensAsync(user);
+    }
+
+    /// <summary>
+    /// Records a successful interactive sign-in — clears brute-force lockout state, stamps
+    /// last-login — then issues the session. Shared by every authentication flow that proves
+    /// the user's identity afresh (password, Google/Facebook, phone OTP); token refresh must
+    /// NOT go through here as it is not a new proof of identity.
+    /// </summary>
+    private Task<LoginResponse> SignInAndIssueTokensAsync(User user)
+    {
         user.FailedLoginAttempts = 0;
         user.LockoutEnd = null;
         user.LastLoginAt = DateTime.UtcNow;
+        return IssueTokensAsync(user);
+    }
 
+    /// <summary>
+    /// Issues a fresh access + refresh token pair, stores only the refresh token's hash (so a
+    /// database read cannot leak usable tokens), and commits all staged changes in one save.
+    /// The user is either tracked by the shared context or newly Added — deliberately no
+    /// Update call, which would flip an Added entity to Modified and break provisioning.
+    /// </summary>
+    private async Task<LoginResponse> IssueTokensAsync(User user)
+    {
         var accessToken = await _tokenService.GenerateAccessTokenAsync(
             user.Id, user.Email, user.FullName, user.Role.ToString());
         var refreshToken = await _tokenService.GenerateRefreshTokenAsync();
 
-        // Store only a hash of the refresh token so a database read cannot leak usable tokens.
         user.RefreshToken = HashRefreshToken(refreshToken);
         user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-
-        await _userRepository.UpdateAsync(user);
         await _userRepository.SaveChangesAsync();
-
-        _logger.LogInformation("User logged in successfully: {Email}", request.Email);
 
         return new LoginResponse
         {
@@ -168,42 +185,13 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("User account is inactive");
         }
 
-        user.FailedLoginAttempts = 0;
-        user.LockoutEnd = null;
-        user.LastLoginAt = DateTime.UtcNow;
-
-        var accessToken = await _tokenService.GenerateAccessTokenAsync(
-            user.Id, user.Email, user.FullName, user.Role.ToString());
-        var refreshToken = await _tokenService.GenerateRefreshTokenAsync();
-        user.RefreshToken = HashRefreshToken(refreshToken);
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-
-        // Add exactly once for a new user (calling Update on an entity already tracked as Added
-        // re-marks it Modified, making EF issue an UPDATE for a row that doesn't exist yet).
         if (isNewUser)
         {
             await _userRepository.AddAsync(user);
             _logger.LogInformation("Provisioned new user from external sign-in: {Email}", email);
         }
-        else
-        {
-            await _userRepository.UpdateAsync(user);
-        }
-        await _userRepository.SaveChangesAsync();
 
-        return new LoginResponse
-        {
-            UserId = user.Id,
-            FullName = user.FullName,
-            Email = user.Email,
-            Role = user.Role,
-            AccessToken = accessToken,
-            RefreshToken = refreshToken,
-            IsVerified = user.IsVerified,
-            EmailVerified = user.EmailVerified,
-            PhoneVerified = user.PhoneVerified,
-            TripNestId = user.TripNestId
-        };
+        return await SignInAndIssueTokensAsync(user);
     }
 
     public async Task<LoginResponse> PhoneLoginAsync(string phone, string code)
@@ -217,36 +205,9 @@ public class AuthService : IAuthService
         var user = await _userRepository.GetByIdAsync(userId)
             ?? throw new InvalidOperationException("Invalid or expired code");
 
-        // Proving phone possession clears password-guessing lockout state, like other
-        // non-password sign-ins.
-        user.FailedLoginAttempts = 0;
-        user.LockoutEnd = null;
-        user.LastLoginAt = DateTime.UtcNow;
-
-        var accessToken = await _tokenService.GenerateAccessTokenAsync(
-            user.Id, user.Email, user.FullName, user.Role.ToString());
-        var refreshToken = await _tokenService.GenerateRefreshTokenAsync();
-        user.RefreshToken = HashRefreshToken(refreshToken);
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-
-        await _userRepository.UpdateAsync(user);
-        await _userRepository.SaveChangesAsync();
-
         _logger.LogInformation("User logged in via phone OTP: {UserId}", user.Id);
 
-        return new LoginResponse
-        {
-            UserId = user.Id,
-            FullName = user.FullName,
-            Email = user.Email,
-            Role = user.Role,
-            AccessToken = accessToken,
-            RefreshToken = refreshToken,
-            IsVerified = user.IsVerified,
-            EmailVerified = user.EmailVerified,
-            PhoneVerified = user.PhoneVerified,
-            TripNestId = user.TripNestId
-        };
+        return await SignInAndIssueTokensAsync(user);
     }
 
     public async Task<LoginResponse> RefreshTokenAsync(string refreshToken)
@@ -256,31 +217,11 @@ public class AuthService : IAuthService
         if (user == null)
             throw new InvalidOperationException("Invalid or expired refresh token");
 
-        var accessToken = await _tokenService.GenerateAccessTokenAsync(
-            user.Id, user.Email, user.FullName, user.Role.ToString());
-        var newRefreshToken = await _tokenService.GenerateRefreshTokenAsync();
-
-        user.RefreshToken = HashRefreshToken(newRefreshToken);
-        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-
-        await _userRepository.UpdateAsync(user);
-        await _userRepository.SaveChangesAsync();
-
         _logger.LogInformation("Token refreshed for user: {Email}", user.Email);
 
-        return new LoginResponse
-        {
-            UserId = user.Id,
-            FullName = user.FullName,
-            Email = user.Email,
-            Role = user.Role,
-            AccessToken = accessToken,
-            RefreshToken = newRefreshToken,
-            IsVerified = user.IsVerified,
-            EmailVerified = user.EmailVerified,
-            PhoneVerified = user.PhoneVerified,
-            TripNestId = user.TripNestId
-        };
+        // Deliberately not SignInAndIssueTokensAsync: a refresh is not a fresh proof of identity,
+        // so it must not clear brute-force lockout state or count as a login.
+        return await IssueTokensAsync(user);
     }
 
     public async Task ChangePasswordAsync(string userId, ChangePasswordRequest request)

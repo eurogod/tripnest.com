@@ -121,8 +121,13 @@ public class BookingService : IBookingService
         var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
         if (escrow != null)
         {
-            // Tiered refund based on the property's cancellation policy and how far out check-in is.
-            var refundPercentage = await _cancellationPolicyService.CalculateRefundPercentage(bookingId);
+            // Tiered refund per the property's cancellation policy — but only when the TENANT
+            // cancels. When the landlord pulls out, the tenant did nothing wrong and always gets
+            // 100% back; docking them by their own policy would let hosts profit from cancelling.
+            var cancelledByLandlord = booking.Property?.UserId == userId;
+            var refundPercentage = cancelledByLandlord
+                ? 100m
+                : await _cancellationPolicyService.CalculateRefundPercentage(bookingId);
 
             if (escrow.Status == EscrowStatus.HeldInEscrow)
             {

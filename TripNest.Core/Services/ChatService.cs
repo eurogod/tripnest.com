@@ -196,12 +196,12 @@ public class ChatService : IChatService
                 Type = MessageType.Text
             };
 
+            // One commit for the message + conversation stamp (shared DbContext), so a crash
+            // between them can't leave a message the conversation list doesn't know about.
             await _messageRepository.AddAsync(message);
-            await _messageRepository.SaveChangesAsync();
-
             conversation.LastMessageAt = DateTime.UtcNow;
             await _conversationRepository.UpdateAsync(conversation);
-            await _conversationRepository.SaveChangesAsync();
+            await _messageRepository.SaveChangesAsync();
 
             _logger.LogInformation("Message sent: {MessageId} in conversation {ConversationId} by {UserId}",
                 message.Id, conversationId, userId);
@@ -222,6 +222,12 @@ public class ChatService : IChatService
             var message = await _messageRepository.GetByIdAsync(messageId);
             if (message == null)
                 throw new InvalidOperationException("Message not found");
+
+            // Only a participant of the conversation may mark its messages read — without this,
+            // any authenticated user holding a message id could tamper with read receipts.
+            var conversation = await _conversationRepository.GetByIdAsync(message.ConversationId);
+            if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
+                throw new UnauthorizedAccessException("User is not a participant in this conversation");
 
             if (message.SenderId == userId || message.IsRead)
                 return;

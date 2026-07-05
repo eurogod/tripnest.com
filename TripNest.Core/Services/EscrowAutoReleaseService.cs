@@ -82,12 +82,17 @@ public class EscrowAutoReleaseService : BackgroundService
             var gracePeriodHours = int.Parse(_configuration["Escrow:GracePeriodHours"] ?? "24");
             var cutoffTime = DateTime.UtcNow.AddHours(-gracePeriodHours);
 
-            // Grace period is measured from when funds were actually held (HeldAt),
-            // not from when the escrow row was created.
+            // Funds are held when the tenant PAYS — often days or weeks before the stay. Releasing
+            // on HeldAt alone would hand the landlord the money before check-in even happens,
+            // gutting the tenant's protection. Eligibility therefore requires BOTH: the stay has
+            // ended (checkout at least the grace period ago, leaving a dispute window) AND the
+            // funds have been held at least that long. HeldAt alone is the fallback only for
+            // orphaned escrows with no booking row.
             var escrowsToRelease = await context.Escrows
                 .Where(e => e.Status == EscrowStatus.HeldInEscrow &&
                            e.HeldAt != null &&
-                           e.HeldAt < cutoffTime)
+                           e.HeldAt < cutoffTime &&
+                           (e.Booking == null || e.Booking.CheckOutDate < cutoffTime))
                 .Include(e => e.Booking)
                 .ToListAsync(cancellationToken);
 
