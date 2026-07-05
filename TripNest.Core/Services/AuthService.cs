@@ -14,6 +14,7 @@ public class AuthService : IAuthService
     private readonly IUserRepository _userRepository;
     private readonly ITokenService _tokenService;
     private readonly IPhoneNumberValidator _phoneValidator;
+    private readonly IPhoneVerificationService _phoneVerification;
     private readonly IEmailSender _emailSender;
     private readonly ILogger<AuthService> _logger;
 
@@ -21,12 +22,14 @@ public class AuthService : IAuthService
         IUserRepository userRepository,
         ITokenService tokenService,
         IPhoneNumberValidator phoneValidator,
+        IPhoneVerificationService phoneVerification,
         IEmailSender emailSender,
         ILogger<AuthService> logger)
     {
         _userRepository = userRepository;
         _tokenService = tokenService;
         _phoneValidator = phoneValidator;
+        _phoneVerification = phoneVerification;
         _emailSender = emailSender;
         _logger = logger;
     }
@@ -187,6 +190,49 @@ public class AuthService : IAuthService
             await _userRepository.UpdateAsync(user);
         }
         await _userRepository.SaveChangesAsync();
+
+        return new LoginResponse
+        {
+            UserId = user.Id,
+            FullName = user.FullName,
+            Email = user.Email,
+            Role = user.Role,
+            AccessToken = accessToken,
+            RefreshToken = refreshToken,
+            IsVerified = user.IsVerified,
+            EmailVerified = user.EmailVerified,
+            PhoneVerified = user.PhoneVerified,
+            TripNestId = user.TripNestId
+        };
+    }
+
+    public async Task<LoginResponse> PhoneLoginAsync(string phone, string code)
+    {
+        // The OTP is the credential: possession of the phone signs the user in. All failure modes
+        // (unknown/ambiguous phone, wrong, expired, or over-attempted code) collapse into one
+        // generic error so the endpoint reveals nothing about which part failed.
+        var userId = await _phoneVerification.VerifyLoginOtpAsync(phone, code)
+            ?? throw new InvalidOperationException("Invalid or expired code");
+
+        var user = await _userRepository.GetByIdAsync(userId)
+            ?? throw new InvalidOperationException("Invalid or expired code");
+
+        // Proving phone possession clears password-guessing lockout state, like other
+        // non-password sign-ins.
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
+        user.LastLoginAt = DateTime.UtcNow;
+
+        var accessToken = await _tokenService.GenerateAccessTokenAsync(
+            user.Id, user.Email, user.FullName, user.Role.ToString());
+        var refreshToken = await _tokenService.GenerateRefreshTokenAsync();
+        user.RefreshToken = HashRefreshToken(refreshToken);
+        user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+
+        await _userRepository.UpdateAsync(user);
+        await _userRepository.SaveChangesAsync();
+
+        _logger.LogInformation("User logged in via phone OTP: {UserId}", user.Id);
 
         return new LoginResponse
         {

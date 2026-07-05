@@ -93,7 +93,7 @@ public class TestBase : IAsyncLifetime
     /// email so tests don't collide.
     /// </summary>
     protected async Task<(string UserId, string Token)> RegisterAndLoginAsync(
-        UserRole role, string? email = null)
+        UserRole role, string? email = null, string? phone = null)
     {
         email ??= $"user_{Guid.NewGuid():N}@example.com";
 
@@ -103,7 +103,7 @@ public class TestBase : IAsyncLifetime
             Email = email,
             Password = "Password@123",
             ConfirmPassword = "Password@123",
-            Phone = "+233501234567",
+            Phone = phone ?? "+233501234567",
             Role = role
         };
         await _httpClient.PostAsJsonAsync("/api/auth/register", register);

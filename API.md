@@ -88,6 +88,9 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/register` | 🌐 |
 | POST | `/login` | 🌐 |
 | POST | `/google` | 🌐 (Google ID token → sign-in/provision; requires `GoogleAuth:ClientId` config and a Google-verified email, else 400) |
+| POST | `/facebook` | 🌐 (Facebook access token → sign-in/provision; requires `FacebookAuth:{AppId,AppSecret}` config and an email on the Facebook account, else 400) |
+| POST | `/phone-login/send-otp` | 🌐 (body `{ phone }`; always the same generic 200 — texts a login code only if the number belongs to exactly one active account) |
+| POST | `/phone-login/verify-otp` | 🌐 (body `{ phone, code }` → tokens like a normal login; marks phone verified) |
 | POST | `/refresh-token` | 🌐 |
 | POST | `/forgot-password` | 🌐 |
 | POST | `/reset-password` | 🌐 |
