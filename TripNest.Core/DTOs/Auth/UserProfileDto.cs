@@ -20,3 +20,15 @@ public class UserProfileDto
 
     public string? TripNestId { get; set; }
 }
+
+/// <summary>Partial profile update — omitted (null) fields keep their current value.</summary>
+public class UpdateProfileRequest
+{
+    public string? FullName { get; set; }
+
+    public string? Phone { get; set; }
+
+    public string? Bio { get; set; }
+
+    public string? Username { get; set; }
+}

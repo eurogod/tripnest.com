@@ -5,7 +5,7 @@ identity verification, and escrow-protected payments (Ghana-oriented).
 
 - **Base URL (local):** `http://localhost:5091`
 - **Interactive docs:** `http://localhost:5091/swagger` (Development only)
-- **Health check:** `GET /health`
+- **Health checks:** `GET /health/live` (liveness), `GET /health/ready` (readiness — Postgres gates, verification sidecars reported but non-gating), `GET /health` (full report).
 - **Auth:** JWT Bearer. Obtain a token from `POST /api/auth/login`, then send
   `Authorization: Bearer <accessToken>` on protected routes.
 - **Response envelope:** every endpoint returns
@@ -87,11 +87,16 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 |---|---|---|
 | POST | `/register` | 🌐 |
 | POST | `/login` | 🌐 |
+| POST | `/google` | 🌐 (Google ID token → sign-in/provision; requires `GoogleAuth:ClientId` config and a Google-verified email, else 400) |
+| POST | `/facebook` | 🌐 (Facebook access token → sign-in/provision; requires `FacebookAuth:{AppId,AppSecret}` config and an email on the Facebook account, else 400) |
+| POST | `/phone-login/send-otp` | 🌐 (body `{ phone }`; always the same generic 200 — texts a login code only if the number belongs to exactly one active account) |
+| POST | `/phone-login/verify-otp` | 🌐 (body `{ phone, code }` → tokens like a normal login; marks phone verified) |
 | POST | `/refresh-token` | 🌐 |
 | POST | `/forgot-password` | 🌐 |
 | POST | `/reset-password` | 🌐 |
 | GET | `/me` | 🔒 |
-| POST | `/change-password` | 🔒 |
+| POST | `/logout` | 🔒 (revokes the refresh token) |
+| POST | `/change-password` | 🔒 (also revokes existing refresh token) |
 | POST | `/phone/send-otp` | 🔒 (no body → texts a code) |
 | POST | `/phone/verify-otp` | 🔒 (body `{ code }` → marks phone verified) |
 | POST | `/email/send-otp` | 🔒 (no body → emails a code) |
@@ -136,17 +141,17 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Bookings — `api/bookings`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/{bookingId}` | 🌐 |
+| GET | `/{bookingId}` | 🔒 (tenant or the property's landlord only) |
 | POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates) |
 | GET | `/user/my-bookings` | 🔒 |
 | GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change) |
-| POST | `/{bookingId}/cancel` | 🔒 (tiered refund per cancellation policy) |
+| POST | `/{bookingId}/cancel` | 🔒 (owner only; tiered refund per policy, issued via the gateway) |
 
 ### Escrow — `api/escrow`
 | Method | Path | Access |
 |---|---|---|
 | POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`) |
-| POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401 |
+| POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401. Charged amount must match the booking total or the hold is rejected |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/release` | 🔒 |
 | POST | `/{id}/dispute` | 🔒 |
@@ -189,10 +194,26 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Agents — `api/agents`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/` | 🌐 |
+| GET | `/` | 🌐 (lists agents with an Active directory profile — see PUT `/me`) |
+| GET | `/me` | 🔒 `[Agent]` own directory profile (404 until created) |
+| PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates) — required to appear in the list |
 | GET | `/{id}` | 🌐 |
 | POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` |
 | PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ |
+
+### Payouts — `api/payouts` (host disbursements via Paystack Transfers)
+| Method | Path | Access |
+|---|---|---|
+| GET | `/account` | 🔒 `[Landlord,Agent]` own payout destination (masked; 404 until registered) |
+| PUT | `/account` | 🔒 `[Landlord,Agent]` register MoMo wallet (`mobile_money`: MTN/ATL/VOD) or bank (`ghipss`) — validated with Paystack as a transfer recipient |
+| GET | `/mine` | 🔒 `[Landlord,Agent]` own payouts, newest first (gross, fee, net, status) |
+| POST | `/{id}/retry` | 🔒 `[Landlord,Agent]` re-attempt a Pending/Failed payout |
+
+Escrow release (manual, auto after checkout+grace, or dispute-approved) creates one payout per
+escrow (net of `Platform:ManagementFeePercent`) and initiates the transfer when the host has an
+account. Paystack `transfer.success` / `transfer.failed` / `transfer.reversed` webhooks (same
+signed `/api/escrow/webhook` endpoint; transfer reference = payout id) drive it to Paid/Failed,
+notifying the host either way.
 
 ### Maintenance — `api/maintenance`
 | Method | Path | Access |
@@ -296,7 +317,96 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/admin/stats` | 🔒 `[Admin]` |
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
 
+### Pricing & calendar — `api/pricing`, `api/calendar`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` (defaults derived from listing if unset) |
+| PUT | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` |
+| GET | `/api/calendar?propertyId=&year=&month=` | 🔒 `[Landlord,Admin]` priced month w/ weekend/blocked/maintenance/booked flags |
+
+### Landlord workspace — `api/landlord`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/landlord/bookings?page=&pageSize=` | 🔒 `[Landlord,Admin]` incoming bookings (paged; incl. guests count + derived stage Upcoming/Active/Complete/Canceled) |
+| GET | `/api/landlord/reservations/{bookingId}` | 🔒 `[Landlord,Admin]` reservation details: trip facts, guest, earnings breakdown (nightly rate, management fee via `Platform:ManagementFeePercent`, owner payout), guest's reviews |
+| GET | `/api/landlord/tenants?page=&pageSize=` | 🔒 `[Landlord,Admin]` tenant roster (paged) |
+| GET | `/api/landlord/inquiries?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
+| PATCH | `/api/landlord/inquiries/{id}/status` | 🔒 `[Landlord,Admin]` |
+
+### Inquiries — `api/inquiries`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/api/inquiries` | 🔒 send a pre-booking enquiry to a listing's landlord |
+
+### Saved payment methods — `api/payments/methods`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/payments/methods` | 🔒 |
+| POST | `/api/payments/methods` | 🔒 |
+| PATCH | `/api/payments/methods/{id}/primary` | 🔒 |
+| DELETE | `/api/payments/methods/{id}` | 🔒 |
+
+### Host tasks — `api/tasks`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/tasks?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
+| POST | `/api/tasks` | 🔒 `[Landlord,Admin]` |
+| PATCH | `/api/tasks/{id}` | 🔒 `[Landlord,Admin]` |
+| DELETE | `/api/tasks/{id}` | 🔒 `[Landlord,Admin]` |
+
+### Team — `api/team`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/team` | 🔒 `[Landlord,Admin]` |
+| POST | `/api/team` | 🔒 `[Landlord,Admin]` invite |
+| PATCH | `/api/team/{id}` | 🔒 `[Landlord,Admin]` role/status |
+| DELETE | `/api/team/{id}` | 🔒 `[Landlord,Admin]` |
+
+### Statements — `api/statements`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/statements` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed) |
+
+### Owner Exchange — `api/exchange`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/exchange/posts?page=&pageSize=` | 🔒 (paged) |
+| POST | `/api/exchange/posts` | 🔒 |
+| GET | `/api/exchange/posts/{id}/replies` | 🔒 |
+| POST | `/api/exchange/posts/{id}/replies` | 🔒 |
+
+### Resources — `api/resources`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/resources` | 🔒 |
+| POST | `/api/resources` | 🔒 `[Admin]` |
+
+### Virtual tour — `api/properties/{propertyId}/tour`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/properties/{propertyId}/tour` | 🌐 rooms + hotspots |
+| PUT | `/api/properties/{propertyId}/tour` | 🔒 `[Landlord,Admin]` owner upsert |
+
+### Featured listings — `api/properties`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/properties/featured?limit=` | 🌐 home-page featured listings |
+
 ---
+
+## Operations & scaling
+
+- **Health:** `GET /health/live` (process up), `GET /health/ready` (Postgres gates → 503 if down;
+  TripNest.Id / face-match sidecars reported as Degraded but non-gating), `GET /health` (full report).
+- **Rate limiting:** global fixed window **100/min** (per user, falling back to IP) + a stricter
+  **5/min** `otp` policy on the OTP send endpoints; over-limit → **429**.
+- **Caching:** public, non-personalized GETs (config, properties, search, caretakers, agents, trust
+  score) are output-cached (config 5 min; the rest 60 s, varying by query).
+- **Telemetry:** structured logs (Serilog, trace-id correlated) + OpenTelemetry traces/metrics. Set
+  `ApplicationInsights:ConnectionString` (or env `APPLICATIONINSIGHTS_CONNECTION_STRING`) to export to
+  Azure Application Insights; empty = console only.
+- **Multi-instance:** set `Redis:ConnectionString` to back the SignalR backplane, output cache and
+  rate-limiter counters with Redis (shared across instances). Empty = in-memory, single instance.
 
 ## Real-time (SignalR)
 

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using TripNest.Core.Interfaces.Repositories;
+using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
 using TripNest.Core.Extensions;
 using TripNest.Core.DTOs.Chat;
@@ -14,18 +15,77 @@ namespace TripNest.Core.Hubs;
 [Authorize]
 public class ChatHub : Hub
 {
+    private readonly IChatService _chatService;
     private readonly IMessageRepository _messageRepository;
     private readonly IConversationRepository _conversationRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IPresenceTracker _presence;
     private readonly ILogger<ChatHub> _logger;
 
     public ChatHub(
+        IChatService chatService,
         IMessageRepository messageRepository,
         IConversationRepository conversationRepository,
+        IUserRepository userRepository,
+        IPresenceTracker presence,
         ILogger<ChatHub> logger)
     {
+        _chatService = chatService;
         _messageRepository = messageRepository;
         _conversationRepository = conversationRepository;
+        _userRepository = userRepository;
+        _presence = presence;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Marks the connecting user online and, if they just came online, tells their conversation
+    /// partners so their UI can flip the presence indicator without polling.
+    /// </summary>
+    public override async Task OnConnectedAsync()
+    {
+        var userId = Context.User.GetUserId();
+        if (!string.IsNullOrEmpty(userId) && _presence.Connect(userId, Context.ConnectionId))
+            await NotifyPartnersOfPresenceAsync(userId, isOnline: true, lastSeenAt: null);
+
+        await base.OnConnectedAsync();
+    }
+
+    /// <summary>
+    /// Sends the caller the current presence (online / last-seen) of a specific user. Presence is
+    /// only visible to the user themself and their conversation partners — the same audience the
+    /// PresenceChanged push goes to — so arbitrary users can't be watched.
+    /// </summary>
+    public async Task<object> GetPresence(string userId)
+    {
+        var callerId = Context.User.GetUserId();
+        if (string.IsNullOrEmpty(callerId))
+            throw new HubException("Unauthorized");
+
+        if (callerId != userId)
+        {
+            var conversations = await _conversationRepository.GetUserConversationsAsync(callerId);
+            var isPartner = conversations.Any(c => c.User1Id == userId || c.User2Id == userId);
+            if (!isPartner)
+                throw new HubException("You can only view presence for your conversation partners.");
+        }
+
+        if (_presence.IsOnline(userId))
+            return new { userId, isOnline = true, lastSeenAt = (DateTime?)null };
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        return new { userId, isOnline = false, lastSeenAt = user?.LastSeenAt };
+    }
+
+    private async Task NotifyPartnersOfPresenceAsync(string userId, bool isOnline, DateTime? lastSeenAt)
+    {
+        var conversations = await _conversationRepository.GetUserConversationsAsync(userId);
+        var partnerIds = conversations
+            .Select(c => c.User1Id == userId ? c.User2Id : c.User1Id)
+            .Distinct()
+            .ToList();
+        if (partnerIds.Count > 0)
+            await Clients.Users(partnerIds).SendAsync("PresenceChanged", new { userId, isOnline, lastSeenAt });
     }
 
     /// <summary>
@@ -76,50 +136,21 @@ public class ChatHub : Hub
                 return;
             }
 
-            // Verify user is part of this conversation
-            var conversation = await _conversationRepository.GetByIdAsync(conversationId);
-            if (conversation == null ||
-                (conversation.User1Id != userId && conversation.User2Id != userId))
-            {
-                await Clients.Caller.SendAsync("Error", "Access denied to this conversation");
-                return;
-            }
-
-            // Create message record
-            var message = new Message
-            {
-                Id = Guid.NewGuid().ToString(),
-                ConversationId = conversationId,
-                SenderId = userId,
-                Content = body.Trim(),
-                CreatedAt = DateTime.UtcNow,
-                IsRead = false
-            };
-
-            await _messageRepository.AddAsync(message);
-            await _messageRepository.SaveChangesAsync();
-
-            // Update conversation's last message time
-            conversation.LastMessageAt = DateTime.UtcNow;
-            await _conversationRepository.UpdateAsync(conversation);
-            await _conversationRepository.SaveChangesAsync();
-
-            // Broadcast to conversation group using the same MessageResponse shape the
-            // REST endpoint and message history return, so clients see one consistent payload.
-            await Clients.Group(conversationId).SendAsync("ReceiveMessage", new MessageResponse
-            {
-                MessageId = message.Id,
-                ConversationId = message.ConversationId,
-                SenderId = message.SenderId,
-                Content = message.Content,
-                Type = message.Type,
-                CreatedAt = message.CreatedAt,
-                IsRead = message.IsRead,
-                ReadAt = message.ReadAt
-            });
+            // One code path with the REST endpoint: the service validates participation, persists
+            // the message and stamps the conversation; the hub only broadcasts the same payload.
+            var message = await _chatService.SendMessageAsync(conversationId, userId, body.Trim());
+            await Clients.Group(conversationId).SendAsync("ReceiveMessage", message);
 
             _logger.LogInformation("Message sent in conversation {ConversationId} by user {UserId}",
                 conversationId, userId);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await Clients.Caller.SendAsync("Error", "Access denied to this conversation");
+        }
+        catch (InvalidOperationException ex)
+        {
+            await Clients.Caller.SendAsync("Error", ex.Message);
         }
         catch (Exception ex)
         {
@@ -149,29 +180,24 @@ public class ChatHub : Hub
                 return;
             }
 
-            // Verify user is recipient or sender
-            var conversation = await _conversationRepository.GetByIdAsync(message.ConversationId);
-            if (conversation == null ||
-                (conversation.User1Id != userId && conversation.User2Id != userId))
-            {
-                await Clients.Caller.SendAsync("Error", "Access denied");
-                return;
-            }
+            // Same validation + persistence path as the REST endpoint (participant check lives in
+            // the service). The service no-ops for the sender or an already-read message; only a
+            // genuine transition broadcasts, matching the previous behaviour.
+            var wasAlreadyRead = message.IsRead;
+            await _chatService.MarkMessageAsReadAsync(messageId, userId);
 
-            if (!message.IsRead)
+            if (!wasAlreadyRead && message.IsRead)
             {
-                message.IsRead = true;
-                message.ReadAt = DateTime.UtcNow;
-                await _messageRepository.UpdateAsync(message);
-                await _messageRepository.SaveChangesAsync();
-
-                // Notify conversation participants
                 await Clients.Group(message.ConversationId).SendAsync("MessageRead", new
                 {
                     messageId,
                     readAt = message.ReadAt
                 });
             }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await Clients.Caller.SendAsync("Error", "Access denied");
         }
         catch (Exception ex)
         {
@@ -227,6 +253,22 @@ public class ChatHub : Hub
 
         var userId = Context.User.GetUserId();
         _logger.LogInformation("User {UserId} disconnected from chat", userId ?? "unknown");
+
+        // If that was the user's last connection, they're now offline: stamp last-seen and let their
+        // conversation partners know so their UI can switch from "online" to "last seen …".
+        if (!string.IsNullOrEmpty(userId) && _presence.Disconnect(userId, Context.ConnectionId))
+        {
+            var now = DateTime.UtcNow;
+            var user = await _userRepository.GetByIdAsync(userId);
+            if (user is not null)
+            {
+                user.LastSeenAt = now;
+                await _userRepository.UpdateAsync(user);
+                await _userRepository.SaveChangesAsync();
+            }
+
+            await NotifyPartnersOfPresenceAsync(userId, isOnline: false, lastSeenAt: now);
+        }
 
         await base.OnDisconnectedAsync(exception);
     }

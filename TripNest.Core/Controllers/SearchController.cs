@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using TripNest.Core.DTOs.Search;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Response;
@@ -28,6 +29,7 @@ public class SearchController : ControllerBase
     }
 
     [HttpGet]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<GlobalSearchResultDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<GlobalSearchResultDto>>>> Search([FromQuery] string? q = null, [FromQuery] string? type = null)
     {
@@ -35,14 +37,20 @@ public class SearchController : ControllerBase
         {
             var results = new List<GlobalSearchResultDto>();
 
+            // ToLower().Contains(...) translates to a case-insensitive SQL LIKE on Postgres and also
+            // evaluates correctly under the in-memory test provider (unlike EF.Functions.ILike or the
+            // StringComparison overload, which the in-memory provider can't translate).
+            var ql = string.IsNullOrWhiteSpace(q) ? null : q.ToLower();
+
             if (string.IsNullOrEmpty(type) || type == "properties")
             {
-                var properties = await _propertyRepository.GetAllAsync();
-                var filtered = string.IsNullOrEmpty(q)
-                    ? properties
-                    : properties.Where(p => p.Title.Contains(q, StringComparison.OrdinalIgnoreCase) || p.Description.Contains(q, StringComparison.OrdinalIgnoreCase));
+                var (properties, _) = await _propertyRepository.FindPageAsync(
+                    ql == null ? null : p => p.Title.ToLower().Contains(ql) || p.Description.ToLower().Contains(ql),
+                    query => query.OrderByDescending(p => p.CreatedAt),
+                    page: 1,
+                    pageSize: 10);
 
-                results.AddRange(filtered.Take(10).Select(p => new GlobalSearchResultDto
+                results.AddRange(properties.Select(p => new GlobalSearchResultDto
                 {
                     Id = p.Id,
                     Type = "property",
@@ -54,12 +62,8 @@ public class SearchController : ControllerBase
 
             if (string.IsNullOrEmpty(type) || type == "agents")
             {
-                var agents = await _agentRepository.GetAllAsync();
-                var filtered = string.IsNullOrEmpty(q)
-                    ? agents
-                    : agents.Where(a => a.User?.FullName.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
-
-                results.AddRange(filtered.Take(10).Select(a => new GlobalSearchResultDto
+                var agents = await _agentRepository.SearchByNameAsync(q, 10);
+                results.AddRange(agents.Select(a => new GlobalSearchResultDto
                 {
                     Id = a.Id,
                     Type = "agent",
@@ -71,12 +75,8 @@ public class SearchController : ControllerBase
 
             if (string.IsNullOrEmpty(type) || type == "caretakers")
             {
-                var caretakers = await _caretakerRepository.GetAllAsync();
-                var filtered = string.IsNullOrEmpty(q)
-                    ? caretakers
-                    : caretakers.Where(c => c.User?.FullName.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false);
-
-                results.AddRange(filtered.Take(10).Select(c => new GlobalSearchResultDto
+                var caretakers = await _caretakerRepository.SearchByNameAsync(q, 10);
+                results.AddRange(caretakers.Select(c => new GlobalSearchResultDto
                 {
                     Id = c.Id,
                     Type = "caretaker",

@@ -11,6 +11,10 @@ public interface IAuditLogRepository : IRepository<AuditLog>
 {
     Task<IEnumerable<AuditLog>> GetByUserIdAsync(string userId);
     Task<IEnumerable<AuditLog>> GetByEntityAsync(string entityType, string entityId);
+
+    /// <summary>Newest logs first, optionally filtered to one user, limited in SQL — the audit
+    /// table grows without bound, so it must never be loaded whole.</summary>
+    Task<IEnumerable<AuditLog>> GetRecentAsync(int limit, string? userId = null);
 }
 
 public interface ITrustScoreSnapshotRepository : IRepository<TrustScoreSnapshot>

@@ -39,6 +39,10 @@ public class ExceptionHandlingMiddleware
             DomainException domain => (domain.StatusCode, ex.Message),
             // Treat a plain InvalidOperationException as a 400 business-rule failure (legacy convention).
             InvalidOperationException => (400, ex.Message),
+            // Legacy ownership/permission guards throw these; surface as 403/400 rather than an opaque
+            // 500 so controllers relying on the middleware (the lean pattern) get correct status codes.
+            UnauthorizedAccessException => (403, ex.Message),
+            ArgumentException => (400, ex.Message),
             DbUpdateConcurrencyException => (409, "The resource was modified by another request. Please retry."),
             _ => (500, "An error occurred")
         };

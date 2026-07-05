@@ -15,8 +15,16 @@ namespace TripNest.Core.Interfaces.Services;
 public interface IEscrowService
 {
     Task<EscrowResponse> InitiatePaymentAsync(string bookingId, string userId);
-    Task VerifyAndHoldPaymentAsync(string bookingId, string reference);
+    // paidAmount: amount actually paid (major currency units) from the signature-verified provider
+    // webhook, so the service can reject under/over-payment before holding funds.
+    Task VerifyAndHoldPaymentAsync(string bookingId, string reference, decimal paidAmount);
+    // Fallback/reconcile confirmation: actively asks the provider whether the booking's payment
+    // succeeded (rather than waiting for the webhook) and holds the funds if so. Idempotent.
+    Task<EscrowResponse> VerifyPaymentByBookingAsync(string bookingId, string userId);
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
+    Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId);
+    // All escrows for the caller's own bookings (as the paying tenant), newest first.
+    Task<List<EscrowResponse>> GetMyEscrowsAsync(string userId);
     Task ReleaseEscrowAsync(string escrowId, string userId);
     Task RaiseDisputeAsync(string escrowId, string userId, string reason);
     Task ResolveDisputeAsync(string escrowId, bool approved);
@@ -49,7 +57,7 @@ public interface IMaintenanceService
     Task<MaintenanceResponse> ReportMaintenanceAsync(CreateMaintenanceRequest request, string tenantId);
     Task<List<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId);
     Task<List<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId);
-    Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId);
+    Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId, bool isAdmin);
     Task<ServiceRequestResponse> ConvertToServiceRequestAsync(string maintenanceId, string? caretakerId, string landlordId);
 }
 
@@ -57,8 +65,15 @@ public interface IAgentService
 {
     Task<List<AgentResponse>> GetVerifiedAgentsAsync(string? serviceArea);
     Task<AgentResponse?> GetAgentProfileAsync(string agentId);
+    /// <summary>The caller's own directory profile, or null if they haven't created one yet.</summary>
+    Task<AgentResponse?> GetMyProfileAsync(string userId);
+    /// <summary>Creates (or updates) the caller's directory profile — the only way an Agent-role
+    /// account becomes visible in the public agents list. A Suspended profile stays suspended.</summary>
+    Task<AgentResponse> UpsertMyProfileAsync(string userId, UpsertAgentProfileRequest request);
     Task<ViewingRequestResponse> CreateViewingRequestAsync(string agentId, string propertyId, DateTime scheduledAt, string tenantId, string? notes);
     Task UpdateViewingRequestStatusAsync(string requestId, string status, string userId);
+    // Viewing requests the caller is party to — as the requesting tenant and/or the assigned agent.
+    Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId);
 }
 
 public interface IReviewService

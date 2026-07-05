@@ -67,7 +67,10 @@ public class TokenService : Interfaces.Services.ITokenService
                 ValidIssuer = _configuration["Jwt:Issuer"],
                 ValidateAudience = true,
                 ValidAudience = _configuration["Jwt:Audience"],
-                ValidateLifetime = true
+                ValidateLifetime = true,
+                // Match the no-skew policy used by the request pipeline (Program.cs) so a token is
+                // never accepted here a few minutes after it expires there.
+                ClockSkew = TimeSpan.Zero
             }, out SecurityToken validatedToken);
 
             return await Task.FromResult(principal);

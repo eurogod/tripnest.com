@@ -24,10 +24,20 @@ def b64(data: bytes = b"not-a-real-image") -> str:
 class FakeDeepFace:
     """Stand-in for the DeepFace module; records the last verify() kwargs."""
 
-    def __init__(self, result=None, raises=None):
+    def __init__(self, result=None, raises=None, faces=None, extract_raises=None):
         self._result = result or {"distance": 0.0, "threshold": 0.3, "verified": True}
         self._raises = raises
+        # Default: one live face filling the frame (antispoof_score 0.9 -> liveness 90).
+        self._faces = faces if faces is not None else [
+            {"facial_area": {"w": 100, "h": 100}, "is_real": True, "antispoof_score": 0.9}
+        ]
+        self._extract_raises = extract_raises
         self.last_kwargs = None
+
+    def extract_faces(self, **kwargs):
+        if self._extract_raises is not None:
+            raise self._extract_raises
+        return self._faces
 
     def verify(self, **kwargs):
         self.last_kwargs = kwargs
@@ -61,7 +71,31 @@ def test_compare_returns_similarity_score(client, monkeypatch):
     body = r.json()
     assert body["verified"] is True
     assert body["similarity_score"] == 100.0  # distance 0 -> perfect
+    assert body["liveness_score"] == 90.0     # antispoof_score 0.9 -> 90
+    assert body["liveness_passed"] is True
     assert body["model"] == "Facenet512"
+
+
+def test_liveness_score_reflects_spoof(client, monkeypatch):
+    # A low antispoof_score (likely a printed/replayed photo) -> low liveness, not real.
+    monkeypatch.setattr(main, "_deepface", FakeDeepFace(
+        faces=[{"facial_area": {"w": 100, "h": 100}, "is_real": False, "antispoof_score": 0.15}]))
+    r = client.post("/compare-faces", json={"photo1_base64": b64(), "photo2_base64": b64()})
+    body = r.json()
+    assert body["liveness_score"] == 15.0
+    assert body["liveness_passed"] is False
+
+
+def test_liveness_judged_on_largest_face(client, monkeypatch):
+    # The subject's face fills the frame; an incidental small background face should be ignored.
+    monkeypatch.setattr(main, "_deepface", FakeDeepFace(faces=[
+        {"facial_area": {"w": 10, "h": 10}, "is_real": False, "antispoof_score": 0.1},
+        {"facial_area": {"w": 200, "h": 200}, "is_real": True, "antispoof_score": 0.95},
+    ]))
+    r = client.post("/compare-faces", json={"photo1_base64": b64(), "photo2_base64": b64()})
+    body = r.json()
+    assert body["liveness_score"] == 95.0
+    assert body["liveness_passed"] is True
 
 
 def test_score_is_50_at_threshold_distance(client, monkeypatch):

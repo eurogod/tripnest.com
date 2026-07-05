@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Auth;
 using TripNest.Core.Interfaces.Services;
@@ -14,11 +15,22 @@ namespace TripNest.Core.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IGoogleAuthService _googleAuth;
+    private readonly IFacebookAuthService _facebookAuth;
+    private readonly IPhoneVerificationService _phoneVerification;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(
+        IAuthService authService,
+        IGoogleAuthService googleAuth,
+        IFacebookAuthService facebookAuth,
+        IPhoneVerificationService phoneVerification,
+        ILogger<AuthController> logger)
     {
         _authService = authService;
+        _googleAuth = googleAuth;
+        _facebookAuth = facebookAuth;
+        _phoneVerification = phoneVerification;
         _logger = logger;
     }
 
@@ -78,6 +90,117 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during login");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
+    [HttpPost("google")]
+    [AllowAnonymous]
+    [EnableRateLimiting("otp")]
+    [ProducesResponseType(typeof(ApiResponse<LoginResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> GoogleSignIn([FromBody] GoogleSignInRequest request)
+    {
+        try
+        {
+            if (!_googleAuth.IsConfigured)
+                return BadRequest(ApiResponse<object>.BadRequest("Google sign-in is not configured on this server."));
+
+            var identity = await _googleAuth.ValidateAsync(request.IdToken);
+            if (identity is null)
+                return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Google sign-in."));
+
+            var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, identity.EmailVerified);
+            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Google", response));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during Google sign-in");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
+    [HttpPost("facebook")]
+    [AllowAnonymous]
+    [EnableRateLimiting("otp")]
+    [ProducesResponseType(typeof(ApiResponse<LoginResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> FacebookSignIn([FromBody] FacebookSignInRequest request)
+    {
+        try
+        {
+            if (!_facebookAuth.IsConfigured)
+                return BadRequest(ApiResponse<object>.BadRequest("Facebook sign-in is not configured on this server."));
+
+            var identity = await _facebookAuth.ValidateAsync(request.AccessToken);
+            if (identity is null)
+                return BadRequest(ApiResponse<object>.BadRequest("Could not verify the Facebook sign-in."));
+
+            // Facebook accounts registered with a phone number carry no email, and the account
+            // model keys external sign-ins on a provider-verified email.
+            if (string.IsNullOrWhiteSpace(identity.Email))
+                return BadRequest(ApiResponse<object>.BadRequest(
+                    "Your Facebook account has no email address. Please sign in with your phone number or email instead."));
+
+            // Facebook only exposes emails it has confirmed, so the claim counts as verified.
+            var response = await _authService.ExternalSignInAsync(identity.Email, identity.FullName, emailVerified: true);
+            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with Facebook", response));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during Facebook sign-in");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
+    [HttpPost("phone-login/send-otp")]
+    [AllowAnonymous]
+    [EnableRateLimiting("otp")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ApiResponse<object>>> PhoneLoginSendOtp([FromBody] PhoneLoginStartRequest request)
+    {
+        try
+        {
+            // Always the same response, registered or not — phone numbers can't be enumerated here.
+            await _phoneVerification.SendLoginOtpAsync(request.Phone);
+            return Ok(ApiResponse<object>.Ok("If this phone number is registered, a login code has been sent.", null));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error sending phone login code");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
+    [HttpPost("phone-login/verify-otp")]
+    [AllowAnonymous]
+    [EnableRateLimiting("otp")]
+    [ProducesResponseType(typeof(ApiResponse<LoginResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ApiResponse<LoginResponse>>> PhoneLoginVerifyOtp([FromBody] PhoneLoginVerifyRequest request)
+    {
+        try
+        {
+            var response = await _authService.PhoneLoginAsync(request.Phone, request.Code);
+            return Ok(ApiResponse<LoginResponse>.Ok("Signed in with phone number", response));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during phone login");
             return StatusCode(500, ApiResponse<object>.InternalServerError());
         }
     }
@@ -142,6 +265,28 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<object>>> Logout()
+    {
+        try
+        {
+            var userId = User.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+            await _authService.LogoutAsync(userId);
+            return Ok(ApiResponse<object>.Ok("Logged out successfully", null));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error during logout");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
     [HttpPost("change-password")]
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
@@ -178,8 +323,10 @@ public class AuthController : ControllerBase
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]
+    [EnableRateLimiting("otp")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<object>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         try
@@ -203,8 +350,10 @@ public class AuthController : ControllerBase
 
     [HttpPost("reset-password")]
     [AllowAnonymous]
+    [EnableRateLimiting("otp")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<object>>> ResetPassword([FromBody] ResetPasswordRequest request)
     {
         try

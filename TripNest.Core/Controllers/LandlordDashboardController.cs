@@ -31,6 +31,9 @@ public class LandlordDashboardController : ControllerBase
         _logger = logger;
     }
 
+    // NOTE: GET /api/landlord/stats overlaps with GET /api/personaldashboard/landlord (a superset).
+    // It's kept because the frontend's getOverview() composes from both (see FRONTEND_INTEGRATION.md).
+    // If the frontend consolidates onto /personaldashboard/landlord, this can be removed.
     [HttpGet("stats")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
@@ -43,14 +46,10 @@ public class LandlordDashboardController : ControllerBase
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
             var properties = (await _propertyRepository.GetByUserIdAsync(landlordId)).ToList();
-            var propertyIds = properties.Select(p => p.Id).ToHashSet();
+            var propertyIds = properties.Select(p => p.Id).ToList();
 
-            var allBookings = new List<Models.Booking>();
-            foreach (var propertyId in propertyIds)
-            {
-                var bookings = await _bookingRepository.GetByPropertyIdAsync(propertyId);
-                allBookings.AddRange(bookings);
-            }
+            // One query for all of this landlord's bookings instead of a query per property (N+1).
+            var allBookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId))).ToList();
 
             var activeStatuses = new[] { BookingStatus.Confirmed, BookingStatus.CheckedIn };
 
@@ -84,17 +83,11 @@ public class LandlordDashboardController : ControllerBase
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
             var properties = await _propertyRepository.GetByUserIdAsync(landlordId);
-            var propertyIds = properties.Select(p => p.Id).ToHashSet();
+            var propertyIds = properties.Select(p => p.Id).ToList();
 
-            var allBookings = new List<Models.Booking>();
-            foreach (var propertyId in propertyIds)
-            {
-                var bookings = await _bookingRepository.GetByPropertyIdAsync(propertyId);
-                allBookings.AddRange(bookings);
-            }
-
-            var completedBookingIds = allBookings
-                .Where(b => b.Status == BookingStatus.Completed)
+            // One query for all bookings, then the completed ones — not a query per property.
+            var completedBookingIds = (await _bookingRepository.FindAsync(b =>
+                    propertyIds.Contains(b.PropertyId) && b.Status == BookingStatus.Completed))
                 .Select(b => b.Id)
                 .ToHashSet();
 
@@ -107,19 +100,17 @@ public class LandlordDashboardController : ControllerBase
             decimal thisMonthEarnings = 0m;
             decimal lastMonthEarnings = 0m;
 
-            foreach (var bookingId in completedBookingIds)
+            // All receipts for the completed bookings in one query rather than per booking.
+            var receipts = await _receiptRepository.GetByBookingIdsAsync(completedBookingIds);
+            foreach (var receipt in receipts)
             {
-                var receipts = await _receiptRepository.GetByBookingIdAsync(bookingId);
-                foreach (var receipt in receipts)
-                {
-                    totalEarnings += receipt.Amount;
+                totalEarnings += receipt.Amount;
 
-                    if (receipt.CreatedAt >= startOfThisMonth)
-                        thisMonthEarnings += receipt.Amount;
+                if (receipt.CreatedAt >= startOfThisMonth)
+                    thisMonthEarnings += receipt.Amount;
 
-                    if (receipt.CreatedAt >= startOfLastMonth && receipt.CreatedAt < endOfLastMonth)
-                        lastMonthEarnings += receipt.Amount;
-                }
+                if (receipt.CreatedAt >= startOfLastMonth && receipt.CreatedAt < endOfLastMonth)
+                    lastMonthEarnings += receipt.Amount;
             }
 
             var earnings = new
@@ -149,27 +140,32 @@ public class LandlordDashboardController : ControllerBase
             if (string.IsNullOrEmpty(landlordId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var properties = await _propertyRepository.GetByUserIdAsync(landlordId);
+            var properties = (await _propertyRepository.GetByUserIdAsync(landlordId)).ToList();
+            var propertyIds = properties.Select(p => p.Id).ToList();
+
+            // Pull all bookings for these properties, then all receipts for their completed bookings,
+            // in two queries — instead of a booking query per property and a receipt query per booking.
+            var bookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId))).ToList();
+            var completedBookingIds = bookings.Where(b => b.Status == BookingStatus.Completed).Select(b => b.Id).ToList();
+            var receiptsByBooking = (await _receiptRepository.GetByBookingIdsAsync(completedBookingIds))
+                .GroupBy(r => r.BookingId)
+                .ToDictionary(g => g.Key, g => g.Sum(r => r.Amount));
+
+            var bookingsByProperty = bookings.GroupBy(b => b.PropertyId)
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             var performanceList = new List<object>();
-
             foreach (var property in properties)
             {
-                var bookings = (await _bookingRepository.GetByPropertyIdAsync(property.Id)).ToList();
-                var completedBookings = bookings.Where(b => b.Status == BookingStatus.Completed).ToList();
-
-                decimal totalRevenue = 0m;
-                foreach (var booking in completedBookings)
-                {
-                    var receipts = await _receiptRepository.GetByBookingIdAsync(booking.Id);
-                    totalRevenue += receipts.Sum(r => r.Amount);
-                }
+                var propertyBookings = bookingsByProperty.TryGetValue(property.Id, out var pb) ? pb : new List<Models.Booking>();
+                var completedBookings = propertyBookings.Where(b => b.Status == BookingStatus.Completed).ToList();
+                var totalRevenue = completedBookings.Sum(b => receiptsByBooking.TryGetValue(b.Id, out var amt) ? amt : 0m);
 
                 performanceList.Add(new
                 {
                     PropertyId = property.Id,
                     property.Title,
-                    TotalBookings = bookings.Count,
+                    TotalBookings = propertyBookings.Count,
                     CompletedBookings = completedBookings.Count,
                     TotalRevenue = totalRevenue,
                     AverageRating = 0.0

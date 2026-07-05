@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Properties;
 using TripNest.Core.Interfaces.Services;
@@ -86,6 +87,7 @@ public class PropertiesController : ControllerBase
     }
 
     [HttpGet("{propertyId}")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<PropertyResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> GetProperty(string propertyId)
@@ -130,6 +132,7 @@ public class PropertiesController : ControllerBase
     }
 
     [HttpGet]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> GetAllActiveProperties()
     {
@@ -145,7 +148,27 @@ public class PropertiesController : ControllerBase
         }
     }
 
+    /// <summary>Featured listings for the home page (most recent active properties).</summary>
+    [HttpGet("featured")]
+    [OutputCache(PolicyName = "listings")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> GetFeaturedProperties([FromQuery] int limit = 8)
+    {
+        try
+        {
+            var active = await _propertyService.GetAllActivePropertiesAsync();
+            var featured = active.Take(limit < 1 ? 8 : limit);
+            return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Featured properties retrieved", featured));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving featured properties");
+            return StatusCode(500, ApiResponse<object>.InternalServerError());
+        }
+    }
+
     [HttpGet("search")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> SearchProperties([FromQuery] string location, [FromQuery] int minBedrooms = 1, [FromQuery] int maxBedrooms = 10)
     {

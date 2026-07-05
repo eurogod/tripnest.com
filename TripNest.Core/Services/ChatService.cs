@@ -11,15 +11,21 @@ public class ChatService : IChatService
 {
     private readonly IConversationRepository _conversationRepository;
     private readonly IMessageRepository _messageRepository;
+    private readonly IRepository<User> _userRepository;
+    private readonly Hubs.IPresenceTracker _presence;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
         IConversationRepository conversationRepository,
         IMessageRepository messageRepository,
+        IRepository<User> userRepository,
+        Hubs.IPresenceTracker presence,
         ILogger<ChatService> logger)
     {
         _conversationRepository = conversationRepository;
         _messageRepository = messageRepository;
+        _userRepository = userRepository;
+        _presence = presence;
         _logger = logger;
     }
 
@@ -27,8 +33,42 @@ public class ChatService : IChatService
     {
         try
         {
-            var conversations = await _conversationRepository.GetUserConversationsAsync(userId);
-            return conversations.Select(MapConversation).ToList();
+            var conversations = (await _conversationRepository.GetUserConversationsAsync(userId)).ToList();
+            if (conversations.Count == 0)
+                return new List<ConversationResponse>();
+
+            // Enrich the list view in three set-based queries (names, previews,
+            // unread counts) so the client never needs a per-row lookup.
+            var otherIds = conversations
+                .Select(c => c.User1Id == userId ? c.User2Id : c.User1Id)
+                .Distinct()
+                .ToList();
+            var otherUsers = (await _userRepository.FindAsync(u => otherIds.Contains(u.Id)))
+                .ToDictionary(u => u.Id);
+
+            var conversationIds = conversations.Select(c => c.Id).ToList();
+            var messages = (await _messageRepository.FindAsync(m => conversationIds.Contains(m.ConversationId))).ToList();
+            var lastMessageByConversation = messages
+                .GroupBy(m => m.ConversationId)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.CreatedAt).First().Content);
+            var unreadByConversation = messages
+                .Where(m => !m.IsRead && m.SenderId != userId)
+                .GroupBy(m => m.ConversationId)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            return conversations.Select(c =>
+            {
+                var otherId = c.User1Id == userId ? c.User2Id : c.User1Id;
+                var otherUser = otherUsers.GetValueOrDefault(otherId);
+                var response = MapConversation(c);
+                response.OtherUserId = otherId;
+                response.OtherUserName = otherUser?.FullName;
+                response.LastMessagePreview = lastMessageByConversation.GetValueOrDefault(c.Id);
+                response.UnreadCount = unreadByConversation.GetValueOrDefault(c.Id);
+                response.OtherUserIsOnline = _presence.IsOnline(otherId);
+                response.OtherUserLastSeenAt = response.OtherUserIsOnline ? null : otherUser?.LastSeenAt;
+                return response;
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -78,7 +118,15 @@ public class ChatService : IChatService
             if (conversation.User1Id != userId && conversation.User2Id != userId)
                 return null;
 
-            return MapConversation(conversation);
+            var otherId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+            var otherUser = await _userRepository.GetByIdAsync(otherId);
+
+            var response = MapConversation(conversation);
+            response.OtherUserId = otherId;
+            response.OtherUserName = otherUser?.FullName;
+            response.OtherUserIsOnline = _presence.IsOnline(otherId);
+            response.OtherUserLastSeenAt = response.OtherUserIsOnline ? null : otherUser?.LastSeenAt;
+            return response;
         }
         catch (Exception ex)
         {
@@ -148,12 +196,12 @@ public class ChatService : IChatService
                 Type = MessageType.Text
             };
 
+            // One commit for the message + conversation stamp (shared DbContext), so a crash
+            // between them can't leave a message the conversation list doesn't know about.
             await _messageRepository.AddAsync(message);
-            await _messageRepository.SaveChangesAsync();
-
             conversation.LastMessageAt = DateTime.UtcNow;
             await _conversationRepository.UpdateAsync(conversation);
-            await _conversationRepository.SaveChangesAsync();
+            await _messageRepository.SaveChangesAsync();
 
             _logger.LogInformation("Message sent: {MessageId} in conversation {ConversationId} by {UserId}",
                 message.Id, conversationId, userId);
@@ -174,6 +222,12 @@ public class ChatService : IChatService
             var message = await _messageRepository.GetByIdAsync(messageId);
             if (message == null)
                 throw new InvalidOperationException("Message not found");
+
+            // Only a participant of the conversation may mark its messages read — without this,
+            // any authenticated user holding a message id could tamper with read receipts.
+            var conversation = await _conversationRepository.GetByIdAsync(message.ConversationId);
+            if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
+                throw new UnauthorizedAccessException("User is not a participant in this conversation");
 
             if (message.SenderId == userId || message.IsRead)
                 return;

@@ -120,7 +120,7 @@ public class MaintenanceController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<MaintenanceResponse>.UnAuthorized());
 
-            await _maintenanceService.UpdateMaintenanceStatusAsync(id, request.Status, userId);
+            await _maintenanceService.UpdateMaintenanceStatusAsync(id, request.Status, userId, User.IsInRole("Admin"));
             return Ok(ApiResponse<MaintenanceResponse>.Ok("Status updated", null));
         }
         catch (Exception ex)

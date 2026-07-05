@@ -32,9 +32,7 @@ public class CaretakerService : ICaretakerService
     {
         try
         {
-            var caretakers = await _caretakerRepository.GetAllAsync();
-
-            var active = caretakers.Where(c => c.Status == CaretakerStatus.Active);
+            var active = await _caretakerRepository.FindAsync(c => c.Status == CaretakerStatus.Active);
 
             if (!string.IsNullOrWhiteSpace(serviceType))
                 active = active.Where(c => c.Responsibilities.Contains(serviceType, StringComparison.OrdinalIgnoreCase));
@@ -147,10 +145,14 @@ public class CaretakerService : ICaretakerService
     {
         try
         {
-            var all = await _serviceRequestRepository.GetAllAsync();
+            // A caller sees requests they raised (RequestedByUserId) plus requests assigned to any
+            // caretaker profile they own. ServiceRequest.CaretakerId is the Caretaker *entity* id, not
+            // the user id, so resolve the caller's caretaker ids first.
+            var myCaretakerIds = (await _caretakerRepository.GetByUserIdAsync(userId)).Select(c => c.Id).ToList();
+            var requests = await _serviceRequestRepository.FindAsync(
+                s => s.RequestedByUserId == userId || myCaretakerIds.Contains(s.CaretakerId));
 
-            return all
-                .Where(s => s.RequestedByUserId == userId || s.CaretakerId == userId)
+            return requests
                 .Select(MapToServiceRequest)
                 .ToList();
         }
@@ -161,7 +163,7 @@ public class CaretakerService : ICaretakerService
         }
     }
 
-    public async Task AcceptServiceRequestAsync(string requestId, string caretakerId)
+    public async Task AcceptServiceRequestAsync(string requestId, string userId)
     {
         try
         {
@@ -169,19 +171,18 @@ public class CaretakerService : ICaretakerService
             if (serviceRequest == null)
                 throw new InvalidOperationException("Service request not found");
 
-            var caretaker = await _caretakerRepository.GetByIdAsync(caretakerId);
-            if (caretaker == null)
-                throw new InvalidOperationException("Caretaker not found");
-
-            if (serviceRequest.CaretakerId != caretakerId)
-                throw new InvalidOperationException("This service request was not assigned to you");
+            // The caller acts as a caretaker: match the request's assigned Caretaker entity against
+            // the caretaker profile(s) this user owns (Caretaker.Id != User.Id).
+            var myCaretakerIds = (await _caretakerRepository.GetByUserIdAsync(userId)).Select(c => c.Id).ToHashSet();
+            if (!myCaretakerIds.Contains(serviceRequest.CaretakerId))
+                throw new UnauthorizedAccessException("This service request was not assigned to you");
 
             serviceRequest.Status = ServiceRequestStatus.Accepted;
 
             await _serviceRequestRepository.UpdateAsync(serviceRequest);
             await _serviceRequestRepository.SaveChangesAsync();
 
-            _logger.LogInformation("Service request {RequestId} accepted by caretaker {CaretakerId}", requestId, caretakerId);
+            _logger.LogInformation("Service request {RequestId} accepted by user {UserId}", requestId, userId);
         }
         catch (Exception ex)
         {
@@ -197,6 +198,11 @@ public class CaretakerService : ICaretakerService
             var serviceRequest = await _serviceRequestRepository.GetByIdAsync(requestId);
             if (serviceRequest == null)
                 throw new InvalidOperationException("Service request not found");
+
+            // Only the requester or the assigned caretaker may change the status.
+            var myCaretakerIds = (await _caretakerRepository.GetByUserIdAsync(userId)).Select(c => c.Id).ToHashSet();
+            if (serviceRequest.RequestedByUserId != userId && !myCaretakerIds.Contains(serviceRequest.CaretakerId))
+                throw new UnauthorizedAccessException("You are not authorised to update this service request");
 
             if (!Enum.TryParse<ServiceRequestStatus>(status, ignoreCase: true, out var parsedStatus))
                 throw new InvalidOperationException($"Invalid status value: {status}");
@@ -225,6 +231,10 @@ public class CaretakerService : ICaretakerService
             var serviceRequest = await _serviceRequestRepository.GetByIdAsync(requestId);
             if (serviceRequest == null)
                 throw new InvalidOperationException("Service request not found");
+
+            // Only the requester (the person who asked for the service) may review it.
+            if (serviceRequest.RequestedByUserId != userId)
+                throw new UnauthorizedAccessException("Only the requester can review this service request");
 
             if (serviceRequest.Status != ServiceRequestStatus.Completed)
                 throw new InvalidOperationException("Reviews can only be submitted for completed service requests");

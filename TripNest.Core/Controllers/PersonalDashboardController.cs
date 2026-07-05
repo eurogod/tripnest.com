@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
@@ -17,6 +18,7 @@ public class PersonalDashboardController : ControllerBase
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IEscrowRepository _escrowRepository;
+    private readonly IWalkthroughRepository _walkthroughRepository;
     private readonly ITrustScoreSnapshotRepository _trustScoreRepository;
     private readonly ILogger<PersonalDashboardController> _logger;
 
@@ -25,6 +27,7 @@ public class PersonalDashboardController : ControllerBase
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
         IEscrowRepository escrowRepository,
+        IWalkthroughRepository walkthroughRepository,
         ITrustScoreSnapshotRepository trustScoreRepository,
         ILogger<PersonalDashboardController> logger)
     {
@@ -32,6 +35,7 @@ public class PersonalDashboardController : ControllerBase
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
         _escrowRepository = escrowRepository;
+        _walkthroughRepository = walkthroughRepository;
         _trustScoreRepository = trustScoreRepository;
         _logger = logger;
     }
@@ -51,15 +55,16 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var allBookings = await _bookingRepository.GetAllAsync();
-            var tenantBookings = allBookings.Where(b => b.TenantId == userId).OrderByDescending(b => b.CreatedAt).ToList();
+            // Only this tenant's bookings, filtered in the database.
+            var tenantBookings = (await _bookingRepository.FindAsync(b => b.TenantId == userId))
+                .OrderByDescending(b => b.CreatedAt).ToList();
 
             var dashboard = new
             {
-                ActiveBookings = tenantBookings.Count(b => b.Status.ToString() == "Confirmed"),
-                CompletedStays = tenantBookings.Count(b => b.Status.ToString() == "Completed"),
-                CancelledBookings = tenantBookings.Count(b => b.Status.ToString() == "Cancelled"),
-                UpcomingCheckIns = tenantBookings.Where(b => b.Status.ToString() == "Confirmed" && b.CheckInDate > DateTime.UtcNow).Count(),
+                ActiveBookings = tenantBookings.Count(b => b.Status == BookingStatus.Confirmed),
+                CompletedStays = tenantBookings.Count(b => b.Status == BookingStatus.Completed),
+                CancelledBookings = tenantBookings.Count(b => b.Status == BookingStatus.Cancelled),
+                UpcomingCheckIns = tenantBookings.Where(b => b.Status == BookingStatus.Confirmed && b.CheckInDate > DateTime.UtcNow).Count(),
                 RecentBookings = tenantBookings.Take(5).Select(b => new
                 {
                     b.Id,
@@ -69,7 +74,7 @@ public class PersonalDashboardController : ControllerBase
                     b.Status,
                     b.TotalAmount
                 }),
-                TotalSpent = tenantBookings.Where(b => b.Status.ToString() == "Completed").Sum(b => b.TotalAmount)
+                TotalSpent = tenantBookings.Where(b => b.Status == BookingStatus.Completed).Sum(b => b.TotalAmount)
             };
 
             return Ok(ApiResponse<object>.Ok("Tenant dashboard retrieved", dashboard));
@@ -96,26 +101,30 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var allProperties = await _propertyRepository.GetAllAsync();
-            var allBookings = await _bookingRepository.GetAllAsync();
-            var allEscrows = await _escrowRepository.GetAllAsync();
-
-            var landlordProperties = allProperties.Where(p => p.UserId == userId).ToList();
+            // Scope each query to this landlord in the database instead of loading whole tables.
+            var landlordProperties = (await _propertyRepository.FindAsync(p => p.UserId == userId)).ToList();
             var propertyIds = landlordProperties.Select(p => p.Id).ToList();
-            var landlordBookings = allBookings.Where(b => propertyIds.Contains(b.PropertyId)).ToList();
-            var landlordEscrows = allEscrows.Where(e => landlordBookings.Any(b => b.Id == e.BookingId)).ToList();
+            var landlordBookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId))).ToList();
+            var bookingIds = landlordBookings.Select(b => b.Id).ToList();
+            var landlordEscrows = (await _escrowRepository.FindAsync(e => bookingIds.Contains(e.BookingId))).ToList();
+
+            // Count properties that actually have a walkthrough, queried from the walkthrough table.
+            // (Property.Walkthroughs is never eager-loaded here, so p.Walkthroughs.Any() was always false.)
+            var propertiesWithWalkthroughs = (await _walkthroughRepository.FindAsync(w => propertyIds.Contains(w.PropertyId)))
+                .Select(w => w.PropertyId).Distinct().Count();
 
             var dashboard = new
             {
                 TotalProperties = landlordProperties.Count(),
-                ActiveProperties = landlordProperties.Count(p => p.Status.ToString() == "Active"),
+                ActiveProperties = landlordProperties.Count(p => p.Status == PropertyStatus.Active),
                 TotalBookings = landlordBookings.Count(),
-                ConfirmedBookings = landlordBookings.Count(b => b.Status.ToString() == "Confirmed"),
-                CompletedBookings = landlordBookings.Count(b => b.Status.ToString() == "Completed"),
-                PendingWalkthroughs = landlordProperties.Count(p => p.Walkthroughs.Any()),
-                EscrowHeld = landlordEscrows.Where(e => e.Status.ToString() == "Held").Sum(e => e.Amount),
-                EscrowReleased = landlordEscrows.Where(e => e.Status.ToString() == "Released").Sum(e => e.Amount),
-                OpenDisputes = landlordEscrows.Count(e => e.Status.ToString() == "Disputed"),
+                ConfirmedBookings = landlordBookings.Count(b => b.Status == BookingStatus.Confirmed),
+                CompletedBookings = landlordBookings.Count(b => b.Status == BookingStatus.Completed),
+                PendingWalkthroughs = propertiesWithWalkthroughs,
+                // Was e.Status.ToString() == "Held", which never matched the enum name HeldInEscrow.
+                EscrowHeld = landlordEscrows.Where(e => e.Status == EscrowStatus.HeldInEscrow).Sum(e => e.Amount),
+                EscrowReleased = landlordEscrows.Where(e => e.Status == EscrowStatus.Released).Sum(e => e.Amount),
+                OpenDisputes = landlordEscrows.Count(e => e.Status == EscrowStatus.Disputed),
                 RecentProperties = landlordProperties.OrderByDescending(p => p.CreatedAt).Take(5).Select(p => new
                 {
                     p.Id,
@@ -150,19 +159,22 @@ public class PersonalDashboardController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var allProperties = await _propertyRepository.GetAllAsync();
-            var allWalkthroughs = allProperties.SelectMany(p => p.Walkthroughs).ToList();
+            // Aggregate directly over the walkthrough table in the database. (Previously this loaded
+            // all properties and read p.Walkthroughs — a navigation that is never eager-loaded here —
+            // so every metric was silently 0.)
+            var stats = await _walkthroughRepository.GetStatsAsync(DateTime.UtcNow.AddDays(-30));
+            var totalProperties = await _propertyRepository.CountAsync(_ => true);
 
             var dashboard = new
             {
-                TotalWalkthroughs = allWalkthroughs.Count(),
-                PropertiesWithWalkthroughs = allProperties.Count(p => p.Walkthroughs.Any()),
-                PropertiesWithoutWalkthroughs = allProperties.Count(p => !p.Walkthroughs.Any()),
-                RecentWalkthroughsCount = allWalkthroughs.Where(w => w.CreatedAt > DateTime.UtcNow.AddDays(-30)).Count(),
+                TotalWalkthroughs = stats.Total,
+                PropertiesWithWalkthroughs = stats.DistinctPropertyCount,
+                PropertiesWithoutWalkthroughs = totalProperties - stats.DistinctPropertyCount,
+                RecentWalkthroughsCount = stats.RecentCount,
                 RecentActivity = new
                 {
-                    LastWalkthroughDate = allWalkthroughs.OrderByDescending(w => w.CreatedAt).FirstOrDefault()?.CreatedAt,
-                    TotalVideoHours = Math.Round(allWalkthroughs.Sum(w => w.DurationSeconds) / 3600.0, 2)
+                    LastWalkthroughDate = stats.LastCreatedAt,
+                    TotalVideoHours = Math.Round(stats.TotalDurationSeconds / 3600.0, 2)
                 }
             };
 
@@ -212,19 +224,5 @@ public class PersonalDashboardController : ControllerBase
             _logger.LogError(ex, "Error retrieving caretaker dashboard");
             return Task.FromResult<ActionResult<ApiResponse<object>>>(StatusCode(500, ApiResponse<object>.InternalServerError()));
         }
-    }
-
-    [HttpGet("debug")]
-    [AllowAnonymous]
-    public IActionResult DebugClaims()
-    {
-        var claims = new Dictionary<string, object>
-        {
-            ["IsAuthenticated"] = User.Identity?.IsAuthenticated ?? false,
-            ["AuthenticationType"] = User.Identity?.AuthenticationType ?? "none",
-            ["Name"] = User.Identity?.Name ?? "no-name",
-            ["Claims"] = User.Claims.Select(c => new { c.Type, c.Value }).ToList()
-        };
-        return Ok(claims);
     }
 }

@@ -1,11 +1,26 @@
 using System.Text;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.FileProviders;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using RedisRateLimiting;
+using Serilog;
+using StackExchange.Redis;
+using TripNest.Core.Caching;
 using TripNest.Core.Context;
+using TripNest.Core.Storage;
 using TripNest.Core.Extensions;
 using TripNest.Core.Middleware;
+using TripNest.Core.Monitoring;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -13,6 +28,22 @@ using TripNest.Core.Repositories;
 using TripNest.Core.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Structured logging via Serilog. Console is always on (human-readable locally; the structured
+// properties — including the trace ids added by ActivityEnricher — make it greppable/queryable).
+// Clear the default Console/Debug providers first so logs aren't emitted twice; writeToProviders:true
+// still forwards events to other registered providers — notably the OpenTelemetry/Azure Monitor
+// provider wired below — so the same logs also reach Application Insights.
+builder.Logging.ClearProviders();
+builder.Host.UseSerilog((context, _, config) => config
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", Serilog.Events.LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.With<ActivityEnricher>()
+    .WriteTo.Console(
+        outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} <trace:{TraceId}>{NewLine}{Exception}"),
+    writeToProviders: true);
 
 // QuestPDF Community licence (free for organisations/individuals under the revenue threshold).
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
@@ -30,7 +61,26 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 );
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured"));
+var jwtKey = jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured");
+
+// Refuse to boot outside Development with a weak or well-known signing key. The value below is the
+// placeholder that ships in appsettings.json for local dev — if it (or anything < 32 bytes) reaches
+// a real environment, anyone could forge tokens, so fail fast and force a proper secret via env/secrets.
+const string InsecureDefaultJwtKey = "your-super-secret-key-must-be-at-least-32-characters-long-12345";
+if (!builder.Environment.IsDevelopment() && (jwtKey == InsecureDefaultJwtKey || jwtKey.Length < 32))
+    throw new InvalidOperationException(
+        "Jwt:Key must be set to a strong, unique secret (at least 32 characters) outside Development. " +
+        "Configure it via environment variable Jwt__Key or user-secrets — never the committed default.");
+
+// A missing Paystack secret makes the payment gateway *simulate* successful charges/verifications —
+// convenient for local dev and tests, but catastrophic in production where it would report money as
+// received that was never paid. Refuse to boot in Production without it.
+if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(builder.Configuration["PaystackSettings:SecretKey"]))
+    throw new InvalidOperationException(
+        "PaystackSettings:SecretKey must be configured in Production — the unconfigured gateway simulates " +
+        "successful payments and must never run against real bookings. Set it via env/secrets.");
+
+var key = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -60,6 +110,23 @@ builder.Services.AddAuthentication(options =>
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
             logger.LogWarning("JWT authentication failed: {Message}", context.Exception.Message);
             return Task.CompletedTask;
+        },
+        // Access tokens are bearer credentials valid until they expire, so a deactivated account would
+        // otherwise keep access until then. Re-check IsActive against the database on each validated
+        // token and reject deactivated users immediately. (One indexed primary-key lookup per request.)
+        OnTokenValidated = async context =>
+        {
+            var userId = context.Principal.GetUserId();
+            if (string.IsNullOrEmpty(userId))
+            {
+                context.Fail("Token is missing a subject claim.");
+                return;
+            }
+
+            var userRepository = context.HttpContext.RequestServices.GetRequiredService<IUserRepository>();
+            var account = await userRepository.GetByIdAsync(userId);
+            if (account is null || !account.IsActive)
+                context.Fail("The account is no longer active.");
         },
         // SignalR over WebSockets can't send an Authorization header (browsers forbid it on
         // the WS handshake), so the JS client passes the token as ?access_token=... instead.
@@ -119,6 +186,8 @@ builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IVerificationService, VerificationService>();
 // Singleton so the request path (enqueue) and the hosted processor (dequeue) share one queue.
 builder.Services.AddSingleton<IVerificationQueue, VerificationQueue>();
+// Same pattern for non-emergency notification delivery (SMS/email sent off the request thread).
+builder.Services.AddSingleton<INotificationDispatchQueue, NotificationDispatchQueue>();
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IWalkthroughService, WalkthroughService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
@@ -134,6 +203,8 @@ builder.Services.AddHttpClient<ISmsSender, TextBeeSmsSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
 builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
+builder.Services.AddHttpClient<IGoogleAuthService, GoogleAuthService>();
+builder.Services.AddHttpClient<IFacebookAuthService, FacebookAuthService>();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -173,11 +244,37 @@ builder.Services.AddSwaggerGen(options =>
         options.IncludeXmlComments(xmlPath);
 });
 
-builder.Services.AddLogging(config =>
+// Distributed tracing + metrics via OpenTelemetry, exported to Azure Application Insights when a
+// connection string is configured (env APPLICATIONINSIGHTS_CONNECTION_STRING or
+// ApplicationInsights:ConnectionString). Without it, instrumentation still runs but exports nowhere,
+// so local/dev and tests need no Azure account.
+var appInsightsConn = builder.Configuration["ApplicationInsights:ConnectionString"]
+    ?? builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+
+var otel = builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("TripNest.Core"));
+
+// Signals the Azure Monitor distro does NOT add: DB spans (Npgsql's built-in source) + runtime metrics.
+otel.WithTracing(tracing => tracing.AddSource("Npgsql"))
+    .WithMetrics(metrics => metrics.AddRuntimeInstrumentation());
+
+if (!string.IsNullOrWhiteSpace(appInsightsConn))
 {
-    config.AddConsole();
-    config.AddDebug();
-});
+    // The distro adds ASP.NET Core + HttpClient instrumentation and exports traces, metrics and logs.
+    otel.UseAzureMonitor(options => options.ConnectionString = appInsightsConn);
+}
+else
+{
+    // No Azure backend configured — still instrument so traces/metrics exist for any other exporter
+    // (and so the wiring is identical between environments). Added here to avoid double-registering
+    // the same instrumentation the distro provides above.
+    otel.WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation())
+        .WithMetrics(metrics => metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation());
+}
 
 // Register DatabaseSeeder
 builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
@@ -195,7 +292,7 @@ builder.Services.AddScoped<IChatService, ChatService>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
-    o.MultipartBodyLengthLimit = 524_288_000; // 500 MB
+    o.MultipartBodyLengthLimit = 104_857_600; // 100 MB — walkthrough videos; cap guards against memory/disk exhaustion
 });
 
 builder.Services.AddScoped<IRepository<ServiceRequest>, Repository<ServiceRequest>>();
@@ -203,50 +300,136 @@ builder.Services.AddScoped<IRepository<ViewingRequest>, Repository<ViewingReques
 builder.Services.AddScoped<IRepository<PropertyBlockedDate>, Repository<PropertyBlockedDate>>();
 builder.Services.AddScoped<IRepository<WishlistItem>, Repository<WishlistItem>>();
 
+// Marketplace / operations modules (frontend parity).
+builder.Services.AddScoped<IRepository<PricingSettings>, Repository<PricingSettings>>();
+builder.Services.AddScoped<IRepository<Inquiry>, Repository<Inquiry>>();
+builder.Services.AddScoped<IRepository<SavedPaymentMethod>, Repository<SavedPaymentMethod>>();
+builder.Services.AddScoped<IRepository<ExchangePost>, Repository<ExchangePost>>();
+builder.Services.AddScoped<IRepository<ExchangeReply>, Repository<ExchangeReply>>();
+builder.Services.AddScoped<IRepository<HostTask>, Repository<HostTask>>();
+builder.Services.AddScoped<IRepository<TeamMember>, Repository<TeamMember>>();
+builder.Services.AddScoped<IRepository<ResourceItem>, Repository<ResourceItem>>();
+builder.Services.AddScoped<IRepository<PropertyTour>, Repository<PropertyTour>>();
+
+// Host disbursements (Paystack Transfers).
+builder.Services.AddScoped<IRepository<Payout>, Repository<Payout>>();
+builder.Services.AddScoped<IRepository<PayoutAccount>, Repository<PayoutAccount>>();
+builder.Services.AddScoped<IPayoutService, PayoutService>();
+
+builder.Services.AddScoped<IPricingService, PricingService>();
+builder.Services.AddScoped<ICalendarService, CalendarService>();
+builder.Services.AddScoped<IInquiryService, InquiryService>();
+builder.Services.AddScoped<IPaymentMethodService, PaymentMethodService>();
+builder.Services.AddScoped<IExchangeService, ExchangeService>();
+builder.Services.AddScoped<IHostTaskService, HostTaskService>();
+builder.Services.AddScoped<ITeamService, TeamService>();
+builder.Services.AddScoped<IResourceService, ResourceService>();
+builder.Services.AddScoped<IStatementService, StatementService>();
+builder.Services.AddScoped<ITourService, TourService>();
+builder.Services.AddScoped<ILandlordWorkspaceService, LandlordWorkspaceService>();
+
 // Register background services
 builder.Services.AddHostedService<EscrowAutoReleaseService>();
 builder.Services.AddHostedService<TrustScoreDailySnapshotService>();
 builder.Services.AddHostedService<VerificationProcessingService>();
+builder.Services.AddHostedService<NotificationDispatchService>();
 
-// Register SignalR. A Redis backplane is required to scale the chat hub beyond a single
-// instance (Groups/Clients are per-server otherwise); enable it by setting Redis:ConnectionString.
-var signalR = builder.Services.AddSignalR();
+// Shared Redis connection (optional). When Redis:ConnectionString is set, the SignalR backplane,
+// output cache and rate limiter all use it, so the app is correct across multiple instances. When
+// it isn't set, each falls back to in-memory single-instance behaviour. AbortOnConnectFail=false lets
+// the app start even if Redis is momentarily unreachable.
 var redisConnection = builder.Configuration["Redis:ConnectionString"];
+IConnectionMultiplexer? redisMux = null;
 if (!string.IsNullOrWhiteSpace(redisConnection))
 {
-    signalR.AddStackExchangeRedis(redisConnection);
+    var redisOptions = ConfigurationOptions.Parse(redisConnection);
+    redisOptions.AbortOnConnectFail = false;
+    redisMux = ConnectionMultiplexer.Connect(redisOptions);
+    builder.Services.AddSingleton<IConnectionMultiplexer>(redisMux);
 }
 
-// Liveness/readiness endpoint for orchestrators and load balancers.
-builder.Services.AddHealthChecks();
+// Tracks online/offline for chat presence (in-memory, per-instance).
+builder.Services.AddSingleton<TripNest.Core.Hubs.IPresenceTracker, TripNest.Core.Hubs.PresenceTracker>();
 
-// Edge rate limiting: a global fixed-window limiter as a coarse abuse guard.
+// SignalR: a Redis backplane is required to scale the chat hub beyond one instance (Groups/Clients
+// are per-server otherwise). Reuse the shared multiplexer when present.
+var signalR = builder.Services.AddSignalR();
+if (redisMux is not null)
+    signalR.AddStackExchangeRedis(o => o.ConnectionFactory = _ => Task.FromResult<IConnectionMultiplexer>(redisMux));
+
+// Liveness/readiness checks for orchestrators and load balancers. Readiness probes the real
+// dependencies: Postgres is critical (Unhealthy → 503, instance pulled from rotation); the
+// verification sidecars are Degraded-but-non-gating (only needed for Ghana Card verification, so the
+// API stays "ready" when they're down but the degradation is still reported for monitoring).
+var tripNestIdUrl = builder.Configuration["Services:TripNestId"] ?? "http://localhost:5135";
+var faceMatchUrl = builder.Configuration["Services:FaceMatchSidecar"] ?? "http://localhost:5001";
+
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("postgres", failureStatus: HealthStatus.Unhealthy, tags: new[] { "ready" })
+    .AddTypeActivatedCheck<HttpDependencyHealthCheck>("tripnest-id", HealthStatus.Degraded, new[] { "ready" }, args: tripNestIdUrl)
+    .AddTypeActivatedCheck<HttpDependencyHealthCheck>("face-match", HealthStatus.Degraded, new[] { "ready" }, args: faceMatchUrl);
+
+// In-process caching. MemoryCache is available for service-level caching; OutputCache caches whole
+// HTTP responses for the public, non-personalized GET endpoints (opted in per-endpoint via
+// [OutputCache(PolicyName=...)]). Only anonymous, identical-for-everyone reads are annotated, so a
+// shared cached response is always correct. TTLs are short; tag-based eviction on writes can be
+// layered on later for instant freshness.
+builder.Services.AddMemoryCache();
+builder.Services.AddOutputCache(options =>
+{
+    // Rarely-changing app configuration.
+    options.AddPolicy("config", b => b.Expire(TimeSpan.FromMinutes(5)));
+    // Public listings/details/search — vary by query so each filter combination is cached distinctly.
+    options.AddPolicy("listings", b => b
+        .Expire(TimeSpan.FromSeconds(60))
+        .SetVaryByQuery("*"));
+});
+
+// Share the output cache across instances when Redis is available (registered after AddOutputCache so
+// it replaces the default in-memory store); otherwise the in-memory store is used.
+if (redisMux is not null)
+    builder.Services.AddSingleton<IOutputCacheStore>(_ => new RedisOutputCacheStore(redisMux));
+
+// File storage: Azure Blob when configured (multi-instance-safe; survives restarts/scale-out), else
+// local disk under wwwroot served by UseStaticFiles (single-instance/dev).
+var blobConnection = builder.Configuration["Storage:Blob:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(blobConnection))
+    builder.Services.AddSingleton<IFileStorage>(_ =>
+        new BlobFileStorage(blobConnection, builder.Configuration["Storage:Blob:Container"] ?? "uploads"));
+else
+    builder.Services.AddSingleton<IFileStorage, LocalFileStorage>();
+
+// Edge rate limiting: a coarse fixed-window abuse guard. Backed by Redis when configured (shared
+// counters across instances → a true global limit); in-memory otherwise (per-instance ceiling).
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
-        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.User.GetUserId()
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+
+    static string PartitionKey(HttpContext ctx) =>
+        ctx.User.GetUserId() ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
+
+    // Build a fixed-window partition for the caller — Redis-backed when available, else in-memory.
+    System.Threading.RateLimiting.RateLimitPartition<string> Partition(HttpContext ctx, int permitLimit) =>
+        redisMux is not null
+            ? RedisRateLimitPartition.GetFixedWindowRateLimiter(PartitionKey(ctx), _ => new RedisFixedWindowRateLimiterOptions
             {
-                PermitLimit = 100,
-                Window = TimeSpan.FromMinutes(1)
-            }));
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                ConnectionMultiplexerFactory = () => redisMux
+            })
+            : System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(PartitionKey(ctx),
+                _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = permitLimit,
+                    Window = TimeSpan.FromMinutes(1)
+                });
+
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(
+        ctx => Partition(ctx, 100));
 
     // Tighter, per-user limit for OTP sends (defense-in-depth on top of the service cooldown),
     // so a caller can't fan out SMS even by rotating fast. Opt-in via [EnableRateLimiting("otp")].
-    options.AddPolicy("otp", httpContext =>
-        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: httpContext.User.GetUserId()
-                ?? httpContext.Connection.RemoteIpAddress?.ToString()
-                ?? "anonymous",
-            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 5,
-                Window = TimeSpan.FromMinutes(1)
-            }));
+    options.AddPolicy("otp", ctx => Partition(ctx, 5));
 });
 
 var app = builder.Build();
@@ -269,8 +452,50 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Honour X-Forwarded-* from the hosting reverse proxy (Azure App Service, etc.) so the real client
+// IP and scheme are used — needed for correct rate-limiting partitions, HTTPS detection and logs.
+// Must run before any middleware that inspects the connection.
+var forwardedOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+};
+
+// Only honour X-Forwarded-* from proxies we explicitly trust. Blindly trusting the header (clearing
+// the known-proxy list) lets any client spoof their IP — which would defeat the per-IP rate limiter
+// and forge the client IP in logs. Configure the real reverse-proxy addresses/ranges via
+// ForwardedHeaders:KnownProxies / ForwardedHeaders:KnownNetworks (e.g. the Azure App Service subnet);
+// when none are configured we fall back to the framework default (loopback only), which is safe.
+var knownProxies = app.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>();
+var knownNetworks = app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>();
+if ((knownProxies is { Length: > 0 }) || (knownNetworks is { Length: > 0 }))
+{
+    forwardedOptions.KnownProxies.Clear();
+    forwardedOptions.KnownNetworks.Clear();
+
+    foreach (var proxy in knownProxies ?? Array.Empty<string>())
+        if (System.Net.IPAddress.TryParse(proxy, out var ip))
+            forwardedOptions.KnownProxies.Add(ip);
+
+    // Each network is "baseAddress/prefixLength", e.g. "10.0.0.0/8".
+    foreach (var network in knownNetworks ?? Array.Empty<string>())
+    {
+        var parts = network.Split('/', 2);
+        if (parts.Length == 2 && System.Net.IPAddress.TryParse(parts[0], out var baseIp) && int.TryParse(parts[1], out var prefix))
+            forwardedOptions.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(baseIp, prefix));
+    }
+}
+app.UseForwardedHeaders(forwardedOptions);
+
+// Baseline security response headers on every response (set via OnStarting so they survive the
+// exception handler's response rewrite).
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
 // Catch-all error translation must wrap the whole pipeline.
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// One structured summary line per request (method, path, status, elapsed) with the trace id —
+// the backbone of request-level monitoring.
+app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {
@@ -281,16 +506,36 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = string.Empty;
     });
 }
+else
+{
+    // Outside Development, enforce HTTPS at the browser via HSTS.
+    app.UseHsts();
+}
 
 app.UseHttpsRedirection();
 
+// Serve locally-stored uploads (/uploads/...). Ensure the web root exists so the static file
+// provider has a directory to serve even before the first upload.
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(webRoot);
+app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(webRoot) });
+
 app.UseCors("AllowFrontend");
+
+// Output caching must run after CORS. Only the explicitly-annotated public GET endpoints are cached;
+// everything else passes straight through to auth below.
+app.UseOutputCache();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseRateLimiter();
 
+// Liveness: the process is up and serving (no dependency checks — used for restart decisions).
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+// Readiness: dependencies are usable (DB gates; sidecars reported but non-gating).
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+// Back-compat: the original path returns the full report.
 app.MapHealthChecks("/health");
 app.MapControllers();
 app.MapHub<TripNest.Core.Hubs.ChatHub>("/hubs/chat");

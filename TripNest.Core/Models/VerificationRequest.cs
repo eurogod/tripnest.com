@@ -18,6 +18,11 @@ public class VerificationRequest
     public DateOnly? ClaimedDateOfBirth { get; set; }
 
     public double? FaceMatchScore { get; set; }
+
+    // Anti-spoofing/liveness score (0-100) for the submitted selfie, returned by the
+    // face-match sidecar. Persisted alongside the match score for audit and support review.
+    public double? LivenessScore { get; set; }
+
     public string? FailureReason { get; set; }
     public VerificationStatus Status { get; set; } = VerificationStatus.NotStarted;
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;

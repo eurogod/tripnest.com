@@ -41,6 +41,13 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired(false)
             .HasMaxLength(50);
 
+        // Public handle must be unambiguous — two accounts must never share a username.
+        // (Postgres treats NULLs as distinct, so users without a handle are unaffected.)
+        builder.Property(u => u.Username)
+            .IsRequired(false)
+            .HasMaxLength(50);
+        builder.HasIndex(u => u.Username).IsUnique();
+
         builder.Property(u => u.ProfilePhotoPath)
             .IsRequired(false)
             .HasMaxLength(500);

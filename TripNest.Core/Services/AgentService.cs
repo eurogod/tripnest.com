@@ -11,17 +11,20 @@ public class AgentService : IAgentService
     private readonly IAgentRepository _agentRepository;
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<ViewingRequest> _viewingRequestRepository;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<AgentService> _logger;
 
     public AgentService(
         IAgentRepository agentRepository,
         IPropertyRepository propertyRepository,
         IRepository<ViewingRequest> viewingRequestRepository,
+        IUserRepository userRepository,
         ILogger<AgentService> logger)
     {
         _agentRepository = agentRepository;
         _propertyRepository = propertyRepository;
         _viewingRequestRepository = viewingRequestRepository;
+        _userRepository = userRepository;
         _logger = logger;
     }
 
@@ -29,8 +32,7 @@ public class AgentService : IAgentService
     {
         try
         {
-            var agents = await _agentRepository.GetAllAsync();
-            var activeAgents = agents.Where(a => a.Status == AgentStatus.Active);
+            var activeAgents = await _agentRepository.FindAsync(a => a.Status == AgentStatus.Active);
 
             // serviceArea filtering is a future feature — no area field on Agent yet
             return activeAgents.Select(MapToAgent).ToList();
@@ -40,6 +42,62 @@ public class AgentService : IAgentService
             _logger.LogError(ex, "Error retrieving verified agents");
             throw;
         }
+    }
+
+    public async Task<AgentResponse?> GetMyProfileAsync(string userId)
+    {
+        var agent = (await _agentRepository.FindAsync(a => a.UserId == userId)).FirstOrDefault();
+        return agent is null ? null : MapToAgent(agent);
+    }
+
+    public async Task<AgentResponse> UpsertMyProfileAsync(string userId, UpsertAgentProfileRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.LicenseNumber))
+            throw new InvalidOperationException("A licence number is required");
+        if (string.IsNullOrWhiteSpace(request.Bio))
+            throw new InvalidOperationException("A short bio is required");
+        if (request.CommissionRate is < 0 or > 100)
+            throw new InvalidOperationException("Commission rate must be between 0 and 100");
+        if (request.YearsOfExperience is < 0 or > 60)
+            throw new InvalidOperationException("Years of experience must be between 0 and 60");
+
+        var user = await _userRepository.GetByIdAsync(userId)
+            ?? throw new InvalidOperationException("User not found");
+
+        var phone = string.IsNullOrWhiteSpace(request.PhoneNumber) ? user.Phone : request.PhoneNumber!;
+
+        var agent = (await _agentRepository.FindAsync(a => a.UserId == userId)).FirstOrDefault();
+        if (agent is null)
+        {
+            agent = new Agent
+            {
+                UserId = userId,
+                LicenseNumber = request.LicenseNumber,
+                PhoneNumber = phone,
+                Bio = request.Bio,
+                Status = AgentStatus.Active,
+                CommissionRate = request.CommissionRate,
+                YearsOfExperience = request.YearsOfExperience,
+                Certifications = request.Certifications
+            };
+            await _agentRepository.AddAsync(agent);
+            _logger.LogInformation("Agent directory profile created for user {UserId}", userId);
+        }
+        else
+        {
+            // Deliberately do NOT touch Status here: a Suspended agent must not be able to
+            // re-activate themselves by resubmitting their profile.
+            agent.LicenseNumber = request.LicenseNumber;
+            agent.PhoneNumber = phone;
+            agent.Bio = request.Bio;
+            agent.CommissionRate = request.CommissionRate;
+            agent.YearsOfExperience = request.YearsOfExperience;
+            agent.Certifications = request.Certifications;
+            await _agentRepository.UpdateAsync(agent);
+        }
+
+        await _agentRepository.SaveChangesAsync();
+        return MapToAgent(agent);
     }
 
     public async Task<AgentResponse?> GetAgentProfileAsync(string agentId)
@@ -108,7 +166,11 @@ public class AgentService : IAgentService
             if (viewingRequest == null)
                 throw new InvalidOperationException("Viewing request not found");
 
-            if (viewingRequest.TenantId != userId && viewingRequest.AgentId != userId)
+            // TenantId is a user id, but AgentId is the Agent *entity* id — resolve the caller's agent
+            // profile so an agent can act on their own request (not just the tenant).
+            var myAgent = await _agentRepository.GetByUserIdAsync(userId);
+            var callerIsAssignedAgent = myAgent is not null && viewingRequest.AgentId == myAgent.Id;
+            if (viewingRequest.TenantId != userId && !callerIsAssignedAgent)
                 throw new UnauthorizedAccessException("You are not authorized to update this viewing request");
 
             if (!Enum.TryParse<ViewingRequestStatus>(status, ignoreCase: true, out var parsedStatus))
@@ -124,6 +186,28 @@ public class AgentService : IAgentService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating viewing request status for {RequestId}", requestId);
+            throw;
+        }
+    }
+
+    public async Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId)
+    {
+        try
+        {
+            // The caller may be the requesting tenant and/or an assigned agent.
+            var agent = await _agentRepository.GetByUserIdAsync(userId);
+            var agentId = agent?.Id;
+            var requests = await _viewingRequestRepository.FindAsync(
+                v => v.TenantId == userId || (agentId != null && v.AgentId == agentId));
+
+            return requests
+                .OrderByDescending(v => v.ScheduledAt)
+                .Select(MapToViewingRequest)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving viewing requests for user {UserId}", userId);
             throw;
         }
     }

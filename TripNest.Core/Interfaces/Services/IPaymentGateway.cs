@@ -2,6 +2,8 @@ namespace TripNest.Core.Interfaces.Services;
 
 public record PaymentInitResult(bool Success, string CheckoutUrl, string Reference);
 public record PaymentVerifyResult(bool Success, decimal Amount);
+public record TransferRecipientResult(bool Success, string? RecipientCode, string? Error);
+public record TransferResult(bool Success, string? TransferCode, string? Status, string? Error);
 
 /// <summary>
 /// Abstraction over a payment provider (Paystack). Implementations must degrade gracefully
@@ -17,4 +19,14 @@ public interface IPaymentGateway
 
     /// <summary>Refunds (all or part of) a transaction.</summary>
     Task<bool> RefundAsync(string reference, decimal amount);
+
+    /// <summary>Registers a payout destination (MoMo wallet or bank account) with the provider,
+    /// returning the recipient code used for transfers.</summary>
+    Task<TransferRecipientResult> CreateTransferRecipientAsync(
+        string accountName, string accountNumber, string providerCode, string channel, string currency);
+
+    /// <summary>Sends money from the platform balance to a registered recipient. The reference
+    /// makes the call idempotent — the provider executes one transfer per reference.</summary>
+    Task<TransferResult> InitiateTransferAsync(
+        decimal amount, string currency, string recipientCode, string reference, string reason);
 }

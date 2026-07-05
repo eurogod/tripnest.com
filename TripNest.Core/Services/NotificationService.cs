@@ -14,6 +14,7 @@ public class NotificationService : INotificationService
     private readonly IRepository<CommunicationPreference> _preferenceRepository;
     private readonly ISmsSender _smsSender;
     private readonly IEmailSender _emailSender;
+    private readonly INotificationDispatchQueue _dispatchQueue;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
@@ -22,6 +23,7 @@ public class NotificationService : INotificationService
         IRepository<CommunicationPreference> preferenceRepository,
         ISmsSender smsSender,
         IEmailSender emailSender,
+        INotificationDispatchQueue dispatchQueue,
         ILogger<NotificationService> logger)
     {
         _notificationRepository = notificationRepository;
@@ -29,6 +31,7 @@ public class NotificationService : INotificationService
         _preferenceRepository = preferenceRepository;
         _smsSender = smsSender;
         _emailSender = emailSender;
+        _dispatchQueue = dispatchQueue;
         _logger = logger;
     }
 
@@ -37,19 +40,44 @@ public class NotificationService : INotificationService
         var preference = await GetOrCreatePreferenceAsync(userId);
         var user = await _userRepository.GetByIdAsync(userId);
 
-        var sentViaSms = false;
-        var sentViaEmail = false;
-
         // Emergency alerts ignore the opt-out entirely; otherwise honour each channel's preference.
-        var shouldSms = isEmergency || preference.SmsEnabled;
-        var shouldEmail = isEmergency || preference.EmailEnabled;
+        var shouldSms = (isEmergency || preference.SmsEnabled) && user != null && !string.IsNullOrWhiteSpace(user.Phone);
+        var shouldEmail = (isEmergency || preference.EmailEnabled) && user != null && !string.IsNullOrWhiteSpace(user.Email);
 
-        if (shouldSms && user != null && !string.IsNullOrWhiteSpace(user.Phone))
-            sentViaSms = await SafeSendSmsAsync(user.Phone, $"{title}: {body}");
+        if (isEmergency)
+        {
+            // Emergency alerts are sent INLINE so the caller (e.g. the SOS endpoint) gets a guaranteed
+            // delivery attempt before the request returns — we never defer a safety alert to a queue.
+            var emSms = shouldSms ? await SafeSendSmsAsync(user!.Phone, $"{title}: {body}") : false;
+            var emEmail = shouldEmail ? await SafeSendEmailAsync(user!.Email, title, $"<p>{body}</p>") : false;
 
-        if (shouldEmail && user != null && !string.IsNullOrWhiteSpace(user.Email))
-            sentViaEmail = await SafeSendEmailAsync(user.Email, title, $"<p>{body}</p>");
+            await PersistNotificationAsync(userId, type, title, body, emSms, emEmail, isEmergency: true);
 
+            _logger.LogInformation(
+                "Notified user {UserId} ({Type}) inline (emergency) — sms:{Sms} email:{Email}",
+                userId, type, emSms, emEmail);
+            return;
+        }
+
+        // Non-emergency: persist the in-app record now (the source of truth, a fast DB write) and hand
+        // the slow external SMS/email off to the background dispatcher so it never blocks the request.
+        var notification = await PersistNotificationAsync(userId, type, title, body, sentViaSms: false, sentViaEmail: false, isEmergency: false);
+
+        if (shouldSms || shouldEmail)
+        {
+            _dispatchQueue.Enqueue(new NotificationDispatchJob(
+                notification.Id, user!.Phone, user.Email, title, body, shouldSms, shouldEmail));
+        }
+
+        _logger.LogInformation(
+            "Notified user {UserId} ({Type}) — queued sms:{Sms} email:{Email}",
+            userId, type, shouldSms, shouldEmail);
+    }
+
+    private async Task<Notification> PersistNotificationAsync(
+        string userId, NotificationType type, string title, string body,
+        bool sentViaSms, bool sentViaEmail, bool isEmergency)
+    {
         var notification = new Notification
         {
             UserId = userId,
@@ -63,10 +91,7 @@ public class NotificationService : INotificationService
 
         await _notificationRepository.AddAsync(notification);
         await _notificationRepository.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "Notified user {UserId} ({Type}) — sms:{Sms} email:{Email} emergency:{Emergency}",
-            userId, type, sentViaSms, sentViaEmail, isEmergency);
+        return notification;
     }
 
     public async Task<CommunicationPreferenceResponse> GetPreferenceAsync(string userId)
@@ -85,8 +110,8 @@ public class NotificationService : INotificationService
 
     private async Task<CommunicationPreference> GetOrCreatePreferenceAsync(string userId)
     {
-        var existing = (await _preferenceRepository.GetAllAsync())
-            .FirstOrDefault(p => p.UserId == userId);
+        var existing = (await _preferenceRepository.FindAsync(p => p.UserId == userId))
+            .FirstOrDefault();
         if (existing != null)
             return existing;
 

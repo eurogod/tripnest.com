@@ -17,4 +17,18 @@ public class WalkthroughRepository : Repository<Walkthrough>, IWalkthroughReposi
             .Where(w => w.PropertyId == propertyId)
             .ToListAsync();
     }
+
+    public async Task<WalkthroughStats> GetStatsAsync(DateTime recentSince)
+    {
+        var set = _context.Set<Walkthrough>().AsNoTracking();
+
+        // Casting Max to DateTime? yields null (not an exception) when there are no rows; Sum over
+        // an empty set is 0.
+        return new WalkthroughStats(
+            Total: await set.CountAsync(),
+            DistinctPropertyCount: await set.Select(w => w.PropertyId).Distinct().CountAsync(),
+            RecentCount: await set.CountAsync(w => w.CreatedAt > recentSince),
+            LastCreatedAt: await set.MaxAsync(w => (DateTime?)w.CreatedAt),
+            TotalDurationSeconds: await set.SumAsync(w => (long)w.DurationSeconds));
+    }
 }

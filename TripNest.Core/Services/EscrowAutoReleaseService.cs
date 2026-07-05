@@ -26,7 +26,24 @@ public class EscrowAutoReleaseService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Run once daily at 2 AM UTC
+        // Catch-up pass shortly after startup so eligible escrows aren't stranded when an instance
+        // restarts before the next 02:00 window (the old schedule could defer releases up to ~24h).
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            await ProcessAutoReleasesAsync(stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("EscrowAutoReleaseService cancelled");
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in EscrowAutoReleaseService startup pass");
+        }
+
+        // Then run once daily at 2 AM UTC.
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -65,13 +82,19 @@ public class EscrowAutoReleaseService : BackgroundService
             var gracePeriodHours = int.Parse(_configuration["Escrow:GracePeriodHours"] ?? "24");
             var cutoffTime = DateTime.UtcNow.AddHours(-gracePeriodHours);
 
-            // Grace period is measured from when funds were actually held (HeldAt),
-            // not from when the escrow row was created.
+            // Funds are held when the tenant PAYS — often days or weeks before the stay. Releasing
+            // on HeldAt alone would hand the landlord the money before check-in even happens,
+            // gutting the tenant's protection. Eligibility therefore requires BOTH: the stay has
+            // ended (checkout at least the grace period ago, leaving a dispute window) AND the
+            // funds have been held at least that long. HeldAt alone is the fallback only for
+            // orphaned escrows with no booking row.
             var escrowsToRelease = await context.Escrows
                 .Where(e => e.Status == EscrowStatus.HeldInEscrow &&
                            e.HeldAt != null &&
-                           e.HeldAt < cutoffTime)
+                           e.HeldAt < cutoffTime &&
+                           (e.Booking == null || e.Booking.CheckOutDate < cutoffTime))
                 .Include(e => e.Booking)
+                    .ThenInclude(b => b!.Property)
                 .ToListAsync(cancellationToken);
 
             foreach (var escrow in escrowsToRelease)
@@ -101,6 +124,16 @@ public class EscrowAutoReleaseService : BackgroundService
             {
                 await context.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Auto-released {EscrowCount} escrows", escrowsToRelease.Count);
+
+                // Disburse each released escrow to its host, exactly like a manual release.
+                // CreateForReleasedEscrowAsync is idempotent and never throws for provider issues.
+                var payoutService = scope.ServiceProvider.GetRequiredService<TripNest.Core.Interfaces.Services.IPayoutService>();
+                foreach (var escrow in escrowsToRelease)
+                {
+                    var landlordId = escrow.Booking?.Property?.UserId;
+                    if (landlordId is not null)
+                        await payoutService.CreateForReleasedEscrowAsync(escrow, landlordId);
+                }
             }
         }
         catch (Exception ex)

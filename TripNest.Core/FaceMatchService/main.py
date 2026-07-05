@@ -71,6 +71,8 @@ class CompareFacesRequest(BaseModel):
 class CompareFacesResponse(BaseModel):
     verified: bool
     similarity_score: float  # 0-100, higher = more similar
+    liveness_score: float    # 0-100, higher = more likely a live capture (anti-spoofing)
+    liveness_passed: bool    # the anti-spoofing model's own real/spoof verdict on the selfie
     distance: float          # raw DeepFace distance metric (lower = more similar)
     threshold: float
     model: str
@@ -141,6 +143,23 @@ def compare_faces(request: CompareFacesRequest):
         # Serialize the memory-heavy inference so concurrent requests queue
         # rather than running in parallel and OOM-killing the process.
         with _inference_semaphore:
+            # Anti-spoofing / liveness on the SELFIE only (photo2). The NIA reference
+            # photo (photo1) is trusted by definition, so spoof-checking it is pointless
+            # and printed government photos would fail it anyway. extract_faces with
+            # anti_spoofing=True runs DeepFace's MiniFASNet model and tags each detected
+            # face with is_real + antispoof_score (0-1, higher = more likely live).
+            faces = _deepface.extract_faces(
+                img_path=path2,
+                detector_backend=request.detector_backend,
+                enforce_detection=True,
+                anti_spoofing=True,
+            )
+            # A selfie may contain more than one face; judge liveness on the largest
+            # (the subject), not an incidental background face.
+            primary = max(faces, key=lambda f: f["facial_area"]["w"] * f["facial_area"]["h"])
+            liveness_score = round(float(primary.get("antispoof_score", 0.0)) * 100, 2)
+            liveness_passed = bool(primary.get("is_real", False))
+
             result = _deepface.verify(
                 img1_path=path1,
                 img2_path=path2,
@@ -167,6 +186,8 @@ def compare_faces(request: CompareFacesRequest):
     return CompareFacesResponse(
         verified=verified,
         similarity_score=round(similarity, 2),
+        liveness_score=liveness_score,
+        liveness_passed=liveness_passed,
         distance=round(distance, 4),
         threshold=round(threshold, 4),
         model=request.model_name,

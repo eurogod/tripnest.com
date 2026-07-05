@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using TripNest.Core.DTOs.Auth;
 using TripNest.Core.Interfaces.Repositories;
+using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
 
@@ -14,11 +16,15 @@ namespace TripNest.Core.Controllers;
 public class ProfileController : ControllerBase
 {
     private readonly IUserRepository _userRepository;
+    private readonly IFileStorage _fileStorage;
+    private readonly IPhoneNumberValidator _phoneValidator;
     private readonly ILogger<ProfileController> _logger;
 
-    public ProfileController(IUserRepository userRepository, ILogger<ProfileController> logger)
+    public ProfileController(IUserRepository userRepository, IFileStorage fileStorage, IPhoneNumberValidator phoneValidator, ILogger<ProfileController> logger)
     {
         _userRepository = userRepository;
+        _fileStorage = fileStorage;
+        _phoneValidator = phoneValidator;
         _logger = logger;
     }
 
@@ -40,24 +46,35 @@ public class ProfileController : ControllerBase
             return BadRequest(ApiResponse<object>.BadRequest(
                 "Your identity isn't verified yet, so a TripNest ID card can't be issued."));
 
-        var pdf = Pdf.IdCardPdf.Render(user, TryReadPhoto(user.ProfilePhotoPath));
+        var pdf = Pdf.IdCardPdf.Render(user, await TryReadPhotoAsync(user.ProfilePhotoPath));
         return File(pdf, "application/pdf", $"tripnest-id-{user.TripNestId}.pdf");
     }
 
     // Best-effort load of the profile photo for embedding; placeholder initials are used if missing.
-    private static byte[]? TryReadPhoto(string? path)
+    // Reads through IFileStorage so the same stored path works under both local disk and Azure Blob,
+    // and so the read is constrained to the uploads area (no arbitrary-path reads).
+    private async Task<byte[]?> TryReadPhotoAsync(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
             return null;
         try
         {
-            var full = Path.IsPathRooted(path)
-                ? path
-                : Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", path.TrimStart('/'));
-            return System.IO.File.Exists(full) ? System.IO.File.ReadAllBytes(full) : null;
+            await using var stream = await _fileStorage.OpenReadAsync(path);
+            if (stream is null)
+                return null;
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            return buffer.ToArray();
         }
-        catch
+        catch (Exceptions.ValidationException)
         {
+            // Path outside the uploads area — treat as no photo rather than surfacing an error.
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load profile photo for ID card");
             return null;
         }
     }
@@ -88,6 +105,7 @@ public class ProfileController : ControllerBase
                 user.PhoneVerified,
                 user.TripNestId,
                 user.ProfilePhotoPath,
+                user.Username,
                 user.Bio
             };
 
@@ -102,7 +120,7 @@ public class ProfileController : ControllerBase
 
     [HttpPut("me")]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<object>>> UpdateProfile([FromBody] dynamic request)
+    public async Task<ActionResult<ApiResponse<object>>> UpdateProfile([FromBody] UpdateProfileRequest request)
     {
         try
         {
@@ -115,13 +133,43 @@ public class ProfileController : ControllerBase
                 return NotFound(ApiResponse<object>.NotFound("User"));
 
             user.FullName = request.FullName ?? user.FullName;
-            user.Phone = request.Phone ?? user.Phone;
             user.Bio = request.Bio ?? user.Bio;
+            if (request.Username is not null)
+            {
+                var username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
+
+                // A handle identifies one account: refuse any username another user already holds
+                // (case-insensitively, so "Kwame" can't impersonate "kwame"). The unique index is
+                // the backstop; this check gives a clean 400 instead of a database error.
+                if (username is not null)
+                {
+                    var lowered = username.ToLowerInvariant();
+                    var taken = (await _userRepository.FindAsync(u =>
+                            u.Id != userId && u.Username != null && u.Username.ToLower() == lowered))
+                        .Any();
+                    if (taken)
+                        throw new InvalidOperationException("That username is already taken");
+                }
+
+                user.Username = username;
+            }
+
+            // Normalise the phone to E.164 (same as registration) so a profile edit can't store an
+            // invalid number that later breaks SMS/OTP delivery.
+            if (request.Phone is not null)
+            {
+                user.Phone = _phoneValidator.Normalize(request.Phone)
+                    ?? throw new InvalidOperationException("Please provide a valid phone number");
+            }
 
             await _userRepository.UpdateAsync(user);
             await _userRepository.SaveChangesAsync();
 
             return Ok(ApiResponse<object>.Ok("Profile updated", new { }));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {
@@ -144,23 +192,23 @@ public class ProfileController : ControllerBase
             if (photo == null || photo.Length == 0)
                 return BadRequest(ApiResponse<object>.BadRequest("Photo file is required"));
 
-            var filename = $"profile-{userId}-{Guid.NewGuid()}{Path.GetExtension(photo.FileName)}";
-            var filepath = Path.Combine("/uploads", "profiles", filename);
-
-            using (var stream = new FileStream(filepath, FileMode.Create))
-            {
-                await photo.CopyToAsync(stream);
-            }
+            // Storage validates type + size and returns a servable path/URL (local disk or Azure Blob).
+            var photoPath = await _fileStorage.SaveAsync("profiles", photo, UploadKind.Image);
 
             var user = await _userRepository.GetByIdAsync(userId);
             if (user != null)
             {
-                user.ProfilePhotoPath = filepath;
+                user.ProfilePhotoPath = photoPath;
                 await _userRepository.UpdateAsync(user);
                 await _userRepository.SaveChangesAsync();
             }
 
-            return Ok(ApiResponse<object>.Ok("Profile photo uploaded", new { photoPath = filepath }));
+            return Ok(ApiResponse<object>.Ok("Profile photo uploaded", new { photoPath }));
+        }
+        catch (TripNest.Core.Exceptions.ValidationException ex)
+        {
+            // Rejected type/size from the storage validator.
+            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
         }
         catch (Exception ex)
         {

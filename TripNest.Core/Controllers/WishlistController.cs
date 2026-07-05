@@ -39,9 +39,8 @@ public class WishlistController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var all = await _wishlistRepository.GetAllAsync();
-            var items = all
-                .Where(w => w.UserId == userId)
+            var mine = await _wishlistRepository.FindAsync(w => w.UserId == userId);
+            var items = mine
                 .Select(w => (object)new
                 {
                     w.Id,
@@ -76,8 +75,8 @@ public class WishlistController : ControllerBase
             if (property is null)
                 return NotFound(ApiResponse<object>.NotFound("Property"));
 
-            var all = await _wishlistRepository.GetAllAsync();
-            var existing = all.FirstOrDefault(w => w.UserId == userId && w.PropertyId == propertyId);
+            var existing = (await _wishlistRepository.FindAsync(w => w.UserId == userId && w.PropertyId == propertyId))
+                .FirstOrDefault();
             if (existing is not null)
                 return Conflict(ApiResponse<object>.Conflict("WishlistItem"));
 
@@ -119,8 +118,8 @@ public class WishlistController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var all = await _wishlistRepository.GetAllAsync();
-            var item = all.FirstOrDefault(w => w.UserId == userId && w.PropertyId == propertyId);
+            var item = (await _wishlistRepository.FindAsync(w => w.UserId == userId && w.PropertyId == propertyId))
+                .FirstOrDefault();
             if (item is null)
                 return NotFound(ApiResponse<object>.NotFound("WishlistItem"));
 

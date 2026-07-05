@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.Interfaces.Services;
@@ -27,6 +28,7 @@ public class CaretakersController : ControllerBase
     /// Get available caretakers, optionally filtered by service type and area
     /// </summary>
     [HttpGet]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<List<CaretakerResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<CaretakerResponse>>>> GetCaretakers([FromQuery] string? serviceType, [FromQuery] string? area)
     {
@@ -46,6 +48,7 @@ public class CaretakersController : ControllerBase
     /// Get caretaker profile with ratings
     /// </summary>
     [HttpGet("{id}")]
+    [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<CaretakerResponse>>> GetCaretaker(string id)

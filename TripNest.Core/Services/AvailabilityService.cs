@@ -31,8 +31,7 @@ public class AvailabilityService : IAvailabilityService
         if (bookingOverlap)
             return false;
 
-        var blocked = (await _blockedDateRepository.GetAllAsync())
-            .Where(d => d.PropertyId == propertyId);
+        var blocked = await _blockedDateRepository.FindAsync(d => d.PropertyId == propertyId);
         var blockedOverlap = blocked.Any(d => d.StartDate < checkOut && d.EndDate > checkIn);
 
         return !blockedOverlap;
@@ -43,8 +42,7 @@ public class AvailabilityService : IAvailabilityService
         var bookings = (await _bookingRepository.GetByPropertyIdAsync(propertyId))
             .Where(b => b.Status == BookingStatus.Confirmed)
             .Select(b => (b.CheckInDate.Date, b.CheckOutDate.Date));
-        var blocked = (await _blockedDateRepository.GetAllAsync())
-            .Where(d => d.PropertyId == propertyId)
+        var blocked = (await _blockedDateRepository.FindAsync(d => d.PropertyId == propertyId))
             .Select(d => (d.StartDate.Date, d.EndDate.Date));
         var unavailable = bookings.Concat(blocked).ToList();
 

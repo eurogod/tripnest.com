@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Config;
 using TripNest.Core.Response;
@@ -21,6 +22,7 @@ public class ConfigController : ControllerBase
     }
 
     [HttpGet("app-info")]
+    [OutputCache(PolicyName = "config")]
     [ProducesResponseType(typeof(ApiResponse<AppConfigResponse>), StatusCodes.Status200OK)]
     public ActionResult<ApiResponse<AppConfigResponse>> GetAppInfo()
     {
