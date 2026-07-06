@@ -126,4 +126,49 @@ public class GeminiAiClient : IAiClient
             return null;
         }
     }
+
+    public async Task<string?> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+    {
+        if (!IsConfigured)
+        {
+            _logger.LogInformation("[Gemini not configured] skipping completion");
+            return null;
+        }
+
+        try
+        {
+            var payload = new
+            {
+                systemInstruction = new { parts = new[] { new { text = systemPrompt } } },
+                contents = new[] { new { role = "user", parts = new[] { new { text = userPrompt } } } },
+                // Callers prompt for JSON; forcing the mime type keeps the reply fence-free.
+                generationConfig = new { responseMimeType = "application/json" },
+            };
+
+            using var response = await _httpClient.PostAsync(
+                $"v1beta/models/{Uri.EscapeDataString(_model)}:generateContent",
+                new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"),
+                cancellationToken);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Gemini completion failed ({Status}): {Body}", response.StatusCode, json);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+                return null;
+
+            return string.Concat(candidates[0]
+                .GetProperty("content").GetProperty("parts").EnumerateArray()
+                .Where(p => p.TryGetProperty("text", out _))
+                .Select(p => p.GetProperty("text").GetString()));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gemini completion failed");
+            return null;
+        }
+    }
 }

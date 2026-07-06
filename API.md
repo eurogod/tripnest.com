@@ -175,10 +175,17 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/conversations` | 🔒 |
 | GET | `/conversations/{id}` | 🔒 |
 | GET | `/conversations/{id}/messages?page=&pageSize=` | 🔒 |
-| POST | `/conversations/{id}/messages` | 🔒 |
+| POST | `/conversations/{id}/messages` | 🔒 (scanned for off-platform-payment attempts — warns the recipient in-app, never blocks the message) |
+| POST | `/conversations/{id}/suggest-reply` | 🔒 (participant only; AI-drafted reply from the linked listing's facts, for the user to edit and send; 400 when AI unconfigured; rate-limited `ai`) |
 | PATCH | `/messages/{id}/read` | 🔒 |
 | PATCH | `/conversations/{id}/mark-read` | 🔒 |
 | DELETE | `/conversations/{id}` | 🔒 |
+
+### Assistant — `api/assistant`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/ask` | 🔒 (AI Q&A grounded in platform rules + the caller's own bookings/escrow/verification; escalates to an admin support ticket when a human is needed; 400 when AI unconfigured; rate-limited `ai`) |
+| GET | `/history?limit=` | 🔒 (the caller's assistant conversation, oldest first) |
 
 ### Caretakers — `api/caretakers`
 | Method | Path | Access |
@@ -317,6 +324,8 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/landlord/properties/performance` | 🔒 `[Landlord]` |
 | GET | `/api/admin/stats` | 🔒 `[Admin]` |
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
+| GET | `/api/admin/support-tickets` | 🔒 `[Admin]` (open assistant escalations, oldest first) |
+| POST | `/api/admin/support-tickets/{ticketId}/resolve` | 🔒 `[Admin]` (marks resolved, notifies the user; idempotent) |
 
 ### Pricing & calendar — `api/pricing`, `api/calendar`
 | Method | Path | Access |

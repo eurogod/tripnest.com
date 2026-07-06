@@ -9,6 +9,7 @@ using TripNest.Core.DTOs.Receipts;
 using TripNest.Core.DTOs.Reviews;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
+using TripNest.Core.Models;
 
 namespace TripNest.Core.Interfaces.Services;
 
@@ -119,6 +120,12 @@ public interface IReceiptService
     Task<ReceiptResponse?> GetReceiptByBookingAsync(string bookingId, string userId);
 }
 
+/// <summary>Watches chat for off-platform payment attempts; warns recipients, never blocks.</summary>
+public interface IScamDetectionService
+{
+    Task ScanMessageAsync(Message message, Conversation conversation);
+}
+
 public interface IChatService
 {
     Task<List<ConversationResponse>> GetUserConversationsAsync(string userId);
@@ -129,4 +136,5 @@ public interface IChatService
     Task MarkMessageAsReadAsync(string messageId, string userId);
     Task MarkConversationAsReadAsync(string conversationId, string userId);
     Task DeleteConversationAsync(string conversationId, string userId);
+    Task<string> SuggestReplyAsync(string conversationId, string userId);
 }

@@ -52,6 +52,18 @@ public class StubAiClient : IAiClient
         Requests.Add((property.Id, photos.Count));
         return Task.FromResult(Configured ? NextSuggestion : null);
     }
+
+    /// <summary>What the next CompleteAsync returns; null simulates a provider failure.</summary>
+    public string? NextCompletion { get; set; }
+
+    /// <summary>Every completion request, so tests can assert what was sent to the model.</summary>
+    public ConcurrentBag<(string SystemPrompt, string UserPrompt)> Completions { get; } = new();
+
+    public Task<string?> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+    {
+        Completions.Add((systemPrompt, userPrompt));
+        return Task.FromResult(Configured ? NextCompletion : null);
+    }
 }
 
 /// <summary>Test double for the payment gateway with configurable verify behaviour.</summary>

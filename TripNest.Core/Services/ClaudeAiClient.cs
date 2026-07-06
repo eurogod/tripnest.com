@@ -94,6 +94,34 @@ public class ClaudeAiClient : IAiClient
         }
     }
 
+    public async Task<string?> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default)
+    {
+        if (_client is null)
+        {
+            _logger.LogInformation("[AI not configured] skipping completion");
+            return null;
+        }
+
+        try
+        {
+            var response = await _client.Messages.Create(new MessageCreateParams
+            {
+                Model = _model,
+                MaxTokens = 2048,
+                Thinking = new ThinkingConfigAdaptive(),
+                System = systemPrompt,
+                Messages = [new() { Role = Role.User, Content = userPrompt }],
+            }, cancellationToken: cancellationToken);
+
+            return response.Content.Select(b => b.Value).OfType<TextBlock>().FirstOrDefault()?.Text;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AI completion failed");
+            return null;
+        }
+    }
+
     private static readonly Dictionary<string, JsonElement> SuggestionSchema = new()
     {
         ["type"] = JsonSerializer.SerializeToElement("object"),

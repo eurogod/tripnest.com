@@ -24,4 +24,11 @@ public interface IAiClient
     /// </summary>
     Task<ListingCopySuggestion?> GenerateListingCopyAsync(
         Property property, IReadOnlyList<AiImage> photos, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// General text completion for the assistant / chat features. The system prompt should
+    /// instruct the model to reply with JSON; callers parse via <c>AiJson.TryParse</c> and treat
+    /// unparseable output like a provider failure. Returns null when unconfigured or on error.
+    /// </summary>
+    Task<string?> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default);
 }

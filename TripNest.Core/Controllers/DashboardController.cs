@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Dashboard;
+using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -14,17 +15,42 @@ namespace TripNest.Core.Controllers;
 public class DashboardController : ControllerBase
 {
     private readonly IDashboardStatsService _statsService;
+    private readonly IAssistantService _assistantService;
     private readonly IAuditLogRepository _auditRepository;
     private readonly ILogger<DashboardController> _logger;
 
     public DashboardController(
         IDashboardStatsService statsService,
+        IAssistantService assistantService,
         IAuditLogRepository auditRepository,
         ILogger<DashboardController> logger)
     {
         _statsService = statsService;
+        _assistantService = assistantService;
         _auditRepository = auditRepository;
         _logger = logger;
+    }
+
+    /// <summary>Open support tickets (assistant escalations), oldest first.</summary>
+    [HttpGet("support-tickets")]
+    [ProducesResponseType(typeof(ApiResponse<List<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>>> GetSupportTickets()
+    {
+        var tickets = await _assistantService.GetOpenTicketsAsync();
+        return Ok(ApiResponse<List<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>.Ok("Support tickets retrieved", tickets));
+    }
+
+    /// <summary>Marks a support ticket resolved and notifies the user (idempotent).</summary>
+    [HttpPost("support-tickets/{ticketId}/resolve")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> ResolveSupportTicket(string ticketId)
+    {
+        var adminId = User.GetUserId();
+        if (string.IsNullOrEmpty(adminId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        await _assistantService.ResolveTicketAsync(ticketId, adminId);
+        return Ok(ApiResponse<object>.Ok("Support ticket resolved", new { }));
     }
 
     [HttpGet("stats")]

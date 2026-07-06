@@ -94,6 +94,24 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
+    /// Drafts an AI reply suggestion from the linked listing's facts and the recent messages —
+    /// the participant edits and sends it themselves; nothing is sent automatically.
+    /// </summary>
+    [HttpPost("conversations/{id}/suggest-reply")]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("ai")]
+    [ProducesResponseType(typeof(ApiResponse<SuggestedReplyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<SuggestedReplyResponse>>> SuggestReply(string id)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var reply = await _chatService.SuggestReplyAsync(id, userId);
+        return Ok(ApiResponse<SuggestedReplyResponse>.Ok("Reply suggested", new SuggestedReplyResponse { Reply = reply }));
+    }
+
+    /// <summary>
     /// Send a message (REST endpoint - for non-realtime clients)
     /// </summary>
     [HttpPost("conversations/{id}/messages")]

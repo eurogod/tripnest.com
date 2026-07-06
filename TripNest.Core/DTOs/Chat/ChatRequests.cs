@@ -13,3 +13,8 @@ public class SendMessageRequest
     [StringLength(4000, MinimumLength = 1)]
     public required string Body { get; set; }
 }
+
+public class SuggestedReplyResponse
+{
+    public required string Reply { get; set; }
+}
