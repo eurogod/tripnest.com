@@ -15,6 +15,7 @@ public class PropertyService : IPropertyService
     private readonly IRepository<PropertyPhoto> _photoRepository;
     private readonly IFileStorage _fileStorage;
     private readonly IAiClient _aiClient;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<PropertyService> _logger;
 
     public PropertyService(
@@ -22,12 +23,14 @@ public class PropertyService : IPropertyService
         IRepository<PropertyPhoto> photoRepository,
         IFileStorage fileStorage,
         IAiClient aiClient,
+        IUserRepository userRepository,
         ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
         _photoRepository = photoRepository;
         _fileStorage = fileStorage;
         _aiClient = aiClient;
+        _userRepository = userRepository;
         _logger = logger;
     }
 
@@ -46,7 +49,9 @@ public class PropertyService : IPropertyService
             throw new ValidationException("AI listing suggestions are not configured on this server.");
 
         var photos = await LoadPhotosForAiAsync(propertyId);
-        var suggestion = await _aiClient.GenerateListingCopyAsync(property, photos);
+        var owner = await _userRepository.GetByIdAsync(userId);
+        var language = owner?.PreferredLanguage ?? Enums.Language.English;
+        var suggestion = await _aiClient.GenerateListingCopyAsync(property, photos, language);
         return suggestion
             ?? throw new ValidationException("Listing suggestions are unavailable right now. Please try again.");
     }

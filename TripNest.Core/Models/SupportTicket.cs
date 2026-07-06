@@ -16,6 +16,8 @@ public class SupportTicket
     /// <summary>The user's original question plus the assistant's summary of what the admin needs to do.</summary>
     public required string Summary { get; set; }
     public SupportTicketStatus Status { get; set; } = SupportTicketStatus.Open;
+    /// <summary>The live chat opened between the user and an admin for this ticket (if an admin exists).</summary>
+    public string? ConversationId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }
     public string? ResolvedById { get; set; }

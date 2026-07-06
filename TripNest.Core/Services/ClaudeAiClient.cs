@@ -32,7 +32,7 @@ public class ClaudeAiClient : IAiClient
     public bool IsConfigured => _client is not null;
 
     public async Task<ListingCopySuggestion?> GenerateListingCopyAsync(
-        Models.Property property, IReadOnlyList<AiImage> photos, CancellationToken cancellationToken = default)
+        Models.Property property, IReadOnlyList<AiImage> photos, Enums.Language language, CancellationToken cancellationToken = default)
     {
         if (_client is null)
         {
@@ -61,7 +61,7 @@ public class ClaudeAiClient : IAiClient
                 Model = _model,
                 MaxTokens = 2048,
                 Thinking = new ThinkingConfigAdaptive(),
-                System = ListingCopyPrompts.System,
+                System = ListingCopyPrompts.System(language),
                 // Structured output: the response is guaranteed to be valid JSON matching the
                 // schema, so parsing below cannot fail on chatty preamble or markdown fences.
                 OutputConfig = new OutputConfig

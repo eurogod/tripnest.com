@@ -46,10 +46,15 @@ public class StubAiClient : IAiClient
 
     public bool IsConfigured => Configured;
 
+    /// <summary>The language requested on the last generation call, for assertions.</summary>
+    public TripNest.Core.Enums.Language? LastLanguage { get; private set; }
+
     public Task<TripNest.Core.DTOs.Properties.ListingCopySuggestion?> GenerateListingCopyAsync(
-        TripNest.Core.Models.Property property, IReadOnlyList<AiImage> photos, CancellationToken cancellationToken = default)
+        TripNest.Core.Models.Property property, IReadOnlyList<AiImage> photos,
+        TripNest.Core.Enums.Language language, CancellationToken cancellationToken = default)
     {
         Requests.Add((property.Id, photos.Count));
+        LastLanguage = language;
         return Task.FromResult(Configured ? NextSuggestion : null);
     }
 

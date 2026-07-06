@@ -1,3 +1,4 @@
+using TripNest.Core.Enums;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Services;
@@ -8,13 +9,14 @@ namespace TripNest.Core.Services;
 /// </summary>
 internal static class ListingCopyPrompts
 {
-    public const string System =
+    public static string System(Language language) =>
         "You write listing copy for TripNest, an accommodation-booking platform in Ghana. " +
         "From the property facts (and photos when provided) draft copy that is warm, specific and honest. " +
         "Never invent amenities, views or features that are not in the facts or clearly visible in the photos. " +
-        "Use plain English a broad audience understands; mention the location naturally. " +
+        "Mention the location naturally. " +
         "The title must be under 60 characters and must not start with generic filler like 'Cozy' or 'Stunning'. " +
-        "The description is 2-3 short paragraphs. Highlights are 3-5 short bullet phrases, each under 8 words.";
+        "The description is 2-3 short paragraphs. Highlights are 3-5 short bullet phrases, each under 8 words. " +
+        $"Write ALL copy (title, description, highlights) in {language.ToPromptName()}.";
 
     public static string Facts(Property p)
     {

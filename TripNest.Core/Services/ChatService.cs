@@ -376,6 +376,8 @@ public class ChatService : IChatService
         var transcript = string.Join("\n", messages.Select(m =>
             (m.SenderId == userId ? "You: " : "Them: ") + m.Content));
 
+        var user = await _userRepository.GetByIdAsync(userId);
+        var language = (user?.PreferredLanguage ?? Enums.Language.English).ToPromptName();
         var systemPrompt =
             "You draft chat replies for a user on TripNest, an accommodation-booking platform in Ghana. " +
             (isHost
@@ -384,6 +386,7 @@ public class ChatService : IChatService
             "Draft ONE short, friendly reply (1-3 sentences) to the latest message from the other person. " +
             "Only state facts about the listing that appear below - if the answer is not in the facts, " +
             "say you will check and confirm. Never suggest paying or communicating outside the platform. " +
+            $"Write the reply in {language}. " +
             "Reply ONLY with JSON: {\"reply\": \"<the suggested reply>\"}";
 
         var raw = await _aiClient.CompleteAsync(systemPrompt,

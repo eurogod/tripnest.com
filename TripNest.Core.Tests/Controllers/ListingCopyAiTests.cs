@@ -37,6 +37,22 @@ public class ListingCopyAiTests : TestBase
     }
 
     [Fact]
+    public async Task Generation_UsesOwnersPreferredLanguage()
+    {
+        var (ownerId, _) = await RegisterAndLoginAsync(UserRole.Landlord);
+        await MarkUserVerifiedAsync(ownerId);
+        await _httpClient.PutAsJsonAsync("/api/profile/me", new { preferredLanguage = (int)Language.Twi });
+        var propertyId = await SeedPropertyAsync(ownerId);
+
+        var stub = _fixture.Services.GetRequiredService<StubAiClient>();
+        stub.Configured = true;
+
+        var res = await _httpClient.PostAsync($"/api/properties/{propertyId}/generate-copy", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(Language.Twi, stub.LastLanguage);
+    }
+
+    [Fact]
     public async Task NonOwner_IsRejected()
     {
         var (ownerId, _) = await RegisterAndLoginAsync(UserRole.Landlord);

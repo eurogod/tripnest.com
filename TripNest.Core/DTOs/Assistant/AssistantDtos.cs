@@ -15,6 +15,8 @@ public class AssistantReplyResponse
     public bool Escalated { get; set; }
     /// <summary>Set when the question was escalated to a human — the ticket admins will see.</summary>
     public string? SupportTicketId { get; set; }
+    /// <summary>Set when escalation opened a live chat with support — navigate the user here to talk to an admin.</summary>
+    public string? SupportConversationId { get; set; }
 }
 
 public class AssistantHistoryItem
@@ -35,6 +37,7 @@ public class SupportTicketResponse
     public required string Subject { get; set; }
     public required string Summary { get; set; }
     public SupportTicketStatus Status { get; set; }
+    public string? ConversationId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }
 }

@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Properties;
+using TripNest.Core.Enums;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Interfaces.Services;
@@ -23,7 +24,7 @@ public interface IAiClient
     /// fails — the caller decides how to surface that.
     /// </summary>
     Task<ListingCopySuggestion?> GenerateListingCopyAsync(
-        Property property, IReadOnlyList<AiImage> photos, CancellationToken cancellationToken = default);
+        Property property, IReadOnlyList<AiImage> photos, Language language, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// General text completion for the assistant / chat features. The system prompt should

@@ -124,6 +124,8 @@ public class ProfileController : ControllerBase
 
         user.FullName = request.FullName ?? user.FullName;
         user.Bio = request.Bio ?? user.Bio;
+        if (request.PreferredLanguage is not null)
+            user.PreferredLanguage = request.PreferredLanguage.Value;
         if (request.Username is not null)
         {
             var username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();

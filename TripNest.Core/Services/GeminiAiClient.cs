@@ -36,7 +36,7 @@ public class GeminiAiClient : IAiClient
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
 
     public async Task<ListingCopySuggestion?> GenerateListingCopyAsync(
-        Models.Property property, IReadOnlyList<AiImage> photos, CancellationToken cancellationToken = default)
+        Models.Property property, IReadOnlyList<AiImage> photos, Enums.Language language, CancellationToken cancellationToken = default)
     {
         if (!IsConfigured)
         {
@@ -62,7 +62,7 @@ public class GeminiAiClient : IAiClient
 
             var payload = new
             {
-                systemInstruction = new { parts = new[] { new { text = ListingCopyPrompts.System } } },
+                systemInstruction = new { parts = new[] { new { text = ListingCopyPrompts.System(language) } } },
                 contents = new[] { new { role = "user", parts } },
                 // Structured output: Gemini constrains the response to this schema, so the reply
                 // is guaranteed-parseable JSON — same safety as the Claude implementation.

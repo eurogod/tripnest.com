@@ -69,7 +69,12 @@ public class AssistantTests : TestBase
         var ticketId = data.GetProperty("supportTicketId").GetString();
         Assert.False(string.IsNullOrEmpty(ticketId));
 
-        // The ticket exists, and the admin got a notification.
+        // A live chat with the admin was opened — the user is "connected to support".
+        var conversationId = data.GetProperty("supportConversationId").GetString();
+        Assert.False(string.IsNullOrEmpty(conversationId));
+
+        // The ticket exists and links to that conversation, the admin got a notification, and
+        // the conversation is seeded with the user's issue.
         using (var scope = _fixture.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -77,10 +82,37 @@ public class AssistantTests : TestBase
             Assert.NotNull(ticket);
             Assert.Equal(SupportTicketStatus.Open, ticket!.Status);
             Assert.Equal(userId, ticket.UserId);
+            Assert.Equal(conversationId, ticket.ConversationId);
 
-            var adminNotified = db.Set<Notification>().Any(n => n.UserId == adminId);
-            Assert.True(adminNotified, "admin should have been notified of the escalation");
+            var conversation = await db.Set<Conversation>().FindAsync(conversationId);
+            Assert.NotNull(conversation);
+            Assert.True(
+                (conversation!.User1Id == userId && conversation.User2Id == adminId) ||
+                (conversation.User1Id == adminId && conversation.User2Id == userId),
+                "conversation should be between the user and the admin");
+            Assert.Contains(db.Set<Message>(), m => m.ConversationId == conversationId && m.SenderId == userId);
+
+            Assert.True(db.Set<Notification>().Any(n => n.UserId == adminId),
+                "admin should have been notified of the escalation");
         }
+    }
+
+    [Fact]
+    public async Task Ask_RespondsInUsersPreferredLanguage()
+    {
+        var (userId, _) = await RegisterAndLoginAsync(UserRole.Tenant);
+        // Set the user's language to French.
+        await _httpClient.PutAsJsonAsync("/api/profile/me", new { preferredLanguage = (int)Language.French });
+
+        var stub = _fixture.Services.GetRequiredService<StubAiClient>();
+        stub.Configured = true;
+        stub.NextCompletion = """{"answer": "Bonjour! Voici comment fonctionne le séquestre.", "escalate": false}""";
+
+        await _httpClient.PostAsJsonAsync("/api/assistant/ask", new { question = "Comment ça marche?" });
+
+        // The system prompt sent to the model names the user's language.
+        var lastCompletion = stub.Completions.Last();
+        Assert.Contains("French", lastCompletion.SystemPrompt);
     }
 
     [Fact]

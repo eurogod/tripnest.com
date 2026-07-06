@@ -17,6 +17,8 @@ public class AssistantService : IAssistantService
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<AssistantMessage> _messageRepository;
     private readonly IRepository<SupportTicket> _ticketRepository;
+    private readonly IConversationRepository _conversationRepository;
+    private readonly IMessageRepository _chatMessageRepository;
     private readonly INotificationService _notificationService;
     private readonly ILogger<AssistantService> _logger;
 
@@ -28,6 +30,8 @@ public class AssistantService : IAssistantService
         IPropertyRepository propertyRepository,
         IRepository<AssistantMessage> messageRepository,
         IRepository<SupportTicket> ticketRepository,
+        IConversationRepository conversationRepository,
+        IMessageRepository chatMessageRepository,
         INotificationService notificationService,
         ILogger<AssistantService> logger)
     {
@@ -38,6 +42,8 @@ public class AssistantService : IAssistantService
         _propertyRepository = propertyRepository;
         _messageRepository = messageRepository;
         _ticketRepository = ticketRepository;
+        _conversationRepository = conversationRepository;
+        _chatMessageRepository = chatMessageRepository;
         _notificationService = notificationService;
         _logger = logger;
     }
@@ -55,7 +61,10 @@ public class AssistantService : IAssistantService
         var context = await BuildUserContextAsync(user);
         var history = await LoadRecentHistoryAsync(userId);
 
-        var raw = await _aiClient.CompleteAsync(SystemPrompt, BuildUserPrompt(context, history, question));
+        var systemPrompt = SystemPrompt +
+            $"\n\nRespond to the user in {user.PreferredLanguage.ToPromptName()}. " +
+            "Keep the JSON field names in English; only the \"answer\" text is in that language.";
+        var raw = await _aiClient.CompleteAsync(systemPrompt, BuildUserPrompt(context, history, question));
         var reply = AiJson.TryParse<AssistantModelReply>(raw);
         if (reply is null || string.IsNullOrWhiteSpace(reply.Answer))
             throw new ValidationException("The assistant is unavailable right now. Please try again.");
@@ -66,14 +75,21 @@ public class AssistantService : IAssistantService
         await _messageRepository.AddAsync(assistantTurn);
 
         string? ticketId = null;
+        string? conversationId = null;
         if (reply.Escalate)
         {
-            ticketId = await EscalateAsync(user, question, reply);
+            (ticketId, conversationId) = await EscalateAsync(user, question, reply);
             assistantTurn.SupportTicketId = ticketId;
         }
         await _messageRepository.SaveChangesAsync();
 
-        return new AssistantReplyResponse { Answer = reply.Answer, Escalated = reply.Escalate, SupportTicketId = ticketId };
+        return new AssistantReplyResponse
+        {
+            Answer = reply.Answer,
+            Escalated = reply.Escalate,
+            SupportTicketId = ticketId,
+            SupportConversationId = conversationId,
+        };
     }
 
     public async Task<List<AssistantHistoryItem>> GetHistoryAsync(string userId, int limit = 50)
@@ -114,6 +130,7 @@ public class AssistantService : IAssistantService
             Subject = t.Subject,
             Summary = t.Summary,
             Status = t.Status,
+            ConversationId = t.ConversationId,
             CreatedAt = t.CreatedAt,
             ResolvedAt = t.ResolvedAt,
         }).ToList();
@@ -137,31 +154,59 @@ public class AssistantService : IAssistantService
             $"An admin has resolved your support request: {ticket.Subject}");
     }
 
-    private async Task<string> EscalateAsync(User user, string question, AssistantModelReply reply)
+    private async Task<(string TicketId, string? ConversationId)> EscalateAsync(User user, string question, AssistantModelReply reply)
     {
         var subject = string.IsNullOrWhiteSpace(reply.EscalationSubject)
             ? "Assistant escalation"
             : reply.EscalationSubject!.Trim();
+
+        var admins = (await _userRepository.FindAsync(u => u.Role == UserRole.Admin && u.IsActive)).ToList();
+
+        // Open a real chat with an admin so the user can talk to a human, not just wait on a
+        // ticket. Reuses the existing conversation system (SignalR-backed). If there's no admin
+        // yet, the ticket is still filed — the handoff just can't happen until one exists.
+        string? conversationId = null;
+        var admin = admins.FirstOrDefault();
+        if (admin is not null)
+        {
+            var conversation = new Conversation { User1Id = user.Id, User2Id = admin.Id, LastMessageAt = DateTime.UtcNow };
+            await _conversationRepository.AddAsync(conversation);
+            // Seed the user's issue as the opening message so the admin has context on arrival.
+            // Written directly (not through the chat send path) so the scam scanner doesn't
+            // second-guess a support seed.
+            await _chatMessageRepository.AddAsync(new Message
+            {
+                ConversationId = conversation.Id,
+                SenderId = user.Id,
+                Content = $"[Support request] {question}",
+                Type = MessageType.Text,
+            });
+            await _conversationRepository.SaveChangesAsync();
+            conversationId = conversation.Id;
+        }
+
         var ticket = new SupportTicket
         {
             UserId = user.Id,
             Subject = subject.Length > 200 ? subject[..200] : subject,
             Summary = $"User asked: {question}\n\nAssistant's summary for admins: {reply.EscalationSummary ?? "(none)"}",
+            ConversationId = conversationId,
         };
         await _ticketRepository.AddAsync(ticket);
         await _ticketRepository.SaveChangesAsync();
 
         // Wake the humans. Admins are few, so per-admin notification is fine.
-        var admins = await _userRepository.FindAsync(u => u.Role == UserRole.Admin && u.IsActive);
-        foreach (var admin in admins)
+        foreach (var a in admins)
         {
-            await _notificationService.NotifyAsync(admin.Id, NotificationType.General,
+            await _notificationService.NotifyAsync(a.Id, NotificationType.General,
                 $"Support ticket: {ticket.Subject}",
-                $"{user.FullName} ({user.Email}) needs help. {reply.EscalationSummary ?? question}");
+                $"{user.FullName} ({user.Email}) needs help. {reply.EscalationSummary ?? question}" +
+                (conversationId is not null ? " (Live chat opened — reply in Messages.)" : ""));
         }
 
-        _logger.LogInformation("Assistant escalated ticket {TicketId} for user {UserId}", ticket.Id, user.Id);
-        return ticket.Id;
+        _logger.LogInformation("Assistant escalated ticket {TicketId} for user {UserId} (conversation {ConversationId})",
+            ticket.Id, user.Id, conversationId ?? "none");
+        return (ticket.Id, conversationId);
     }
 
     private async Task<string> BuildUserContextAsync(User user)

@@ -184,7 +184,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Assistant — `api/assistant`
 | Method | Path | Access |
 |---|---|---|
-| POST | `/ask` | 🔒 (AI Q&A grounded in platform rules + the caller's own bookings/escrow/verification; escalates to an admin support ticket when a human is needed; 400 when AI unconfigured; rate-limited `ai`) |
+| POST | `/ask` | 🔒 (AI Q&A grounded in platform rules + the caller's own bookings/escrow/verification, answered in their `preferredLanguage`; when a human is needed it opens a **live chat with an admin** — response returns `supportConversationId` — and files a support ticket; 400 when AI unconfigured; rate-limited `ai`) |
 | GET | `/history?limit=` | 🔒 (the caller's assistant conversation, oldest first) |
 
 ### Caretakers — `api/caretakers`
@@ -276,7 +276,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | Method | Path | Access |
 |---|---|---|
 | GET | `/me` | 🔒 |
-| PUT | `/me` | 🔒 |
+| PUT | `/me` | 🔒 (incl. `preferredLanguage`: 0=English, 1=Twi, 2=Ga, 3=French — used for AI-generated text) |
 | POST | `/photo` | 🔒 (multipart/form-data) |
 
 ### Settings — `api/settings`
