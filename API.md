@@ -113,7 +113,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 |---|---|---|
 | GET | `/` | 🌐 (active listings) |
 | GET | `/{propertyId}` | 🌐 |
-| GET | `/search?location=&minBedrooms=&maxBedrooms=&page=&pageSize=` | 🌐 (paged: `data` = `{items, totalCount, page, pageSize}`; case-insensitive location match) |
+| GET | `/search?location=&minBedrooms=&maxBedrooms=&page=&pageSize=` | 🌐 (paged in the DB; `data` = array of properties, pagination via `X-Total-Count`/`X-Page`/`X-Page-Size`/`X-Total-Pages` headers; pageSize default/max 100; case-insensitive location match) |
 | GET | `/user/my-properties` | 🔒 |
 | POST | `/` | 🔒 🛡️ (incl. `stayType`, `cancellationPolicy`) |
 | PUT | `/{propertyId}` | 🔒 🛡️ |

@@ -24,8 +24,10 @@ public interface IPayoutService
     /// attempts the provider transfer immediately when the host has a registered account.
     /// Never throws for provider/account problems: the payout stays Pending/Failed for retry,
     /// because a payout hiccup must not undo the escrow release that triggered it.
+    /// <paramref name="grossOverride"/> pays out only part of the escrow — the host's retained
+    /// share when a cancellation policy refunds the tenant the rest.
     /// </summary>
-    Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId);
+    Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId, decimal? grossOverride = null);
 
     /// <summary>Re-attempts a Pending or Failed payout (e.g. after the host fixes their account).</summary>
     Task<PayoutResponse> RetryAsync(string payoutId, string userId);

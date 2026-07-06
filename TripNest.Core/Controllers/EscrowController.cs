@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TripNest.Core.DTOs.Escrow;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -124,6 +125,12 @@ public class EscrowController : ControllerBase
         catch (JsonException)
         {
             return BadRequest(ApiResponse<object>.BadRequest("Malformed webhook payload"));
+        }
+        catch (ConflictException)
+        {
+            // Double-booking race, fully handled by the service (payment refunded or parked in
+            // Disputed). Ack with 200 so the provider does not keep retrying a resolved event.
+            return Ok(ApiResponse<object>.Ok("Payment could not be applied (dates already booked); resolution recorded", null));
         }
         catch (InvalidOperationException ex)
         {

@@ -72,13 +72,15 @@ if (!builder.Environment.IsDevelopment() && (jwtKey == InsecureDefaultJwtKey || 
         "Jwt:Key must be set to a strong, unique secret (at least 32 characters) outside Development. " +
         "Configure it via environment variable Jwt__Key or user-secrets — never the committed default.");
 
-// A missing Paystack secret makes the payment gateway *simulate* successful charges/verifications —
-// convenient for local dev and tests, but catastrophic in production where it would report money as
-// received that was never paid. Refuse to boot in Production without it.
-if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(builder.Configuration["PaystackSettings:SecretKey"]))
+// A missing Paystack secret swaps in SimulatedPaymentGateway, which pretends every charge and
+// verification succeeded — convenient for local dev and tests, but catastrophic anywhere real
+// bookings exist: it would report money as received that was never paid. Only Development may
+// run without the key; Staging/Production/anything else must fail fast.
+var paystackConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["PaystackSettings:SecretKey"]);
+if (!builder.Environment.IsDevelopment() && !paystackConfigured)
     throw new InvalidOperationException(
-        "PaystackSettings:SecretKey must be configured in Production — the unconfigured gateway simulates " +
-        "successful payments and must never run against real bookings. Set it via env/secrets.");
+        "PaystackSettings:SecretKey must be configured outside Development — the simulated gateway " +
+        "pretends payments succeeded and must never run against real bookings. Set it via env/secrets.");
 
 var key = Encoding.UTF8.GetBytes(jwtKey);
 
@@ -201,7 +203,12 @@ builder.Services.AddScoped<IPhoneVerificationService, PhoneVerificationService>(
 builder.Services.AddScoped<IEmailVerificationService, EmailVerificationService>();
 builder.Services.AddHttpClient<ISmsSender, TextBeeSmsSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
-builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
+// Real gateway when a key exists; otherwise the dev-only simulator (guarded above: unconfigured
+// is impossible outside Development). Keeps the test-mode branch out of the real money path.
+if (paystackConfigured)
+    builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
+else
+    builder.Services.AddSingleton<IPaymentGateway, SimulatedPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
 builder.Services.AddHttpClient<IGoogleAuthService, GoogleAuthService>();
 builder.Services.AddHttpClient<IFacebookAuthService, FacebookAuthService>();

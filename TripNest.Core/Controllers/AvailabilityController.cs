@@ -105,12 +105,14 @@ public class AvailabilityController : ControllerBase
         if (request.StartDate >= request.EndDate)
             return BadRequest(ApiResponse<object>.BadRequest("StartDate must be before EndDate"));
 
+        // Blocked ranges are date-only by intent, same as bookings: floor to UTC midnight so a
+        // range with a stray time component can't half-overlap a booking-night comparison.
         var blockedDate = new PropertyBlockedDate
         {
             PropertyId = propertyId,
             BlockedByUserId = landlordId,
-            StartDate = request.StartDate,
-            EndDate = request.EndDate,
+            StartDate = DateTime.SpecifyKind(request.StartDate.Date, DateTimeKind.Utc),
+            EndDate = DateTime.SpecifyKind(request.EndDate.Date, DateTimeKind.Utc),
             Reason = request.Reason
         };
 
