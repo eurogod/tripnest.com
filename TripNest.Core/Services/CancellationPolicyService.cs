@@ -24,11 +24,22 @@ public class CancellationPolicyService : ICancellationPolicyService
         return RefundFor(policy, days);
     }
 
-    public async Task<RefundPreview> PreviewAsync(string bookingId)
+    public async Task<RefundPreview> PreviewAsync(string bookingId, string userId)
     {
-        var (policy, days, amount) = await LoadAsync(bookingId);
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId)
+            ?? throw new NotFoundException("Booking");
+
+        // Only the booking's tenant or the property's landlord may see its refund figures —
+        // otherwise any authenticated user could read another booking's amount, check-in date,
+        // and policy by enumerating ids.
+        var landlordId = booking.Property?.UserId;
+        if (booking.TenantId != userId && landlordId != userId)
+            throw new ForbiddenException("You do not have access to this booking");
+
+        var policy = booking.Property?.CancellationPolicy ?? CancellationPolicy.Moderate;
+        var days = (booking.CheckInDate - DateTime.UtcNow).TotalDays;
         var pct = RefundFor(policy, days);
-        return new RefundPreview(pct, Math.Round(amount * pct / 100m, 2), policy.ToString(), Math.Round(days, 2));
+        return new RefundPreview(pct, Math.Round(booking.TotalAmount * pct / 100m, 2), policy.ToString(), Math.Round(days, 2));
     }
 
     private async Task<(CancellationPolicy Policy, double DaysUntilCheckIn, decimal Amount)> LoadAsync(string bookingId)
