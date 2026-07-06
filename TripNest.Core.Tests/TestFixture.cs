@@ -27,6 +27,11 @@ public class TestFixture : WebApplicationFactory<Program>
         // appsettings.json under the minimal-hosting model, so it actually overrides the committed key.
         builder.UseSetting("Jwt:Key", "tripnest-test-signing-key-please-do-not-use-in-production-0123456789");
 
+        // Program.cs refuses to boot outside Development without a Paystack key (a missing key
+        // swaps in the simulated gateway). Tests replace IPaymentGateway with StubPaymentGateway
+        // below anyway, so satisfy the guard with a dummy key; webhook-signature tests override it.
+        builder.UseSetting("PaystackSettings:SecretKey", "sk_test_fixture_dummy_key");
+
         builder.ConfigureServices(services =>
         {
             // Remove the current DbContext registration

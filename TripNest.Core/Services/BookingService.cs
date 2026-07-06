@@ -16,6 +16,7 @@ public class BookingService : IBookingService
     private readonly ICancellationPolicyService _cancellationPolicyService;
     private readonly IPaymentGateway _paymentGateway;
     private readonly IRepository<EscrowEvent> _escrowEventRepository;
+    private readonly IPayoutService _payoutService;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -26,6 +27,7 @@ public class BookingService : IBookingService
         ICancellationPolicyService cancellationPolicyService,
         IPaymentGateway paymentGateway,
         IRepository<EscrowEvent> escrowEventRepository,
+        IPayoutService payoutService,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -35,6 +37,7 @@ public class BookingService : IBookingService
         _cancellationPolicyService = cancellationPolicyService;
         _paymentGateway = paymentGateway;
         _escrowEventRepository = escrowEventRepository;
+        _payoutService = payoutService;
         _logger = logger;
     }
 
@@ -125,6 +128,7 @@ public class BookingService : IBookingService
         booking.CancelledAt = DateTime.UtcNow;
 
         var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
+        var retainedAmount = 0m;
         if (escrow != null)
         {
             // Tiered refund per the property's cancellation policy — but only when the TENANT
@@ -151,6 +155,10 @@ public class BookingService : IBookingService
                 await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
                     escrow, EscrowStatus.Refunded, actor: userId, reason: refundReason));
                 escrow.ReleaseReason = refundReason;
+
+                // Whatever the policy did NOT refund belongs to the host — without a payout it
+                // would sit in the platform's provider balance unrecorded and never be disbursed.
+                retainedAmount = Math.Round(escrow.Amount - refundAmount, 2);
             }
             else if (escrow.Status == EscrowStatus.Pending)
             {
@@ -164,6 +172,13 @@ public class BookingService : IBookingService
 
         // Single atomic commit for the booking + its escrow (shared DbContext).
         await _bookingRepository.SaveChangesAsync();
+
+        // Disburse the host's retained share of a partial refund. After the cancellation commit:
+        // the payout is idempotent and never throws, so a payout hiccup can't undo the
+        // cancellation — it just stays Pending/Failed for retry.
+        var retainedForLandlordId = booking.Property?.UserId;
+        if (escrow != null && retainedAmount > 0 && retainedForLandlordId != null)
+            await _payoutService.CreateForReleasedEscrowAsync(escrow, retainedForLandlordId, retainedAmount);
 
         _logger.LogInformation("Booking {BookingId} cancelled by {UserId}", bookingId, userId);
 

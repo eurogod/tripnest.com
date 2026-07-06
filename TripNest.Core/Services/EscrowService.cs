@@ -1,6 +1,9 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using TripNest.Core.DTOs.Escrow;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -57,6 +60,33 @@ public class EscrowService : IEscrowService
         if (escrow != null && escrow.Status != EscrowStatus.Pending)
             return MapToResponse(escrow);
 
+        // A checkout was already started for this escrow: ask the provider about the existing
+        // reference BEFORE minting a fresh one. Overwriting a reference the tenant just paid under
+        // (double-click, lost redirect) would orphan the capture wherever the webhook can't reach —
+        // the verify endpoint only checks the escrow's stored reference. Simulated verifies always
+        // report success, so they never count as "already paid" here.
+        if (escrow is not null && !string.IsNullOrEmpty(escrow.PaymentReference))
+        {
+            var existing = await _paymentGateway.VerifyPaymentAsync(escrow.PaymentReference);
+            if (existing.Success && !existing.Simulated)
+            {
+                try
+                {
+                    await VerifyAndHoldPaymentAsync(bookingId, escrow.PaymentReference, existing.Amount);
+                    var held = await _escrowRepository.GetByBookingIdAsync(bookingId);
+                    return MapToResponse(held!);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // The paid reference couldn't be applied (e.g. amount mismatch on a stale
+                    // checkout) — log it and fall through to starting a fresh checkout.
+                    _logger.LogWarning(ex,
+                        "Existing paid reference {Reference} for booking {BookingId} could not be held; starting a new checkout",
+                        escrow.PaymentReference, bookingId);
+                }
+            }
+        }
+
         var isNew = escrow == null;
         // The amount is derived from the booking server-side — never trusted from the client.
         escrow ??= new Escrow
@@ -106,6 +136,17 @@ public class EscrowService : IEscrowService
             return;
         }
 
+        // Same idempotency for a payment that lost the double-booking race: it was captured and
+        // auto-refunded (or parked in Disputed for manual resolution). Ack the provider's retry
+        // as a no-op instead of erroring, so the webhook isn't re-sent forever.
+        if (escrow.Status is EscrowStatus.Refunded or EscrowStatus.Disputed && escrow.PaymentReference == reference)
+        {
+            _logger.LogInformation(
+                "Escrow {EscrowId} already resolved as {Status} for reference {Reference} — ignoring duplicate webhook",
+                escrow.Id, escrow.Status, reference);
+            return;
+        }
+
         // Funds can only move into escrow from the Pending state.
         if (escrow.Status != EscrowStatus.Pending)
             throw new InvalidOperationException($"Escrow cannot be held from status '{escrow.Status}'");
@@ -135,10 +176,64 @@ public class EscrowService : IEscrowService
             booking.Status = BookingStatus.Confirmed;
 
         await _escrowRepository.UpdateAsync(escrow);
-        await _escrowRepository.SaveChangesAsync();
+        try
+        {
+            await _escrowRepository.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ExclusionViolation })
+        {
+            // Lost the double-booking race: another booking for these dates was confirmed between
+            // the availability pre-check and this save, so the no-overlap exclusion constraint
+            // rejected the Confirmed flip — but the charge was already captured at the provider.
+            // Refund it and void the booking instead of surfacing an opaque 500 (which would also
+            // make the provider retry the webhook indefinitely).
+            await ResolveLostDoubleBookingRaceAsync(escrow, booking, reference, paidAmount);
+            throw new ConflictException(
+                "These dates were just booked by someone else. Your payment has been refunded in full.");
+        }
 
         _logger.LogInformation("Escrow {EscrowId} held for booking {BookingId} (reference: {Reference}); booking confirmed",
             escrow.Id, bookingId, reference);
+    }
+
+    /// <summary>
+    /// Cleanup after a captured payment loses the double-booking race. The failed SaveChanges left
+    /// the in-memory escrow at HeldInEscrow (accurate — the money WAS captured), so transition it
+    /// on to Refunded (or Disputed if the refund fails), cancel the booking, and persist. The
+    /// Pending→HeldInEscrow audit event saves alongside, keeping the trail truthful.
+    /// </summary>
+    private async Task ResolveLostDoubleBookingRaceAsync(Escrow escrow, Booking? booking, string reference, decimal paidAmount)
+    {
+        var refunded = false;
+        try
+        {
+            refunded = await _paymentGateway.RefundAsync(reference, paidAmount);
+        }
+        catch (Exception refundEx)
+        {
+            _logger.LogError(refundEx, "Refund call failed for reference {Reference} (booking {BookingId})",
+                reference, escrow.BookingId);
+        }
+
+        var reason = refunded
+            ? "Double-booking race lost after capture — payment auto-refunded in full"
+            : "Double-booking race lost after capture — automatic refund FAILED; resolve manually";
+        await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+            escrow, refunded ? EscrowStatus.Refunded : EscrowStatus.Disputed, actor: "system", reason: reason));
+        escrow.ReleaseReason = reason;
+
+        if (booking is not null)
+        {
+            booking.Status = BookingStatus.Cancelled;
+            booking.CancelledAt = DateTime.UtcNow;
+        }
+
+        await _escrowRepository.SaveChangesAsync();
+
+        if (!refunded)
+            _logger.LogError(
+                "Escrow {EscrowId} marked Disputed: captured payment {Reference} lost the double-booking race and could not be auto-refunded",
+                escrow.Id, reference);
     }
 
     public async Task<EscrowResponse> VerifyPaymentByBookingAsync(string bookingId, string userId)

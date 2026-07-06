@@ -99,7 +99,7 @@ public class PayoutService : IPayoutService
         return payouts.OrderByDescending(p => p.CreatedAt).Select(Map).ToList();
     }
 
-    public async Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId)
+    public async Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId, decimal? grossOverride = null)
     {
         try
         {
@@ -110,16 +110,17 @@ public class PayoutService : IPayoutService
 
             // Same fee source as statements and the reservation breakdown — the money that moves
             // must match the money the UI promised.
-            var fee = Math.Round(escrow.Amount * _platform.ManagementFeePercent / 100m, 2);
+            var gross = grossOverride ?? escrow.Amount;
+            var fee = Math.Round(gross * _platform.ManagementFeePercent / 100m, 2);
 
             var payout = new Payout
             {
                 EscrowId = escrow.Id,
                 BookingId = escrow.BookingId,
                 LandlordId = landlordId,
-                GrossAmount = escrow.Amount,
+                GrossAmount = gross,
                 FeeAmount = fee,
-                Amount = escrow.Amount - fee,
+                Amount = gross - fee,
                 Status = PayoutStatus.Pending
             };
             await _payoutRepository.AddAsync(payout);

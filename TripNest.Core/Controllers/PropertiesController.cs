@@ -113,16 +113,23 @@ public class PropertiesController : ControllerBase
 
     [HttpGet("search")]
     [OutputCache(PolicyName = "listings")]
-    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Shared.PagedResult<PropertyResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Shared.PagedResult<PropertyResponse>>>> SearchProperties(
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> SearchProperties(
         [FromQuery] string location,
         [FromQuery] int minBedrooms = 1,
         [FromQuery] int maxBedrooms = 10,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 100)
     {
-        var response = await _propertyService.SearchPropertiesAsync(location, minBedrooms, maxBedrooms, page, pageSize);
-        return Ok(ApiResponse<TripNest.Core.DTOs.Shared.PagedResult<PropertyResponse>>.Ok("Properties found", response));
+        // The query pages in the database, but the body keeps the original array shape existing
+        // clients iterate — pagination metadata travels in headers instead of a wrapper object.
+        // Default pageSize is the clamp maximum so legacy callers see as much as one page allows.
+        var result = await _propertyService.SearchPropertiesAsync(location, minBedrooms, maxBedrooms, page, pageSize);
+        Response.Headers["X-Total-Count"] = result.TotalCount.ToString();
+        Response.Headers["X-Page"] = result.Page.ToString();
+        Response.Headers["X-Page-Size"] = result.PageSize.ToString();
+        Response.Headers["X-Total-Pages"] = result.TotalPages.ToString();
+        return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Properties found", result.Items));
     }
 
     [HttpDelete("{propertyId}")]
