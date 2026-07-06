@@ -13,17 +13,20 @@ public class PropertyService : IPropertyService
 {
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<PropertyPhoto> _photoRepository;
+    private readonly IBookingRepository _bookingRepository;
     private readonly IFileStorage _fileStorage;
     private readonly ILogger<PropertyService> _logger;
 
     public PropertyService(
         IPropertyRepository propertyRepository,
         IRepository<PropertyPhoto> photoRepository,
+        IBookingRepository bookingRepository,
         IFileStorage fileStorage,
         ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
         _photoRepository = photoRepository;
+        _bookingRepository = bookingRepository;
         _fileStorage = fileStorage;
         _logger = logger;
     }
@@ -101,13 +104,16 @@ public class PropertyService : IPropertyService
         }
     }
 
-    public async Task<PropertyResponse> UpdatePropertyAsync(string propertyId, CreatePropertyRequest request)
+    public async Task<PropertyResponse> UpdatePropertyAsync(string propertyId, string userId, bool isAdmin, CreatePropertyRequest request)
     {
         try
         {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+            var property = await _propertyRepository.GetByIdAsync(propertyId)
+                ?? throw new NotFoundException("Property");
+
+            // Only the owner (or an admin) may edit a listing.
+            if (property.UserId != userId && !isAdmin)
+                throw new ForbiddenException("This property is not yours");
 
             property.Title = request.Title;
             property.Description = request.Description;
@@ -192,24 +198,35 @@ public class PropertyService : IPropertyService
         return Paging.Result(items.Select(MapToResponse).ToList(), totalCount, pageNum, size);
     }
 
-    public async Task DeletePropertyAsync(string propertyId)
+    /// <summary>Deletes a never-booked listing outright; archives one with booking history.
+    /// Returns true when hard-deleted, false when archived.</summary>
+    public async Task<bool> DeletePropertyAsync(string propertyId, string userId, bool isAdmin)
     {
-        try
-        {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
 
-            await _propertyRepository.DeleteAsync(property);
+        // Only the owner (or an admin) may remove a listing.
+        if (property.UserId != userId && !isAdmin)
+            throw new ForbiddenException("This property is not yours");
+
+        // A property with booking history can't be hard-deleted: the cascade would reach escrows,
+        // whose audit events are deliberately delete-restricted (money history must survive).
+        // Archive it instead — it leaves search/booking (only Active listings surface) while
+        // bookings, escrows, and agreements keep valid references.
+        var hasBookings = (await _bookingRepository.FindAsync(b => b.PropertyId == propertyId)).Any();
+        if (hasBookings)
+        {
+            property.Status = PropertyStatus.Archived;
+            await _propertyRepository.UpdateAsync(property);
             await _propertyRepository.SaveChangesAsync();
+            _logger.LogInformation("Property archived (has booking history): {PropertyId}", propertyId);
+            return false;
+        }
 
-            _logger.LogInformation("Property deleted: {PropertyId}", propertyId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting property");
-            throw;
-        }
+        await _propertyRepository.DeleteAsync(property);
+        await _propertyRepository.SaveChangesAsync();
+        _logger.LogInformation("Property deleted: {PropertyId}", propertyId);
+        return true;
     }
 
     private PropertyResponse MapToResponse(Property property)

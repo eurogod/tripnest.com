@@ -61,7 +61,7 @@ public class PropertiesController : ControllerBase
         if (!ModelState.IsValid)
             return BadRequest(ApiResponse<object>.BadRequest("Invalid request data"));
 
-        var response = await _propertyService.UpdatePropertyAsync(propertyId, request);
+        var response = await _propertyService.UpdatePropertyAsync(propertyId, userId, User.IsInRole("Admin"), request);
 
         return Ok(ApiResponse<PropertyResponse>.Ok("Property updated successfully", response));
     }
@@ -144,8 +144,12 @@ public class PropertiesController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        await _propertyService.DeletePropertyAsync(propertyId);
-        return Ok(ApiResponse<object>.Ok("Property deleted successfully", new { }));
+        var hardDeleted = await _propertyService.DeletePropertyAsync(propertyId, userId, User.IsInRole("Admin"));
+        return Ok(ApiResponse<object>.Ok(
+            hardDeleted
+                ? "Property deleted successfully"
+                : "Property archived — it has booking history, so records are retained but it is no longer listed",
+            new { }));
     }
 
     /// <summary>Uploads one or more photos for a property (owner only, multipart/form-data).</summary>
