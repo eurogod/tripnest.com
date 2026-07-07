@@ -130,7 +130,11 @@ public class WalkthroughsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteWalkthrough(string propertyId, string walkthroughId)
     {
-        await _walkthroughService.DeleteWalkthroughAsync(walkthroughId);
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        await _walkthroughService.DeleteWalkthroughAsync(propertyId, walkthroughId, userId, User.IsInRole("Admin"));
         return Ok(ApiResponse<object>.Ok("Walkthrough deleted successfully"));
     }
 }

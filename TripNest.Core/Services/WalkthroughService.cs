@@ -113,10 +113,24 @@ public class WalkthroughService : IWalkthroughService
         return walkthroughs.Select(MapToResponse);
     }
 
-    public async Task DeleteWalkthroughAsync(string walkthroughId)
+    public async Task DeleteWalkthroughAsync(string propertyId, string walkthroughId, string userId, bool isAdmin)
     {
         var walkthrough = await _walkthroughRepository.GetByIdAsync(walkthroughId)
             ?? throw new NotFoundException("Walkthrough");
+
+        // The walkthrough must belong to the property in the route (no cross-property deletes)...
+        if (walkthrough.PropertyId != propertyId)
+            throw new NotFoundException("Walkthrough");
+
+        // ...and only the property's owner (or an admin) may delete it. Without this any verified
+        // landlord could delete another landlord's walkthrough video (and its stored file) by id.
+        if (!isAdmin)
+        {
+            var property = await _propertyRepository.GetByIdAsync(propertyId)
+                ?? throw new NotFoundException("Property");
+            if (property.UserId != userId)
+                throw new ForbiddenException("You do not own this property");
+        }
 
         await _fileStorage.DeleteAsync(walkthrough.VideoPath);
 

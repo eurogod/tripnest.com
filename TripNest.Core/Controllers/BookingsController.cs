@@ -37,7 +37,7 @@ public class BookingsController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        var preview = await _cancellationPolicyService.PreviewAsync(bookingId);
+        var preview = await _cancellationPolicyService.PreviewAsync(bookingId, userId);
         return Ok(ApiResponse<RefundPreview>.Ok("Cancellation preview", preview));
     }
 
