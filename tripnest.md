@@ -47,6 +47,19 @@ made through different repositories atomically — rely on this rather than mult
 status codes by `Middleware/ExceptionHandlingMiddleware.cs`. Don't hand-map status codes in
 controllers unless a flow needs special handling.
 
+**Ownership is enforced in the service, per record — never by role alone.** A `[Authorize]` or
+`[Authorize(Roles=...)]` attribute proves *who* the caller is, not that they own the *specific*
+entity they named in the route. So any service method that reads or mutates a caller-owned record
+(a property, booking, walkthrough, receipt, escrow, payout, agreement, …) must take `userId` (and
+`bool isAdmin` where admins may act on others' records), load the entity, and verify the link —
+throwing `ForbiddenException` when it isn't the caller's, and `NotFoundException` when a child id
+doesn't belong to the parent id in the route. Return `NotFoundException` for a missing entity too.
+Skipping this is an IDOR: it's the recurring bug class in this codebase (`PropertyService` update/
+delete, `WalkthroughService.DeleteWalkthroughAsync`, `CancellationPolicyService.PreviewAsync` all
+had it). New endpoints start from the guarded shape; `EscrowService`, `ChatService`,
+`AgreementService`, and `ReceiptService` are the reference examples. Genuinely global actions (an
+Agent/Admin vetting *any* property's walkthrough) are the deliberate exception, not the default.
+
 **Two distinct "verification" concepts — do not conflate:**
 - `User.IsVerified` = **Ghana Card identity** verification, set only by `VerificationService` after a
   successful NIA lookup + face match. `Filters/RequireVerifiedAttribute.cs` gates
