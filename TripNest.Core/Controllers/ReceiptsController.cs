@@ -31,20 +31,12 @@ public class ReceiptsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PagedResult<ReceiptResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PagedResult<ReceiptResponse>>>> GetMyReceipts([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<PagedResult<ReceiptResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<ReceiptResponse>>.UnAuthorized());
 
-            var receipts = await _receiptService.GetUserReceiptsAsync(userId, page, pageSize);
-            return Ok(ApiResponse<PagedResult<ReceiptResponse>>.Ok("Receipts retrieved", receipts));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving receipts");
-            return StatusCode(500, ApiResponse<PagedResult<ReceiptResponse>>.InternalServerError());
-        }
+        var receipts = await _receiptService.GetUserReceiptsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ReceiptResponse>>.Ok("Receipts retrieved", receipts));
     }
 
     /// <summary>

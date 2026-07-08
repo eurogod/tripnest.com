@@ -309,6 +309,16 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IDashboardStatsService, DashboardStatsService>();
+builder.Services.AddScoped<IAssistantService, AssistantService>();
+builder.Services.AddScoped<IScamDetectionService, ScamDetectionService>();
+// AI provider. Ai:Provider selects the implementation behind the IAiClient seam:
+//   "gemini" — Google Gemini via its AI Studio free tier (Ai:Gemini:ApiKey; no card needed)
+//   anything else (default "claude") — Claude via the Anthropic SDK (Ai:ApiKey)
+// Either way the unconfigured client degrades gracefully — AI features return a friendly 400.
+if (string.Equals(builder.Configuration["Ai:Provider"], "gemini", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
+else
+    builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
@@ -450,6 +460,10 @@ builder.Services.AddRateLimiter(options =>
     // Tighter, per-user limit for OTP sends (defense-in-depth on top of the service cooldown),
     // so a caller can't fan out SMS even by rotating fast. Opt-in via [EnableRateLimiting("otp")].
     options.AddPolicy("otp", ctx => Partition(ctx, 5));
+
+    // AI endpoints call an external model per request — cap per-user so one caller can't burn
+    // the provider quota (or budget). Opt-in via [EnableRateLimiting("ai")].
+    options.AddPolicy("ai", ctx => Partition(ctx, 10));
 });
 
 var app = builder.Build();

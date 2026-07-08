@@ -60,6 +60,11 @@ public class TestFixture : WebApplicationFactory<Program>
             services.RemoveAll<IPaymentGateway>();
             services.AddSingleton<StubPaymentGateway>();
             services.AddSingleton<IPaymentGateway>(sp => sp.GetRequiredService<StubPaymentGateway>());
+
+            // Deterministic AI client so listing-copy flows don't depend on a real Claude API key.
+            services.RemoveAll<IAiClient>();
+            services.AddSingleton<StubAiClient>();
+            services.AddSingleton<IAiClient>(sp => sp.GetRequiredService<StubAiClient>());
         });
 
         builder.UseEnvironment("Testing");

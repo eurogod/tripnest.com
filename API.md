@@ -119,6 +119,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | PUT | `/{propertyId}` | 🔒 🛡️ |
 | DELETE | `/{propertyId}` | 🔒 🛡️ |
 | POST | `/{propertyId}/photos` | 🔒 🛡️ (multipart/form-data, owner only) |
+| POST | `/{propertyId}/generate-copy` | 🔒 🛡️ (owner only; AI-drafted `{title, description, highlights}` from facts + photos, for review — never auto-applied; 400 with a clear message when no AI provider key is configured; `Ai:Provider` selects claude or gemini) |
 
 ### Availability — `api/properties/{propertyId}`
 | Method | Path | Access |
@@ -174,10 +175,17 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/conversations` | 🔒 |
 | GET | `/conversations/{id}` | 🔒 |
 | GET | `/conversations/{id}/messages?page=&pageSize=` | 🔒 |
-| POST | `/conversations/{id}/messages` | 🔒 |
+| POST | `/conversations/{id}/messages` | 🔒 (scanned for off-platform-payment attempts — warns the recipient in-app, never blocks the message) |
+| POST | `/conversations/{id}/suggest-reply` | 🔒 (participant only; AI-drafted reply from the linked listing's facts, for the user to edit and send; 400 when AI unconfigured; rate-limited `ai`) |
 | PATCH | `/messages/{id}/read` | 🔒 |
 | PATCH | `/conversations/{id}/mark-read` | 🔒 |
 | DELETE | `/conversations/{id}` | 🔒 |
+
+### Assistant — `api/assistant`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/ask` | 🔒 (AI Q&A grounded in platform rules + the caller's own bookings/escrow/verification, answered in their `preferredLanguage`; when a human is needed it opens a **live chat with an admin** — response returns `supportConversationId` — and files a support ticket; 400 when AI unconfigured; rate-limited `ai`) |
+| GET | `/history?limit=` | 🔒 (the caller's assistant conversation, oldest first) |
 
 ### Caretakers — `api/caretakers`
 | Method | Path | Access |
@@ -268,7 +276,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | Method | Path | Access |
 |---|---|---|
 | GET | `/me` | 🔒 |
-| PUT | `/me` | 🔒 |
+| PUT | `/me` | 🔒 (incl. `preferredLanguage`: 0=English, 1=Twi, 2=Ga, 3=French — used for AI-generated text) |
 | POST | `/photo` | 🔒 (multipart/form-data) |
 
 ### Settings — `api/settings`
@@ -316,6 +324,8 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/landlord/properties/performance` | 🔒 `[Landlord]` |
 | GET | `/api/admin/stats` | 🔒 `[Admin]` |
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
+| GET | `/api/admin/support-tickets` | 🔒 `[Admin]` (open assistant escalations, oldest first) |
+| POST | `/api/admin/support-tickets/{ticketId}/resolve` | 🔒 `[Admin]` (marks resolved, notifies the user; idempotent) |
 
 ### Pricing & calendar — `api/pricing`, `api/calendar`
 | Method | Path | Access |

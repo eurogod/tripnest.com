@@ -32,16 +32,8 @@ public class CaretakersController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<CaretakerResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<CaretakerResponse>>>> GetCaretakers([FromQuery] string? serviceType, [FromQuery] string? area)
     {
-        try
-        {
-            var caretakers = await _caretakerService.GetAvailableCaretakersAsync(serviceType, area);
-            return Ok(ApiResponse<List<CaretakerResponse>>.Ok("Caretakers retrieved", caretakers));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving caretakers");
-            return StatusCode(500, ApiResponse<List<CaretakerResponse>>.InternalServerError());
-        }
+        var caretakers = await _caretakerService.GetAvailableCaretakersAsync(serviceType, area);
+        return Ok(ApiResponse<List<CaretakerResponse>>.Ok("Caretakers retrieved", caretakers));
     }
 
     /// <summary>
@@ -103,20 +95,12 @@ public class CaretakersController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<ServiceRequestResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ServiceRequestResponse>>>> GetMyServiceRequests()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
 
-            var requests = await _caretakerService.GetServiceRequestsAsync(userId);
-            return Ok(ApiResponse<List<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving service requests");
-            return StatusCode(500, ApiResponse<List<ServiceRequestResponse>>.InternalServerError());
-        }
+        var requests = await _caretakerService.GetServiceRequestsAsync(userId);
+        return Ok(ApiResponse<List<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
     }
 
     /// <summary>
