@@ -104,7 +104,8 @@ public class ProfileController : ControllerBase
             user.TripNestId,
             user.ProfilePhotoPath,
             user.Username,
-            user.Bio
+            user.Bio,
+            user.PreferredLanguage
         };
 
         return Ok(ApiResponse<object>.Ok("Profile retrieved", profile));
@@ -122,10 +123,27 @@ public class ProfileController : ControllerBase
         if (user == null)
             return NotFound(ApiResponse<object>.NotFound("User"));
 
-        user.FullName = request.FullName ?? user.FullName;
+        // FullName is the identity name printed on the verified TripNest ID card and rental
+        // agreements. Once identity is verified it's bound to the Ghana Card and must not change —
+        // otherwise a user could verify as one person and then issue documents under another name.
+        // Before verification it's self-asserted and freely editable.
+        if (request.FullName is not null && request.FullName != user.FullName)
+        {
+            if (user.IsVerified)
+                throw new InvalidOperationException(
+                    "Your name is locked to your verified Ghana Card identity and can't be changed.");
+            user.FullName = request.FullName;
+        }
+
         user.Bio = request.Bio ?? user.Bio;
         if (request.PreferredLanguage is not null)
+        {
+            // The enum deserializes from any integer by default; reject undefined values (e.g. 440)
+            // instead of silently storing garbage that falls back to English downstream.
+            if (!Enum.IsDefined(typeof(TripNest.Core.Enums.Language), request.PreferredLanguage.Value))
+                throw new InvalidOperationException("Invalid language selection.");
             user.PreferredLanguage = request.PreferredLanguage.Value;
+        }
         if (request.Username is not null)
         {
             var username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim();
