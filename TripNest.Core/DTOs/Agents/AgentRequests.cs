@@ -11,3 +11,9 @@ public class UpdateViewingRequestStatusRequest
 {
     public required string Status { get; set; }
 }
+
+public class SubmitViewingReviewRequest
+{
+    public int Rating { get; set; }
+    public string? Comment { get; set; }
+}

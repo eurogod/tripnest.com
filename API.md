@@ -182,24 +182,34 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Caretakers — `api/caretakers`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/` | 🌐 |
-| GET | `/{id}` | 🌐 |
-| POST | `/assign` | 🔒 `[Landlord]` 🛡️ |
-| POST | `/service-requests` | 🔒 |
+| GET | `/?serviceType=&area=&page=&pageSize=` | 🌐 (paged; Active directory profiles with rating aggregates — see PUT `/me`) |
+| GET | `/me` | 🔒 `[Caretaker]` own directory profile (404 until created) |
+| PUT | `/me` | 🔒 `[Caretaker]` 🛡️ create/update own directory profile (responsibilities, bio, area, rate) — required to appear in the list / be assignable |
+| GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from service-request reviews) |
+| POST | `/assign` | 🔒 `[Landlord]` 🛡️ (owner only; creates an active `PropertyCaretakerAssignment` — a caretaker can hold several; 409 if already assigned) |
+| POST | `/unassign` | 🔒 `[Landlord]` 🛡️ (ends the active assignment; 404 if none) |
+| GET | `/assignments/mine` | 🔒 (assignments on the caller's properties and/or as the caretaker) |
+| POST | `/service-requests` | 🔒 (`propertyId` optional only when the caretaker serves exactly one property) |
 | GET | `/service-requests/mine` | 🔒 |
-| PATCH | `/service-requests/{id}/accept` | 🔒 `[Caretaker]` 🛡️ |
-| PATCH | `/service-requests/{id}/status` | 🔒 |
-| POST | `/service-requests/{id}/review` | 🔒 |
+| PATCH | `/service-requests/{id}/accept` | 🔒 `[Caretaker]` 🛡️ (Pending → Accepted) |
+| PATCH | `/service-requests/{id}/decline` | 🔒 `[Caretaker]` 🛡️ (Pending → Declined) |
+| PATCH | `/service-requests/{id}/status` | 🔒 (role-gated transitions — caretaker: Accepted→InProgress/Completed; requester: Pending/Accepted→Cancelled; anything else 400) |
+| POST | `/service-requests/{id}/review` | 🔒 (requester only, Completed only, rating 1–5) |
+
+Status changes, new requests, reviews, and (un)assignments notify the counterparty via `NotificationService`.
 
 ### Agents — `api/agents`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/` | 🌐 (lists agents with an Active directory profile — see PUT `/me`) |
+| GET | `/?serviceArea=&page=&pageSize=` | 🌐 (paged; Active directory profiles with rating aggregates — see PUT `/me`) |
 | GET | `/me` | 🔒 `[Agent]` own directory profile (404 until created) |
-| PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates) — required to appear in the list |
-| GET | `/{id}` | 🌐 |
-| POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` |
-| PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ |
+| PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates, service area) — required to appear in the list |
+| GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from viewing reviews) |
+| POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` (must be scheduled in the future; notifies the agent) |
+| GET | `/viewing-requests/mine` | 🔒 (as requesting tenant and/or assigned agent) |
+| PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ (role-gated transitions — agent: Pending→Confirmed/Declined, Confirmed→Completed; tenant: Pending/Confirmed→Cancelled; anything else 400) |
+| PATCH | `/viewing-requests/{id}/decline` | 🔒 `[Agent]` 🛡️ (Pending → Declined) |
+| POST | `/viewing-requests/{id}/review` | 🔒 `[Tenant]` (requester only, Completed only, rating 1–5) |
 
 ### Payouts — `api/payouts` (host disbursements via Paystack Transfers)
 | Method | Path | Access |

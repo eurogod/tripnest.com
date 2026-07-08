@@ -19,4 +19,7 @@ public class UpsertAgentProfileRequest
     public int? YearsOfExperience { get; set; }
 
     public string? Certifications { get; set; }
+
+    /// <summary>Area served (e.g. "Accra", "Kumasi") — matched by the list filter.</summary>
+    public string? ServiceArea { get; set; }
 }

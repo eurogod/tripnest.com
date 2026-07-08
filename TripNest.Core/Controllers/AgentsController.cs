@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Agents;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
@@ -25,23 +26,16 @@ public class AgentsController : ControllerBase
     }
 
     /// <summary>
-    /// Get list of verified agents, optionally filtered by service area
+    /// Get list of verified agents, optionally filtered by service area (paged)
     /// </summary>
     [HttpGet]
     [OutputCache(PolicyName = "listings")]
-    [ProducesResponseType(typeof(ApiResponse<List<AgentResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<AgentResponse>>>> GetAgents([FromQuery] string? serviceArea)
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AgentResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgentResponse>>>> GetAgents(
+        [FromQuery] string? serviceArea, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea);
-            return Ok(ApiResponse<List<AgentResponse>>.Ok("Agents retrieved", agents));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agents");
-            return StatusCode(500, ApiResponse<List<AgentResponse>>.InternalServerError());
-        }
+        var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea, page, pageSize);
+        return Ok(ApiResponse<PagedResult<AgentResponse>>.Ok("Agents retrieved", agents));
     }
 
     /// <summary>
@@ -132,6 +126,41 @@ public class AgentsController : ControllerBase
 
         await _agentService.UpdateViewingRequestStatusAsync(id, request.Status, userId);
         return Ok(ApiResponse<ViewingRequestResponse>.Ok("Status updated", null));
+    }
+
+    /// <summary>
+    /// Decline a pending viewing request (assigned agent only)
+    /// </summary>
+    [HttpPatch("viewing-requests/{id}/decline")]
+    [Authorize(Roles = "Agent")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> DeclineViewingRequest(string id)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
+
+        await _agentService.DeclineViewingRequestAsync(id, userId);
+        return Ok(ApiResponse<ViewingRequestResponse>.Ok("Viewing request declined", null));
+    }
+
+    /// <summary>
+    /// Submit review for a completed viewing (requesting tenant only)
+    /// </summary>
+    [HttpPost("viewing-requests/{id}/review")]
+    [Authorize(Roles = "Tenant")]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> ReviewViewing(string id, [FromBody] SubmitViewingReviewRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
+
+        await _agentService.SubmitViewingReviewAsync(id, userId, request.Rating, request.Comment);
+        return StatusCode(201, ApiResponse<ViewingRequestResponse>.Ok("Review submitted successfully"));
     }
 
     /// <summary>

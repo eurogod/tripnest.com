@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Caretakers;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
@@ -25,23 +26,57 @@ public class CaretakersController : ControllerBase
     }
 
     /// <summary>
-    /// Get available caretakers, optionally filtered by service type and area
+    /// Get available caretakers, optionally filtered by service type and area (paged)
     /// </summary>
     [HttpGet]
     [OutputCache(PolicyName = "listings")]
-    [ProducesResponseType(typeof(ApiResponse<List<CaretakerResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<CaretakerResponse>>>> GetCaretakers([FromQuery] string? serviceType, [FromQuery] string? area)
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<CaretakerResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<CaretakerResponse>>>> GetCaretakers(
+        [FromQuery] string? serviceType, [FromQuery] string? area,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var caretakers = await _caretakerService.GetAvailableCaretakersAsync(serviceType, area);
-            return Ok(ApiResponse<List<CaretakerResponse>>.Ok("Caretakers retrieved", caretakers));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving caretakers");
-            return StatusCode(500, ApiResponse<List<CaretakerResponse>>.InternalServerError());
-        }
+        var caretakers = await _caretakerService.GetAvailableCaretakersAsync(serviceType, area, page, pageSize);
+        return Ok(ApiResponse<PagedResult<CaretakerResponse>>.Ok("Caretakers retrieved", caretakers));
+    }
+
+    /// <summary>
+    /// The caller's own directory profile (404 until they create one via PUT /api/caretakers/me).
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = "Caretaker,Admin")]
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<CaretakerResponse>>> GetMyProfile()
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<CaretakerResponse>.UnAuthorized());
+
+        var profile = await _caretakerService.GetMyProfileAsync(userId);
+        if (profile is null)
+            return NotFound(ApiResponse<CaretakerResponse>.NotFound("Caretaker profile"));
+
+        return Ok(ApiResponse<CaretakerResponse>.Ok("Caretaker profile retrieved", profile));
+    }
+
+    /// <summary>
+    /// Create or update the caller's public directory profile — without it a Caretaker-role account
+    /// never appears in the caretakers list and cannot be assigned or hired. Requires identity
+    /// verification, like other caretaker actions.
+    /// </summary>
+    [HttpPut("me")]
+    [Authorize(Roles = "Caretaker,Admin")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<CaretakerResponse>>> UpsertMyProfile([FromBody] UpsertCaretakerProfileRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<CaretakerResponse>.UnAuthorized());
+
+        var profile = await _caretakerService.UpsertMyProfileAsync(userId, request);
+        return Ok(ApiResponse<CaretakerResponse>.Ok("Caretaker profile saved", profile));
     }
 
     /// <summary>
@@ -79,6 +114,40 @@ public class CaretakersController : ControllerBase
     }
 
     /// <summary>
+    /// End the active caretaker assignment on one of the caller's properties (Landlord only)
+    /// </summary>
+    [HttpPost("unassign")]
+    [Authorize(Roles = "Landlord")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<CaretakerResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<CaretakerResponse>>> UnassignCaretaker([FromBody] AssignCaretakerRequest request)
+    {
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<CaretakerResponse>.UnAuthorized());
+
+        await _caretakerService.UnassignCaretakerFromPropertyAsync(request.PropertyId, request.CaretakerId, landlordId);
+        return Ok(ApiResponse<CaretakerResponse>.Ok("Caretaker unassigned", null));
+    }
+
+    /// <summary>
+    /// Assignments the caller is party to — on their properties and/or as the caretaker.
+    /// </summary>
+    [HttpGet("assignments/mine")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<List<CaretakerAssignmentResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<CaretakerAssignmentResponse>>>> GetMyAssignments()
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<List<CaretakerAssignmentResponse>>.UnAuthorized());
+
+        var assignments = await _caretakerService.GetMyAssignmentsAsync(userId);
+        return Ok(ApiResponse<List<CaretakerAssignmentResponse>>.Ok("Assignments retrieved", assignments));
+    }
+
+    /// <summary>
     /// Create service request
     /// </summary>
     [HttpPost("service-requests")]
@@ -103,20 +172,12 @@ public class CaretakersController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<ServiceRequestResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ServiceRequestResponse>>>> GetMyServiceRequests()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
 
-            var requests = await _caretakerService.GetServiceRequestsAsync(userId);
-            return Ok(ApiResponse<List<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving service requests");
-            return StatusCode(500, ApiResponse<List<ServiceRequestResponse>>.InternalServerError());
-        }
+        var requests = await _caretakerService.GetServiceRequestsAsync(userId);
+        return Ok(ApiResponse<List<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
     }
 
     /// <summary>
@@ -138,7 +199,25 @@ public class CaretakersController : ControllerBase
     }
 
     /// <summary>
-    /// Update service request status
+    /// Decline a pending service request (assigned caretaker only)
+    /// </summary>
+    [HttpPatch("service-requests/{id}/decline")]
+    [Authorize(Roles = "Caretaker")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ServiceRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ServiceRequestResponse>>> DeclineServiceRequest(string id)
+    {
+        var caretakerId = User.GetUserId();
+        if (string.IsNullOrEmpty(caretakerId))
+            return Unauthorized(ApiResponse<ServiceRequestResponse>.UnAuthorized());
+
+        await _caretakerService.DeclineServiceRequestAsync(id, caretakerId);
+        return Ok(ApiResponse<ServiceRequestResponse>.Ok("Service request declined", null));
+    }
+
+    /// <summary>
+    /// Update service request status (transitions limited by role — see service)
     /// </summary>
     [HttpPatch("service-requests/{id}/status")]
     [Authorize]

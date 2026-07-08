@@ -32,10 +32,12 @@ public class AgentProfileTests : TestBase
 
         var list = await _httpClient.GetAsync("/api/agents");
         var data = JsonDocument.Parse(await list.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var items = data.GetProperty("items");
 
-        Assert.Equal(1, data.GetArrayLength());
-        Assert.Equal(userId, data[0].GetProperty("userId").GetString());
-        Assert.Equal("GH-AG-2026-001", data[0].GetProperty("licenseNumber").GetString());
+        Assert.Equal(1, items.GetArrayLength());
+        Assert.Equal(1, data.GetProperty("totalCount").GetInt32());
+        Assert.Equal(userId, items[0].GetProperty("userId").GetString());
+        Assert.Equal("GH-AG-2026-001", items[0].GetProperty("licenseNumber").GetString());
     }
 
     [Fact]
@@ -89,7 +91,7 @@ public class AgentProfileTests : TestBase
 
         var list = await _httpClient.GetAsync("/api/agents");
         var listData = JsonDocument.Parse(await list.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
-        Assert.Equal(1, listData.GetArrayLength());
+        Assert.Equal(1, listData.GetProperty("items").GetArrayLength());
     }
 
     [Fact]

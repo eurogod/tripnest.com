@@ -42,12 +42,23 @@ public interface IAgreementService
 
 public interface ICaretakerService
 {
-    Task<List<CaretakerResponse>> GetAvailableCaretakersAsync(string? serviceType, string? area);
+    Task<PagedResult<CaretakerResponse>> GetAvailableCaretakersAsync(string? serviceType, string? area, int page, int pageSize);
     Task<CaretakerResponse?> GetCaretakerProfileAsync(string caretakerId);
+    /// <summary>The caller's own directory profile, or null if they haven't created one yet.</summary>
+    Task<CaretakerResponse?> GetMyProfileAsync(string userId);
+    /// <summary>Creates (or updates) the caller's directory profile — the only way a Caretaker-role
+    /// account becomes visible in the public caretakers list. A Suspended profile stays suspended.</summary>
+    Task<CaretakerResponse> UpsertMyProfileAsync(string userId, UpsertCaretakerProfileRequest request);
     Task AssignCaretakerToPropertyAsync(string propertyId, string caretakerId, string landlordId);
+    /// <summary>Ends the active assignment between the caretaker and the landlord's property.</summary>
+    Task UnassignCaretakerFromPropertyAsync(string propertyId, string caretakerId, string landlordId);
+    /// <summary>Assignments the caller is party to — on their properties and/or as the caretaker.</summary>
+    Task<List<CaretakerAssignmentResponse>> GetMyAssignmentsAsync(string userId);
     Task<ServiceRequestResponse> CreateServiceRequestAsync(CreateServiceRequestRequest request, string userId);
     Task<List<ServiceRequestResponse>> GetServiceRequestsAsync(string userId);
     Task AcceptServiceRequestAsync(string requestId, string caretakerId);
+    /// <summary>Caretaker turns down a pending request (Pending → Declined).</summary>
+    Task DeclineServiceRequestAsync(string requestId, string caretakerId);
     Task UpdateServiceRequestStatusAsync(string requestId, string status, string userId);
     Task SubmitServiceReviewAsync(string requestId, string userId, int rating, string? comment);
 }
@@ -63,7 +74,7 @@ public interface IMaintenanceService
 
 public interface IAgentService
 {
-    Task<List<AgentResponse>> GetVerifiedAgentsAsync(string? serviceArea);
+    Task<PagedResult<AgentResponse>> GetVerifiedAgentsAsync(string? serviceArea, int page, int pageSize);
     Task<AgentResponse?> GetAgentProfileAsync(string agentId);
     /// <summary>The caller's own directory profile, or null if they haven't created one yet.</summary>
     Task<AgentResponse?> GetMyProfileAsync(string userId);
@@ -72,6 +83,10 @@ public interface IAgentService
     Task<AgentResponse> UpsertMyProfileAsync(string userId, UpsertAgentProfileRequest request);
     Task<ViewingRequestResponse> CreateViewingRequestAsync(string agentId, string propertyId, DateTime scheduledAt, string tenantId, string? notes);
     Task UpdateViewingRequestStatusAsync(string requestId, string status, string userId);
+    /// <summary>Agent turns down a pending viewing request (Pending → Declined).</summary>
+    Task DeclineViewingRequestAsync(string requestId, string userId);
+    /// <summary>The requesting tenant reviews a completed viewing (rating 1–5).</summary>
+    Task SubmitViewingReviewAsync(string requestId, string userId, int rating, string? comment);
     // Viewing requests the caller is party to — as the requesting tenant and/or the assigned agent.
     Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId);
 }

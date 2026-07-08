@@ -76,15 +76,23 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("PATCH", "/api/chat/conversations/x/mark-read")]
     [InlineData("DELETE", "/api/chat/conversations/x")]
     // Caretakers
+    [InlineData("GET", "/api/caretakers/me")]
+    [InlineData("PUT", "/api/caretakers/me")]
     [InlineData("POST", "/api/caretakers/assign")]
+    [InlineData("POST", "/api/caretakers/unassign")]
+    [InlineData("GET", "/api/caretakers/assignments/mine")]
     [InlineData("POST", "/api/caretakers/service-requests")]
     [InlineData("GET", "/api/caretakers/service-requests/mine")]
     [InlineData("PATCH", "/api/caretakers/service-requests/x/accept")]
+    [InlineData("PATCH", "/api/caretakers/service-requests/x/decline")]
     [InlineData("PATCH", "/api/caretakers/service-requests/x/status")]
     [InlineData("POST", "/api/caretakers/service-requests/x/review")]
     // Agents
     [InlineData("POST", "/api/agents/x/viewing-requests")]
+    [InlineData("GET", "/api/agents/viewing-requests/mine")]
     [InlineData("PATCH", "/api/agents/viewing-requests/x/status")]
+    [InlineData("PATCH", "/api/agents/viewing-requests/x/decline")]
+    [InlineData("POST", "/api/agents/viewing-requests/x/review")]
     // Maintenance
     [InlineData("POST", "/api/maintenance")]
     [InlineData("GET", "/api/maintenance/property/x")]

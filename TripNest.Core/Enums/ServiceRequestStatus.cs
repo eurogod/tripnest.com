@@ -6,5 +6,7 @@ public enum ServiceRequestStatus
     Accepted,
     InProgress,
     Completed,
-    Cancelled
+    Cancelled,
+    /// <summary>Turned down by the assigned caretaker before acceptance.</summary>
+    Declined
 }
