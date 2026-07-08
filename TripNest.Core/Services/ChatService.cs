@@ -12,6 +12,9 @@ public class ChatService : IChatService
     private readonly IConversationRepository _conversationRepository;
     private readonly IMessageRepository _messageRepository;
     private readonly IRepository<User> _userRepository;
+    private readonly IPropertyRepository _propertyRepository;
+    private readonly IAiClient _aiClient;
+    private readonly IScamDetectionService _scamDetection;
     private readonly Hubs.IPresenceTracker _presence;
     private readonly ILogger<ChatService> _logger;
 
@@ -19,12 +22,18 @@ public class ChatService : IChatService
         IConversationRepository conversationRepository,
         IMessageRepository messageRepository,
         IRepository<User> userRepository,
+        IPropertyRepository propertyRepository,
+        IAiClient aiClient,
+        IScamDetectionService scamDetection,
         Hubs.IPresenceTracker presence,
         ILogger<ChatService> logger)
     {
         _conversationRepository = conversationRepository;
         _messageRepository = messageRepository;
         _userRepository = userRepository;
+        _propertyRepository = propertyRepository;
+        _aiClient = aiClient;
+        _scamDetection = scamDetection;
         _presence = presence;
         _logger = logger;
     }
@@ -206,6 +215,10 @@ public class ChatService : IChatService
             _logger.LogInformation("Message sent: {MessageId} in conversation {ConversationId} by {UserId}",
                 message.Id, conversationId, userId);
 
+            // Trust layer: watch for off-platform payment attempts. Swallows its own errors and
+            // only calls the AI on rule hits, so ordinary messages pay zero latency for it.
+            await _scamDetection.ScanMessageAsync(message, conversation);
+
             return MapMessage(message);
         }
         catch (Exception ex)
@@ -328,4 +341,65 @@ public class ChatService : IChatService
             IsRead = m.IsRead,
             ReadAt = m.ReadAt
         };
+
+    /// <summary>
+    /// Drafts a reply the participant can edit and send — grounded in the linked listing's
+    /// facts so the suggestion can answer questions like "is there parking?" truthfully.
+    /// </summary>
+    public async Task<string> SuggestReplyAsync(string conversationId, string userId)
+    {
+        var conversation = await _conversationRepository.GetByIdAsync(conversationId);
+        if (conversation == null)
+            throw new InvalidOperationException("Conversation not found");
+        if (conversation.User1Id != userId && conversation.User2Id != userId)
+            throw new UnauthorizedAccessException("User is not a participant in this conversation");
+
+        if (!_aiClient.IsConfigured)
+            throw new InvalidOperationException("AI suggestions are not configured on this server.");
+
+        var messages = (await _messageRepository.GetByConversationIdAsync(conversationId))
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(10)
+            .OrderBy(m => m.CreatedAt)
+            .ToList();
+        if (messages.Count == 0)
+            throw new InvalidOperationException("There are no messages to reply to yet.");
+
+        var property = conversation.PropertyId is not null
+            ? await _propertyRepository.GetByIdAsync(conversation.PropertyId)
+            : null;
+        var isHost = property is not null && property.UserId == userId;
+
+        var facts = property is null
+            ? "(no listing linked to this conversation)"
+            : ListingCopyPrompts.Facts(property);
+        var transcript = string.Join("\n", messages.Select(m =>
+            (m.SenderId == userId ? "You: " : "Them: ") + m.Content));
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        var language = (user?.PreferredLanguage ?? Enums.Language.English).ToPromptName();
+        var systemPrompt =
+            "You draft chat replies for a user on TripNest, an accommodation-booking platform in Ghana. " +
+            (isHost
+                ? "The user is the HOST of the listing below. "
+                : "The user is a guest interested in the listing below. ") +
+            "Draft ONE short, friendly reply (1-3 sentences) to the latest message from the other person. " +
+            "Only state facts about the listing that appear below - if the answer is not in the facts, " +
+            "say you will check and confirm. Never suggest paying or communicating outside the platform. " +
+            $"Write the reply in {language}. " +
+            "Reply ONLY with JSON: {\"reply\": \"<the suggested reply>\"}";
+
+        var raw = await _aiClient.CompleteAsync(systemPrompt,
+            "LISTING FACTS:\n" + facts + "\n\nCONVERSATION (most recent last):\n" + transcript);
+
+        var suggestion = AiJson.TryParse<SuggestedReply>(raw);
+        if (suggestion is null || string.IsNullOrWhiteSpace(suggestion.Reply))
+            throw new InvalidOperationException("Suggestions are unavailable right now. Please try again.");
+        return suggestion.Reply;
+    }
+
+    private sealed class SuggestedReply
+    {
+        public string? Reply { get; set; }
+    }
 }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TripNest.Core.Context;
@@ -11,9 +12,11 @@ using TripNest.Core.Context;
 namespace TripNest.Core.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260706174607_AddAssistantAndSupportTickets")]
+    partial class AddAssistantAndSupportTickets
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50,9 +53,6 @@ namespace TripNest.Core.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
-
-                    b.Property<string>("ServiceArea")
-                        .HasColumnType("text");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -269,9 +269,6 @@ namespace TripNest.Core.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
-                    b.Property<string>("Bio")
-                        .HasColumnType("text");
-
                     b.Property<DateTime?>("EndDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -280,14 +277,12 @@ namespace TripNest.Core.Migrations
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("PropertyId")
+                        .IsRequired()
                         .HasMaxLength(36)
                         .HasColumnType("character varying(36)");
 
                     b.Property<string>("Responsibilities")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ServiceArea")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("StartDate")
@@ -718,9 +713,6 @@ namespace TripNest.Core.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("DispatchAttemptedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("IsEmergencyOverride")
                         .HasColumnType("boolean");
 
@@ -1076,9 +1068,6 @@ namespace TripNest.Core.Migrations
                     b.Property<string>("CaretakerId")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<DateTime?>("EndedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -1472,9 +1461,6 @@ namespace TripNest.Core.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
-                    b.Property<string>("ConversationId")
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1685,9 +1671,6 @@ namespace TripNest.Core.Migrations
                     b.Property<bool>("PhoneVerified")
                         .HasColumnType("boolean");
 
-                    b.Property<int>("PreferredLanguage")
-                        .HasColumnType("integer");
-
                     b.Property<string>("ProfilePhotoPath")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -1824,12 +1807,6 @@ namespace TripNest.Core.Migrations
 
                     b.Property<string>("PropertyId")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int?>("Rating")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ReviewComment")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("ScheduledAt")
@@ -1978,7 +1955,8 @@ namespace TripNest.Core.Migrations
                     b.HasOne("TripNest.Core.Models.Property", "Property")
                         .WithMany()
                         .HasForeignKey("PropertyId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("TripNest.Core.Models.User", "User")
                         .WithMany()
@@ -2238,7 +2216,7 @@ namespace TripNest.Core.Migrations
 
             modelBuilder.Entity("TripNest.Core.Models.PropertyCaretakerAssignment", b =>
                 {
-                    b.HasOne("TripNest.Core.Models.Caretaker", "Caretaker")
+                    b.HasOne("TripNest.Core.Models.User", "Caretaker")
                         .WithMany()
                         .HasForeignKey("CaretakerId")
                         .OnDelete(DeleteBehavior.Restrict)

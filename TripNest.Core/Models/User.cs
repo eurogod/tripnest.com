@@ -27,6 +27,9 @@ public class User
 
     public string? Bio { get; set; }
 
+    /// <summary>Preferred language for AI-generated, user-facing text (assistant, chat suggestions, listing copy).</summary>
+    public Language PreferredLanguage { get; set; } = Language.English;
+
     public bool IsActive { get; set; } = true;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -31,20 +31,12 @@ public class NotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PagedResult<NotificationResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PagedResult<NotificationResponse>>>> GetMyNotifications([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<PagedResult<NotificationResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<NotificationResponse>>.UnAuthorized());
 
-            var notifications = await _notificationService.GetUserNotificationsAsync(userId, page, pageSize);
-            return Ok(ApiResponse<PagedResult<NotificationResponse>>.Ok("Notifications retrieved", notifications));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving notifications");
-            return StatusCode(500, ApiResponse<PagedResult<NotificationResponse>>.InternalServerError());
-        }
+        var notifications = await _notificationService.GetUserNotificationsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<NotificationResponse>>.Ok("Notifications retrieved", notifications));
     }
 
     /// <summary>

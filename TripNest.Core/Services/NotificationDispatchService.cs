@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using TripNest.Core.Context;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 
@@ -74,11 +76,17 @@ public class NotificationDispatchService : BackgroundService
         }
     }
 
+    // Stable bigint identifying "the notification requeue pass" to Postgres advisory locking —
+    // distinct from the escrow auto-release key so the two passes never contend with each other.
+    private const long RequeueAdvisoryLockKey = 727_566_002;
+
     /// <summary>
     /// The channel is in-memory, so jobs queued but not yet sent die with the process. The dispatch
     /// intent, however, is persisted on the notification row — requeue rows still pending whose
     /// last attempt (if any) is stale, so restarts and provider outages delay deliveries instead
-    /// of dropping them (same recovery pattern as the verification queue).
+    /// of dropping them (same recovery pattern as the verification queue). A Postgres advisory lock
+    /// keeps simultaneously-sweeping instances from requeueing (and double-sending) the same rows;
+    /// skipped on non-relational providers.
     /// </summary>
     private async Task RequeuePendingAsync(CancellationToken cancellationToken)
     {
@@ -86,30 +94,55 @@ public class NotificationDispatchService : BackgroundService
         {
             using var scope = _serviceProvider.CreateScope();
             var notifications = scope.ServiceProvider.GetRequiredService<INotificationRepository>();
-            var users = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var staleBefore = DateTime.UtcNow - StaleAttemptWindow;
-            var pending = (await notifications.FindAsync(
-                n => (n.PendingSmsDispatch || n.PendingEmailDispatch) &&
-                     (n.DispatchAttemptedAt == null || n.DispatchAttemptedAt < staleBefore))).ToList();
-            if (pending.Count == 0)
-                return;
-
-            // One batched lookup for the recipients instead of a query per row.
-            var userIds = pending.Select(n => n.UserId).Distinct().ToList();
-            var usersById = (await users.FindAsync(u => userIds.Contains(u.Id)))
-                .ToDictionary(u => u.Id);
-
-            foreach (var n in pending)
+            var useAdvisoryLock = context.Database.IsNpgsql();
+            if (useAdvisoryLock)
             {
-                if (!usersById.TryGetValue(n.UserId, out var user))
-                    continue;
-                _queue.Enqueue(new NotificationDispatchJob(
-                    n.Id, user.Phone, user.Email, n.Title, n.Message,
-                    n.PendingSmsDispatch, n.PendingEmailDispatch));
+                await context.Database.OpenConnectionAsync(cancellationToken);
+                var acquired = (await context.Database
+                    .SqlQueryRaw<bool>($"SELECT pg_try_advisory_lock({RequeueAdvisoryLockKey}) AS \"Value\"")
+                    .ToListAsync(cancellationToken)).Single();
+                if (!acquired)
+                {
+                    _logger.LogInformation("Notification requeue skipped: another instance holds the lock");
+                    return;
+                }
             }
 
-            _logger.LogInformation("Requeued {Count} undispatched notifications", pending.Count);
+            try
+            {
+                var users = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+
+                var staleBefore = DateTime.UtcNow - StaleAttemptWindow;
+                var pending = (await notifications.FindAsync(
+                    n => (n.PendingSmsDispatch || n.PendingEmailDispatch) &&
+                         (n.DispatchAttemptedAt == null || n.DispatchAttemptedAt < staleBefore))).ToList();
+                if (pending.Count == 0)
+                    return;
+
+                // One batched lookup for the recipients instead of a query per row.
+                var userIds = pending.Select(n => n.UserId).Distinct().ToList();
+                var usersById = (await users.FindAsync(u => userIds.Contains(u.Id)))
+                    .ToDictionary(u => u.Id);
+
+                foreach (var n in pending)
+                {
+                    if (!usersById.TryGetValue(n.UserId, out var user))
+                        continue;
+                    _queue.Enqueue(new NotificationDispatchJob(
+                        n.Id, user.Phone, user.Email, n.Title, n.Message,
+                        n.PendingSmsDispatch, n.PendingEmailDispatch));
+                }
+
+                _logger.LogInformation("Requeued {Count} undispatched notifications", pending.Count);
+            }
+            finally
+            {
+                if (useAdvisoryLock)
+                    await context.Database.ExecuteSqlRawAsync(
+                        $"SELECT pg_advisory_unlock({RequeueAdvisoryLockKey})", cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {

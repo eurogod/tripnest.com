@@ -35,20 +35,12 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<ConversationResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<ConversationResponse>>>> GetMyConversations()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<ConversationResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<List<ConversationResponse>>.UnAuthorized());
 
-            var conversations = await _chatService.GetUserConversationsAsync(userId);
-            return Ok(ApiResponse<List<ConversationResponse>>.Ok("Conversations retrieved", conversations));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving conversations");
-            return StatusCode(500, ApiResponse<List<ConversationResponse>>.InternalServerError());
-        }
+        var conversations = await _chatService.GetUserConversationsAsync(userId);
+        return Ok(ApiResponse<List<ConversationResponse>>.Ok("Conversations retrieved", conversations));
     }
 
     /// <summary>
@@ -93,20 +85,30 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PagedResult<MessageResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PagedResult<MessageResponse>>>> GetConversationMessages(string id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<PagedResult<MessageResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<MessageResponse>>.UnAuthorized());
 
-            var messages = await _chatService.GetConversationMessagesAsync(id, userId, page, pageSize);
-            return Ok(ApiResponse<PagedResult<MessageResponse>>.Ok("Messages retrieved", messages));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving messages");
-            return StatusCode(500, ApiResponse<PagedResult<MessageResponse>>.InternalServerError());
-        }
+        var messages = await _chatService.GetConversationMessagesAsync(id, userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<MessageResponse>>.Ok("Messages retrieved", messages));
+    }
+
+    /// <summary>
+    /// Drafts an AI reply suggestion from the linked listing's facts and the recent messages —
+    /// the participant edits and sends it themselves; nothing is sent automatically.
+    /// </summary>
+    [HttpPost("conversations/{id}/suggest-reply")]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("ai")]
+    [ProducesResponseType(typeof(ApiResponse<SuggestedReplyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<SuggestedReplyResponse>>> SuggestReply(string id)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var reply = await _chatService.SuggestReplyAsync(id, userId);
+        return Ok(ApiResponse<SuggestedReplyResponse>.Ok("Reply suggested", new SuggestedReplyResponse { Reply = reply }));
     }
 
     /// <summary>
