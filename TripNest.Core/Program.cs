@@ -311,14 +311,13 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IDashboardStatsService, DashboardStatsService>();
 builder.Services.AddScoped<IAssistantService, AssistantService>();
 builder.Services.AddScoped<IScamDetectionService, ScamDetectionService>();
-// AI provider. Ai:Provider selects the implementation behind the IAiClient seam:
-//   "gemini" — Google Gemini via its AI Studio free tier (Ai:Gemini:ApiKey; no card needed)
-//   anything else (default "claude") — Claude via the Anthropic SDK (Ai:ApiKey)
-// Either way the unconfigured client degrades gracefully — AI features return a friendly 400.
-if (string.Equals(builder.Configuration["Ai:Provider"], "gemini", StringComparison.OrdinalIgnoreCase))
-    builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
-else
-    builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
+// AI provider. Forced to Gemini (Google AI Studio free tier — Ai:Gemini:ApiKey, no card needed).
+// Claude is commented out for now; restore the if/else to re-enable provider selection via Ai:Provider.
+builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
+// if (string.Equals(builder.Configuration["Ai:Provider"], "gemini", StringComparison.OrdinalIgnoreCase))
+//     builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
+// else
+//     builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
