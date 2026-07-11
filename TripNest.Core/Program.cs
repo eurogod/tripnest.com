@@ -195,6 +195,7 @@ builder.Services.AddSingleton<INotificationDispatchQueue, NotificationDispatchQu
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IWalkthroughService, WalkthroughService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<ILoyaltyService, LoyaltyService>();
 builder.Services.AddScoped<ITrustScoreService, TrustScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();

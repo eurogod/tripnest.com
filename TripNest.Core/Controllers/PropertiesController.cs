@@ -111,25 +111,76 @@ public class PropertiesController : ControllerBase
         return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Featured properties retrieved", featured));
     }
 
+    /// <summary>
+    /// Property search with the full filter set: text location, bedrooms, stay type, property
+    /// type, amenities (CSV, all required), nightly-price range, a map viewport (the client's
+    /// visible bounds as it pans/zooms), and stay dates. Dates restrict results to available
+    /// listings and attach a per-result <c>quote</c> — the exact all-in total for that stay.
+    /// </summary>
     [HttpGet("search")]
     [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> SearchProperties(
-        [FromQuery] string location,
+        [FromQuery] string? location = null,
         [FromQuery] int minBedrooms = 1,
         [FromQuery] int maxBedrooms = 10,
+        [FromQuery] Enums.StayType? stayType = null,
+        [FromQuery] string? propertyType = null,
+        [FromQuery] string? amenities = null,
+        [FromQuery] decimal? minPrice = null,
+        [FromQuery] decimal? maxPrice = null,
+        [FromQuery] double? minLat = null,
+        [FromQuery] double? maxLat = null,
+        [FromQuery] double? minLng = null,
+        [FromQuery] double? maxLng = null,
+        [FromQuery] DateTime? checkIn = null,
+        [FromQuery] DateTime? checkOut = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 100)
     {
+        var criteria = new DTOs.Search.PropertySearchCriteria
+        {
+            Location = location,
+            MinBedrooms = minBedrooms,
+            MaxBedrooms = maxBedrooms,
+            StayType = stayType,
+            PropertyType = propertyType,
+            Amenities = amenities,
+            MinPrice = minPrice,
+            MaxPrice = maxPrice,
+            MinLat = minLat,
+            MaxLat = maxLat,
+            MinLng = minLng,
+            MaxLng = maxLng,
+            CheckIn = checkIn,
+            CheckOut = checkOut
+        };
+
         // The query pages in the database, but the body keeps the original array shape existing
         // clients iterate — pagination metadata travels in headers instead of a wrapper object.
         // Default pageSize is the clamp maximum so legacy callers see as much as one page allows.
-        var result = await _propertyService.SearchPropertiesAsync(location, minBedrooms, maxBedrooms, page, pageSize);
+        var result = await _propertyService.SearchPropertiesAsync(criteria, page, pageSize);
         Response.Headers["X-Total-Count"] = result.TotalCount.ToString();
         Response.Headers["X-Page"] = result.Page.ToString();
         Response.Headers["X-Page-Size"] = result.PageSize.ToString();
         Response.Headers["X-Total-Pages"] = result.TotalPages.ToString();
         return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Properties found", result.Items));
+    }
+
+    /// <summary>
+    /// True-total price breakdown for a stay: nightly subtotal (weekend rates included), cleaning
+    /// fee, length-of-stay discount, and — when the caller is signed in — their loyalty discount.
+    /// This is the exact amount booking will charge; no fee is added later.
+    /// </summary>
+    [HttpGet("{propertyId}/quote")]
+    [ProducesResponseType(typeof(ApiResponse<StayQuote>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<StayQuote>>> GetStayQuote(
+        string propertyId, [FromQuery] DateTime checkIn, [FromQuery] DateTime checkOut)
+    {
+        var quote = await _propertyService.GetStayQuoteAsync(propertyId, checkIn, checkOut, User.GetUserId());
+        return Ok(ApiResponse<StayQuote>.Ok("Stay quote calculated", quote));
     }
 
     [HttpDelete("{propertyId}")]

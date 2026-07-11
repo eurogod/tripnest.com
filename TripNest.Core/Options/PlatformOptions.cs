@@ -20,6 +20,18 @@ public class PlatformOptions
     /// <summary>ISO currency for all money movement (charges, refunds, transfers).</summary>
     [Required, StringLength(3, MinimumLength = 3)]
     public string Currency { get; set; } = "GHS";
+
+    /// <summary>
+    /// Platform-wide cancellation grace period: a booking cancelled within this many hours of
+    /// being created refunds 100% regardless of the listing's policy. 0 disables the guarantee.
+    /// </summary>
+    [Range(0, 24 * 7)]
+    public int CancellationGraceHours { get; set; } = 48;
+
+    /// <summary>The grace guarantee only applies while check-in is at least this many days away
+    /// (prevents booking-then-cancelling on the eve of a stay to dodge a strict policy).</summary>
+    [Range(0, 30)]
+    public int CancellationGraceMinDaysBeforeCheckIn { get; set; } = 2;
 }
 
 /// <summary>Escrow lifecycle settings, bound from the "Escrow" section and validated at startup.</summary>

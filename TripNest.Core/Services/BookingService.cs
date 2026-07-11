@@ -17,6 +17,8 @@ public class BookingService : IBookingService
     private readonly IPaymentGateway _paymentGateway;
     private readonly IRepository<EscrowEvent> _escrowEventRepository;
     private readonly IPayoutService _payoutService;
+    private readonly IRepository<PricingSettings> _pricingRepository;
+    private readonly ILoyaltyService _loyaltyService;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -28,6 +30,8 @@ public class BookingService : IBookingService
         IPaymentGateway paymentGateway,
         IRepository<EscrowEvent> escrowEventRepository,
         IPayoutService payoutService,
+        IRepository<PricingSettings> pricingRepository,
+        ILoyaltyService loyaltyService,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -38,6 +42,8 @@ public class BookingService : IBookingService
         _paymentGateway = paymentGateway;
         _escrowEventRepository = escrowEventRepository;
         _payoutService = payoutService;
+        _pricingRepository = pricingRepository;
+        _loyaltyService = loyaltyService;
         _logger = logger;
     }
 
@@ -66,7 +72,14 @@ public class BookingService : IBookingService
         if (!await _availabilityService.IsRangeAvailable(request.PropertyId, checkIn, checkOut))
             throw new ConflictException("The selected dates are not available for this property");
 
-        var totalAmount = CalculateTotalAmount(property, checkIn, checkOut);
+        // Price through the shared calculator — the same engine behind search quotes and the
+        // quote endpoint — so the total charged is exactly the total the guest was shown.
+        var pricing = (await _pricingRepository.FindAsync(s => s.PropertyId == request.PropertyId)).FirstOrDefault();
+        if (pricing is { MinNights: > 1 } && (checkOut - checkIn).Days < pricing.MinNights)
+            throw new ValidationException($"This listing requires a minimum stay of {pricing.MinNights} nights");
+
+        var loyaltyPercent = await _loyaltyService.GetDiscountPercentAsync(tenantId);
+        var totalAmount = StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, loyaltyPercent).Total;
 
         var booking = new Booking
         {
@@ -191,18 +204,6 @@ public class BookingService : IBookingService
         var landlordId = booking.Property?.UserId;
         if (booking.TenantId != userId && landlordId != userId)
             throw new ForbiddenException("You do not have access to this booking");
-    }
-
-    /// <summary>Pricing policy: nightly rate for properties listed with only a monthly rent —
-    /// the month is pro-rated over a fixed 30 days regardless of calendar month length.</summary>
-    private const int ProRataDaysPerMonth = 30;
-
-    private decimal CalculateTotalAmount(Property property, DateTime checkIn, DateTime checkOut)
-    {
-        var nights = (checkOut - checkIn).Days;
-        // Round to pesewas: the monthly-rent pro-rating yields repeating decimals, and the
-        // API response must show the same 2-dp amount the database stores and Paystack charges.
-        return Math.Round((property.DailyRate ?? (property.MonthlyRent / ProRataDaysPerMonth)) * nights, 2);
     }
 
     private BookingResponse MapToResponse(Booking booking)

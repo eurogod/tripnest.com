@@ -12,6 +12,12 @@ public interface IPricingService
 public interface ICalendarService
 {
     Task<CalendarMonthResponse> GetMonthAsync(string propertyId, int year, int month, string landlordId);
+    /// <summary>The tokenized public .ics URL path for a listing (owner/admin only) — paste into
+    /// Airbnb/VRBO/Booking.com "import calendar" to keep external platforms in sync.</summary>
+    Task<string> GetIcalFeedPathAsync(string propertyId, string landlordId, bool isAdmin);
+    /// <summary>The iCalendar document (confirmed stays + blocked ranges as busy events).
+    /// Anonymous — access is authorized by the per-property token.</summary>
+    Task<string> GetIcalFeedAsync(string propertyId, string token);
 }
 
 public interface IInquiryService

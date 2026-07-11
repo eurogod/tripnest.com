@@ -36,4 +36,36 @@ public class CalendarController : ControllerBase
         var calendar = await _calendarService.GetMonthAsync(propertyId, year ?? now.Year, month ?? now.Month, landlordId);
         return Ok(ApiResponse<CalendarMonthResponse>.Ok("Calendar retrieved", calendar));
     }
+
+    /// <summary>
+    /// The listing's tokenized public iCal feed URL (owner/admin only). Paste it into Airbnb /
+    /// VRBO / Booking.com "import calendar" so stays booked here block dates there — the export
+    /// half of cross-platform sync, preventing double-bookings.
+    /// </summary>
+    [HttpGet("{propertyId}/feed-url")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> GetIcalFeedUrl(string propertyId)
+    {
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var path = await _calendarService.GetIcalFeedPathAsync(propertyId, landlordId, User.IsInRole("Admin"));
+        var url = $"{Request.Scheme}://{Request.Host}{path}";
+        return Ok(ApiResponse<object>.Ok("Calendar feed URL", new { feedUrl = url }));
+    }
+
+    /// <summary>
+    /// The iCalendar document itself. Anonymous by design — external platforms poll it on a
+    /// schedule — authorized by the unguessable per-property token instead of a session.
+    /// </summary>
+    [HttpGet("{propertyId}.ics")]
+    [AllowAnonymous]
+    [Produces("text/calendar")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetIcalFeed(string propertyId, [FromQuery] string token = "")
+    {
+        var ics = await _calendarService.GetIcalFeedAsync(propertyId, token);
+        return Content(ics, "text/calendar");
+    }
 }

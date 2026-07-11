@@ -113,7 +113,8 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 |---|---|---|
 | GET | `/` | 🌐 (active listings) |
 | GET | `/{propertyId}` | 🌐 |
-| GET | `/search?location=&minBedrooms=&maxBedrooms=&page=&pageSize=` | 🌐 (paged in the DB; `data` = array of properties, pagination via `X-Total-Count`/`X-Page`/`X-Page-Size`/`X-Total-Pages` headers; pageSize default/max 100; case-insensitive location match) |
+| GET | `/search?location=&minBedrooms=&maxBedrooms=&stayType=&propertyType=&amenities=&minPrice=&maxPrice=&minLat=&maxLat=&minLng=&maxLng=&checkIn=&checkOut=&page=&pageSize=` | 🌐 (paged in the DB; `data` = array of properties, pagination via `X-Total-Count`/`X-Page`/`X-Page-Size`/`X-Total-Pages` headers; pageSize default/max 100; case-insensitive location match; amenities = CSV, all required; min/max Lat/Lng = map viewport; checkIn/checkOut filter to available listings and attach a per-result `quote` with the all-in stay total) |
+| GET | `/{propertyId}/quote?checkIn=&checkOut=` | 🌐 (true-total price breakdown: nightly subtotal incl. weekend rates, cleaning fee, length-of-stay discount, and the caller's loyalty discount when authenticated — the exact amount booking charges) |
 | GET | `/user/my-properties` | 🔒 |
 | POST | `/` | 🔒 🛡️ (incl. `stayType`, `cancellationPolicy`) |
 | PUT | `/{propertyId}` | 🔒 🛡️ |
@@ -145,7 +146,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | GET | `/{bookingId}` | 🔒 (tenant or the property's landlord only) |
 | POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates) |
 | GET | `/user/my-bookings` | 🔒 |
-| GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change) |
+| GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change; a platform-wide grace period — `Platform:CancellationGraceHours`, default 48h after booking while check-in is ≥2 days out — refunds 100% regardless of the listing policy, reported as policyName `GracePeriod`) |
 | POST | `/{bookingId}/cancel` | 🔒 (owner only; tiered refund per policy, issued via the gateway) |
 
 ### Escrow — `api/escrow`
@@ -283,6 +284,11 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | POST | `/{propertyId}` | 🔒 |
 | DELETE | `/{propertyId}` | 🔒 |
 
+### Loyalty — `api/loyalty`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/me` | 🔒 tier (Bronze 0+ / Silver 3+ / Gold 6+ / Platinum 10+ completed stays), active stay-discount % (0/3/5/8 — platform-funded, applied to quotes and booking totals), and progress to the next tier |
+
 ### Profile — `api/profile`
 | Method | Path | Access |
 |---|---|---|
@@ -344,6 +350,8 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` (defaults derived from listing if unset) |
 | PUT | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` |
 | GET | `/api/calendar?propertyId=&year=&month=` | 🔒 `[Landlord,Admin]` priced month w/ weekend/blocked/maintenance/booked flags |
+| GET | `/api/calendar/{propertyId}/feed-url` | 🔒 `[Landlord,Admin]` (owner only) tokenized public iCal URL — paste into Airbnb/VRBO/Booking.com "import calendar" to prevent double-bookings |
+| GET | `/api/calendar/{propertyId}.ics?token=` | 🌐 (token-authorized) RFC 5545 feed of confirmed stays + blocked ranges |
 
 ### Landlord workspace — `api/landlord`
 | Method | Path | Access |

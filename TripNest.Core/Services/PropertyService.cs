@@ -14,6 +14,8 @@ public class PropertyService : IPropertyService
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<PropertyPhoto> _photoRepository;
     private readonly IBookingRepository _bookingRepository;
+    private readonly IRepository<PricingSettings> _pricingRepository;
+    private readonly ILoyaltyService _loyaltyService;
     private readonly IFileStorage _fileStorage;
     private readonly IAiClient _aiClient;
     private readonly IUserRepository _userRepository;
@@ -23,6 +25,8 @@ public class PropertyService : IPropertyService
         IPropertyRepository propertyRepository,
         IRepository<PropertyPhoto> photoRepository,
         IBookingRepository bookingRepository,
+        IRepository<PricingSettings> pricingRepository,
+        ILoyaltyService loyaltyService,
         IFileStorage fileStorage,
         IAiClient aiClient,
         IUserRepository userRepository,
@@ -31,6 +35,8 @@ public class PropertyService : IPropertyService
         _propertyRepository = propertyRepository;
         _photoRepository = photoRepository;
         _bookingRepository = bookingRepository;
+        _pricingRepository = pricingRepository;
+        _loyaltyService = loyaltyService;
         _fileStorage = fileStorage;
         _aiClient = aiClient;
         _userRepository = userRepository;
@@ -261,12 +267,44 @@ public class PropertyService : IPropertyService
     }
 
     public async Task<PagedResult<PropertyResponse>> SearchPropertiesAsync(
-        string location, int minBedrooms, int maxBedrooms, int page, int pageSize)
+        DTOs.Search.PropertySearchCriteria criteria, int page, int pageSize)
     {
         var (pageNum, size) = Paging.Clamp(page, pageSize);
-        var (items, totalCount) = await _propertyRepository.SearchPageAsync(
-            location, minBedrooms, maxBedrooms, pageNum, size);
-        return Paging.Result(items.Select(MapToResponse).ToList(), totalCount, pageNum, size);
+        var (items, totalCount) = await _propertyRepository.SearchPageAsync(criteria, pageNum, size);
+        var responses = items.Select(MapToResponse).ToList();
+
+        // True total pricing: when the search carries dates, each result gets the exact all-in
+        // cost for that stay (weekend rates, length discounts, cleaning fee) — the same number the
+        // booking will charge — so there is never a surprise fee at checkout.
+        if (criteria.HasDates && items.Count > 0)
+        {
+            var ids = items.Select(p => p.Id).ToList();
+            var pricingById = (await _pricingRepository.FindAsync(s => ids.Contains(s.PropertyId)))
+                .ToDictionary(s => s.PropertyId);
+            foreach (var (property, response) in items.Zip(responses))
+                response.Quote = StayPricingCalculator.Quote(
+                    property, pricingById.GetValueOrDefault(property.Id),
+                    criteria.CheckIn!.Value, criteria.CheckOut!.Value);
+        }
+
+        return Paging.Result(responses, totalCount, pageNum, size);
+    }
+
+    /// <summary>
+    /// All-in price breakdown for a stay on one listing — the number the booking will charge.
+    /// Pass the caller's user id to include their loyalty discount; anonymous quotes get none.
+    /// </summary>
+    public async Task<StayQuote> GetStayQuoteAsync(string propertyId, DateTime checkIn, DateTime checkOut, string? userId)
+    {
+        if (checkOut.Date <= checkIn.Date)
+            throw new ValidationException("Check-out date must be after the check-in date");
+
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+
+        var pricing = (await _pricingRepository.FindAsync(s => s.PropertyId == propertyId)).FirstOrDefault();
+        var loyaltyPercent = string.IsNullOrEmpty(userId) ? 0m : await _loyaltyService.GetDiscountPercentAsync(userId);
+        return StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, loyaltyPercent);
     }
 
     /// <summary>Deletes a never-booked listing outright; archives one with booking history.

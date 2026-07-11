@@ -24,4 +24,6 @@ public class PropertyResponse
     public PropertyStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    /// <summary>All-in cost for the searched dates (null when the search carried no dates).</summary>
+    public StayQuote? Quote { get; set; }
 }
