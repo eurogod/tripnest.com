@@ -311,6 +311,7 @@ builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
 // Module service implementations
 builder.Services.AddScoped<IEscrowService, EscrowService>();
 builder.Services.AddScoped<ISplitBillingService, SplitBillingService>();
+builder.Services.AddScoped<IRoommateService, RoommateService>();
 builder.Services.AddScoped<IAgreementService, AgreementService>();
 builder.Services.AddScoped<ICaretakerService, CaretakerService>();
 builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();

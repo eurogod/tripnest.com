@@ -287,6 +287,16 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | POST | `/{propertyId}` | 🔒 |
 | DELETE | `/{propertyId}` | 🔒 |
 
+### Roommate matching — `api/roommates`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/me` | 🔒 own roommate profile (404 until created) |
+| PUT | `/me` | 🔒 create/update profile: bio, university, preferred location, monthly budget, move-in date, habits (smoking/pets/night-owl/cleanliness), visibility |
+| DELETE | `/me` | 🔒 remove profile (also removes matching access) |
+| GET | `/matches?location=&maxBudget=&university=&page=&pageSize=` | 🔒 (paged) compatibility-ranked matches, best first; requires the caller's own **visible** profile (reciprocal); smoking/pets hard conflicts are excluded outright; score 0–100 = budget proximity + location overlap + same university + sleep schedule + cleanliness; each match carries the user's identity-verification badge |
+
+From a match: start a chat (`POST api/chat/conversations`) and later book together with split billing (`splitWithEmails`).
+
 ### Loyalty — `api/loyalty`
 | Method | Path | Access |
 |---|---|---|

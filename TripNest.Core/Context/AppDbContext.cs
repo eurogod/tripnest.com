@@ -34,6 +34,7 @@ public class AppDbContext : DbContext
     public DbSet<PropertyBlockedDate> PropertyBlockedDates { get; set; }
     public DbSet<ExternalCalendar> ExternalCalendars { get; set; }
     public DbSet<BookingShare> BookingShares { get; set; }
+    public DbSet<RoommateProfile> RoommateProfiles { get; set; }
     public DbSet<WishlistItem> WishlistItems { get; set; }
     public DbSet<CommunicationPreference> CommunicationPreferences { get; set; }
     public DbSet<PropertyPhoto> PropertyPhotos { get; set; }
