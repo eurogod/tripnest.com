@@ -8,6 +8,7 @@ using TripNest.Core.Exceptions;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -182,15 +183,15 @@ public class EscrowController : ControllerBase
     /// List the caller's own escrows (as the paying tenant), for the payments "held funds" view.
     /// </summary>
     [HttpGet("mine")]
-    [ProducesResponseType(typeof(ApiResponse<List<EscrowResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<EscrowResponse>>>> GetMyEscrows()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<EscrowResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<EscrowResponse>>>> GetMyEscrows([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<EscrowResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<EscrowResponse>>.UnAuthorized());
 
-        var escrows = await _escrowService.GetMyEscrowsAsync(userId);
-        return Ok(ApiResponse<List<EscrowResponse>>.Ok("Escrows retrieved", escrows));
+        var escrows = await _escrowService.GetMyEscrowsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<EscrowResponse>>.Ok("Escrows retrieved", escrows));
     }
 
     /// <summary>

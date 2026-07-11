@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Agreements;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -43,15 +44,15 @@ public class AgreementsController : ControllerBase
     /// Get all agreements for current user
     /// </summary>
     [HttpGet("mine")]
-    [ProducesResponseType(typeof(ApiResponse<List<AgreementResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<AgreementResponse>>>> GetMyAgreements()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AgreementResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgreementResponse>>>> GetMyAgreements([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<AgreementResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<AgreementResponse>>.UnAuthorized());
 
-        var agreements = await _agreementService.GetUserAgreementsAsync(userId);
-        return Ok(ApiResponse<List<AgreementResponse>>.Ok("Agreements retrieved", agreements));
+        var agreements = await _agreementService.GetUserAgreementsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<AgreementResponse>>.Ok("Agreements retrieved", agreements));
     }
 
     /// <summary>

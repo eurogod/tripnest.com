@@ -213,18 +213,18 @@ public class StatementService : IStatementService
     // per-reservation earnings must never disagree about what the platform keeps.
     private decimal ManagementFeeRate => _platform.ManagementFeePercent / 100m;
 
-    public async Task<List<StatementResponse>> GetForLandlordAsync(string landlordId)
+    public async Task<PagedResult<StatementResponse>> GetForLandlordAsync(string landlordId, int page, int pageSize)
     {
         var propertyIds = (await _propertyRepository.GetByUserIdAsync(landlordId)).Select(p => p.Id).ToList();
         if (propertyIds.Count == 0)
-            return new List<StatementResponse>();
+            return Paging.Page(new List<StatementResponse>(), page, pageSize);
 
         // Single query for all of the landlord's bookings (no per-property round-trips).
         var bookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId)))
             .Where(b => b.Status != BookingStatus.Cancelled);
         var now = DateTime.UtcNow;
 
-        return bookings
+        return Paging.Page(bookings
             .GroupBy(b => new { b.CheckInDate.Year, b.CheckInDate.Month })
             .OrderByDescending(g => g.Key.Year).ThenByDescending(g => g.Key.Month)
             .Select(g =>
@@ -244,7 +244,7 @@ public class StatementService : IStatementService
                     Status = isPast ? StatementStatus.Paid : StatementStatus.Pending
                 };
             })
-            .ToList();
+            .ToList(), page, pageSize);
     }
 }
 

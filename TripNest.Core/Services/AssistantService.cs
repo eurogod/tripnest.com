@@ -1,5 +1,6 @@
 using System.Text;
 using TripNest.Core.DTOs.Assistant;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -112,28 +113,38 @@ public class AssistantService : IAssistantService
             .ToList();
     }
 
-    public async Task<List<SupportTicketResponse>> GetOpenTicketsAsync()
+    public async Task<PagedResult<SupportTicketResponse>> GetOpenTicketsAsync(int page, int pageSize)
     {
-        var tickets = (await _ticketRepository.FindAsync(t => t.Status == SupportTicketStatus.Open))
+        var all = (await _ticketRepository.FindAsync(t => t.Status == SupportTicketStatus.Open))
             .OrderBy(t => t.CreatedAt)
             .ToList();
+
+        // Page before enriching so the user lookup only covers the requested slice.
+        var paged = Paging.Page(all, page, pageSize);
+        var tickets = paged.Items;
 
         var userIds = tickets.Select(t => t.UserId).Distinct().ToList();
         var users = (await _userRepository.FindAsync(u => userIds.Contains(u.Id))).ToDictionary(u => u.Id);
 
-        return tickets.Select(t => new SupportTicketResponse
+        return new PagedResult<SupportTicketResponse>
         {
-            TicketId = t.Id,
-            UserId = t.UserId,
-            UserName = users.TryGetValue(t.UserId, out var u) ? u.FullName : null,
-            UserEmail = users.TryGetValue(t.UserId, out var u2) ? u2.Email : null,
-            Subject = t.Subject,
-            Summary = t.Summary,
-            Status = t.Status,
-            ConversationId = t.ConversationId,
-            CreatedAt = t.CreatedAt,
-            ResolvedAt = t.ResolvedAt,
-        }).ToList();
+            Items = tickets.Select(t => new SupportTicketResponse
+            {
+                TicketId = t.Id,
+                UserId = t.UserId,
+                UserName = users.TryGetValue(t.UserId, out var u) ? u.FullName : null,
+                UserEmail = users.TryGetValue(t.UserId, out var u2) ? u2.Email : null,
+                Subject = t.Subject,
+                Summary = t.Summary,
+                Status = t.Status,
+                ConversationId = t.ConversationId,
+                CreatedAt = t.CreatedAt,
+                ResolvedAt = t.ResolvedAt,
+            }).ToList(),
+            TotalCount = paged.TotalCount,
+            Page = paged.Page,
+            PageSize = paged.PageSize
+        };
     }
 
     public async Task ResolveTicketAsync(string ticketId, string adminId)

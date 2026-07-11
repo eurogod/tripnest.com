@@ -168,14 +168,14 @@ public class AgentsController : ControllerBase
     /// </summary>
     [HttpGet("viewing-requests/mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<List<ViewingRequestResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ViewingRequestResponse>>>> GetMyViewingRequests()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ViewingRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ViewingRequestResponse>>>> GetMyViewingRequests([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<ViewingRequestResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<ViewingRequestResponse>>.UnAuthorized());
 
-        var requests = await _agentService.GetMyViewingRequestsAsync(userId);
-        return Ok(ApiResponse<List<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
+        var requests = await _agentService.GetMyViewingRequestsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
     }
 }

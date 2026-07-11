@@ -7,6 +7,7 @@ using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
 using TripNest.Core.Filters;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -44,17 +45,17 @@ public class MaintenanceController : ControllerBase
     /// </summary>
     [HttpGet("property/{propertyId}")]
     [Authorize(Roles = "Landlord,Admin")]
-    [ProducesResponseType(typeof(ApiResponse<List<MaintenanceResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<MaintenanceResponse>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<List<MaintenanceResponse>>>> GetPropertyMaintenance(string propertyId)
+    public async Task<ActionResult<ApiResponse<PagedResult<MaintenanceResponse>>>> GetPropertyMaintenance(string propertyId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var landlordId = User.GetUserId();
         if (string.IsNullOrEmpty(landlordId))
-            return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<MaintenanceResponse>>.UnAuthorized());
 
-        var requests = await _maintenanceService.GetPropertyMaintenanceAsync(propertyId, landlordId);
-        return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
+        var requests = await _maintenanceService.GetPropertyMaintenanceAsync(propertyId, landlordId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
     }
 
     /// <summary>
@@ -62,15 +63,15 @@ public class MaintenanceController : ControllerBase
     /// </summary>
     [HttpGet("mine")]
     [Authorize(Roles = "Tenant")]
-    [ProducesResponseType(typeof(ApiResponse<List<MaintenanceResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<MaintenanceResponse>>>> GetMyMaintenance()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<MaintenanceResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<MaintenanceResponse>>>> GetMyMaintenance([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var tenantId = User.GetUserId();
         if (string.IsNullOrEmpty(tenantId))
-            return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<MaintenanceResponse>>.UnAuthorized());
 
-        var requests = await _maintenanceService.GetTenantMaintenanceAsync(tenantId);
-        return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
+        var requests = await _maintenanceService.GetTenantMaintenanceAsync(tenantId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
     }
 
     /// <summary>

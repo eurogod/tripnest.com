@@ -92,25 +92,35 @@ public class ExchangeService : IExchangeService
         };
     }
 
-    public async Task<List<ExchangeReplyResponse>> GetRepliesAsync(string postId)
+    public async Task<PagedResult<ExchangeReplyResponse>> GetRepliesAsync(string postId, int page, int pageSize)
     {
         _ = await _postRepository.GetByIdAsync(postId) ?? throw new NotFoundException("Post");
-        var replies = (await _replyRepository.FindAsync(r => r.PostId == postId))
+        var all = (await _replyRepository.FindAsync(r => r.PostId == postId))
             .OrderBy(r => r.CreatedAt)
             .ToList();
+
+        // Page before enriching so the author lookup only covers the requested slice.
+        var paged = Paging.Page(all, page, pageSize);
+        var replies = paged.Items;
 
         var authorIds = replies.Select(r => r.AuthorId).Distinct().ToList();
         var authors = (await _userRepository.FindAsync(u => authorIds.Contains(u.Id)))
             .ToDictionary(u => u.Id, u => u.FullName);
 
-        return replies.Select(r => new ExchangeReplyResponse
+        return new PagedResult<ExchangeReplyResponse>
         {
-            Id = r.Id,
-            AuthorId = r.AuthorId,
-            AuthorName = authors.GetValueOrDefault(r.AuthorId),
-            Body = r.Body,
-            CreatedAt = r.CreatedAt
-        }).ToList();
+            Items = replies.Select(r => new ExchangeReplyResponse
+            {
+                Id = r.Id,
+                AuthorId = r.AuthorId,
+                AuthorName = authors.GetValueOrDefault(r.AuthorId),
+                Body = r.Body,
+                CreatedAt = r.CreatedAt
+            }).ToList(),
+            TotalCount = paged.TotalCount,
+            Page = paged.Page,
+            PageSize = paged.PageSize
+        };
     }
 
     public async Task<ExchangeReplyResponse> AddReplyAsync(string postId, CreateExchangeReplyRequest request, string authorId)
@@ -138,10 +148,10 @@ public class ResourceService : IResourceService
 
     public ResourceService(IRepository<ResourceItem> repository) => _repository = repository;
 
-    public async Task<List<ResourceResponse>> GetAllAsync()
+    public async Task<PagedResult<ResourceResponse>> GetAllAsync(int page, int pageSize)
     {
         var items = (await _repository.GetAllAsync()).OrderByDescending(r => r.CreatedAt);
-        return items.Select(Map).ToList();
+        return Paging.Page(items.Select(Map).ToList(), page, pageSize);
     }
 
     public async Task<ResourceResponse> CreateAsync(CreateResourceRequest request)

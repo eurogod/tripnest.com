@@ -4,6 +4,7 @@ using TripNest.Core.DTOs.Payouts;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -61,15 +62,15 @@ public class PayoutsController : ControllerBase
 
     /// <summary>The caller's payouts, newest first — the earnings "money actually sent" view.</summary>
     [HttpGet("mine")]
-    [ProducesResponseType(typeof(ApiResponse<List<PayoutResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<PayoutResponse>>>> GetMine()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<PayoutResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<PayoutResponse>>>> GetMine([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<PayoutResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<PayoutResponse>>.UnAuthorized());
 
-        var payouts = await _payoutService.GetMyPayoutsAsync(userId);
-        return Ok(ApiResponse<List<PayoutResponse>>.Ok("Payouts retrieved", payouts));
+        var payouts = await _payoutService.GetMyPayoutsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<PayoutResponse>>.Ok("Payouts retrieved", payouts));
     }
 
     /// <summary>Re-attempts a Pending or Failed payout (e.g. after fixing the payout account).</summary>

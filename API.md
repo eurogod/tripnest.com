@@ -153,6 +153,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 |---|---|---|
 | POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`) |
 | POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401. Charged amount must match the booking total or the hold is rejected |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged; the caller's escrows as paying tenant, newest first) |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/release` | 🔒 |
 | POST | `/{id}/dispute` | 🔒 |
@@ -163,7 +164,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | Method | Path | Access |
 |---|---|---|
 | POST | `/` | 🔒 |
-| GET | `/mine` | 🔒 |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/sign` | 🔒 |
 | GET | `/{id}/download` | 🔒 (PDF) |
@@ -171,7 +172,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Chat — `api/chat` (REST companion to SignalR hub `/hubs/chat`)
 | Method | Path | Access |
 |---|---|---|
-| GET | `/conversations/mine` | 🔒 |
+| GET | `/conversations/mine?page=&pageSize=` | 🔒 (paged) |
 | POST | `/conversations` | 🔒 |
 | GET | `/conversations/{id}` | 🔒 |
 | GET | `/conversations/{id}/messages?page=&pageSize=` | 🔒 |
@@ -196,9 +197,9 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from service-request reviews) |
 | POST | `/assign` | 🔒 `[Landlord]` 🛡️ (owner only; creates an active `PropertyCaretakerAssignment` — a caretaker can hold several; 409 if already assigned) |
 | POST | `/unassign` | 🔒 `[Landlord]` 🛡️ (ends the active assignment; 404 if none) |
-| GET | `/assignments/mine` | 🔒 (assignments on the caller's properties and/or as the caretaker) |
+| GET | `/assignments/mine?page=&pageSize=` | 🔒 (paged; assignments on the caller's properties and/or as the caretaker) |
 | POST | `/service-requests` | 🔒 (`propertyId` optional only when the caretaker serves exactly one property) |
-| GET | `/service-requests/mine` | 🔒 |
+| GET | `/service-requests/mine?page=&pageSize=` | 🔒 (paged) |
 | PATCH | `/service-requests/{id}/accept` | 🔒 `[Caretaker]` 🛡️ (Pending → Accepted) |
 | PATCH | `/service-requests/{id}/decline` | 🔒 `[Caretaker]` 🛡️ (Pending → Declined) |
 | PATCH | `/service-requests/{id}/status` | 🔒 (role-gated transitions — caretaker: Accepted→InProgress/Completed; requester: Pending/Accepted→Cancelled; anything else 400) |
@@ -214,7 +215,7 @@ Status changes, new requests, reviews, and (un)assignments notify the counterpar
 | PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates, service area) — required to appear in the list |
 | GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from viewing reviews) |
 | POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` (must be scheduled in the future; notifies the agent) |
-| GET | `/viewing-requests/mine` | 🔒 (as requesting tenant and/or assigned agent) |
+| GET | `/viewing-requests/mine?page=&pageSize=` | 🔒 (paged; as requesting tenant and/or assigned agent) |
 | PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ (role-gated transitions — agent: Pending→Confirmed/Declined, Confirmed→Completed; tenant: Pending/Confirmed→Cancelled; anything else 400) |
 | PATCH | `/viewing-requests/{id}/decline` | 🔒 `[Agent]` 🛡️ (Pending → Declined) |
 | POST | `/viewing-requests/{id}/review` | 🔒 `[Tenant]` (requester only, Completed only, rating 1–5) |
@@ -224,7 +225,7 @@ Status changes, new requests, reviews, and (un)assignments notify the counterpar
 |---|---|---|
 | GET | `/account` | 🔒 `[Landlord,Agent]` own payout destination (masked; 404 until registered) |
 | PUT | `/account` | 🔒 `[Landlord,Agent]` register MoMo wallet (`mobile_money`: MTN/ATL/VOD) or bank (`ghipss`) — validated with Paystack as a transfer recipient |
-| GET | `/mine` | 🔒 `[Landlord,Agent]` own payouts, newest first (gross, fee, net, status) |
+| GET | `/mine?page=&pageSize=` | 🔒 `[Landlord,Agent]` own payouts, newest first, paged (gross, fee, net, status) |
 | POST | `/{id}/retry` | 🔒 `[Landlord,Agent]` re-attempt a Pending/Failed payout |
 
 Escrow release (manual, auto after checkout+grace, or dispute-approved) creates one payout per
@@ -238,8 +239,8 @@ notifying the host either way.
 |---|---|---|
 | POST | `/` | 🔒 (report) |
 | PATCH | `/{id}/status` | 🔒 |
-| GET | `/property/{propertyId}` | 🔒 `[Landlord,Admin]` |
-| GET | `/mine` | 🔒 `[Tenant]` |
+| GET | `/property/{propertyId}?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
+| GET | `/mine?page=&pageSize=` | 🔒 `[Tenant]` (paged) |
 | POST | `/{id}/convert-to-service-request` | 🔒 `[Landlord,Admin]` 🛡️ |
 
 ### Reviews — `api/reviews`
@@ -248,7 +249,7 @@ notifying the host either way.
 | GET | `/property/{propertyId}?page=&pageSize=` | 🌐 |
 | GET | `/{id}` | 🌐 |
 | POST | `/` | 🔒 |
-| GET | `/mine` | 🔒 |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) |
 | DELETE | `/{id}` | 🔒 |
 
 ### Notifications — `api/notifications`
@@ -334,7 +335,7 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/landlord/properties/performance` | 🔒 `[Landlord]` |
 | GET | `/api/admin/stats` | 🔒 `[Admin]` |
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
-| GET | `/api/admin/support-tickets` | 🔒 `[Admin]` (open assistant escalations, oldest first) |
+| GET | `/api/admin/support-tickets?page=&pageSize=` | 🔒 `[Admin]` (paged; open assistant escalations, oldest first) |
 | POST | `/api/admin/support-tickets/{ticketId}/resolve` | 🔒 `[Admin]` (marks resolved, notifies the user; idempotent) |
 
 ### Pricing & calendar — `api/pricing`, `api/calendar`
@@ -385,20 +386,20 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Statements — `api/statements`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/statements` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed) |
+| GET | `/api/statements?page=&pageSize=` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed, paged) |
 
 ### Owner Exchange — `api/exchange`
 | Method | Path | Access |
 |---|---|---|
 | GET | `/api/exchange/posts?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/exchange/posts` | 🔒 |
-| GET | `/api/exchange/posts/{id}/replies` | 🔒 |
+| GET | `/api/exchange/posts/{id}/replies?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/exchange/posts/{id}/replies` | 🔒 |
 
 ### Resources — `api/resources`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/resources` | 🔒 |
+| GET | `/api/resources?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/resources` | 🔒 `[Admin]` |
 
 ### Virtual tour — `api/properties/{propertyId}/tour`

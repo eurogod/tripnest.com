@@ -1,5 +1,6 @@
 using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.DTOs.Maintenance;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -49,7 +50,7 @@ public class MaintenanceService : IMaintenanceService
         return MapToResponse(maintenance);
     }
 
-    public async Task<List<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId)
+    public async Task<PagedResult<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId, int page, int pageSize)
     {
         var property = await _propertyRepository.GetByIdAsync(propertyId);
         if (property == null)
@@ -59,13 +60,13 @@ public class MaintenanceService : IMaintenanceService
             throw new ForbiddenException("You do not have permission to view maintenance for this property");
 
         var records = await _maintenanceRepository.GetByPropertyIdAsync(propertyId);
-        return records.Select(MapToResponse).ToList();
+        return Paging.Page(records.Select(MapToResponse).ToList(), page, pageSize);
     }
 
-    public async Task<List<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId)
+    public async Task<PagedResult<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId, int page, int pageSize)
     {
         var records = await _maintenanceRepository.GetByUserIdAsync(tenantId);
-        return records.Select(MapToResponse).ToList();
+        return Paging.Page(records.Select(MapToResponse).ToList(), page, pageSize);
     }
 
     public async Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId, bool isAdmin)

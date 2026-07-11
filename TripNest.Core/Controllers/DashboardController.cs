@@ -5,6 +5,7 @@ using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -33,11 +34,11 @@ public class DashboardController : ControllerBase
 
     /// <summary>Open support tickets (assistant escalations), oldest first.</summary>
     [HttpGet("support-tickets")]
-    [ProducesResponseType(typeof(ApiResponse<List<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>>> GetSupportTickets()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>>> GetSupportTickets([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var tickets = await _assistantService.GetOpenTicketsAsync();
-        return Ok(ApiResponse<List<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>.Ok("Support tickets retrieved", tickets));
+        var tickets = await _assistantService.GetOpenTicketsAsync(page, pageSize);
+        return Ok(ApiResponse<PagedResult<TripNest.Core.DTOs.Assistant.SupportTicketResponse>>.Ok("Support tickets retrieved", tickets));
     }
 
     /// <summary>Marks a support ticket resolved and notifies the user (idempotent).</summary>

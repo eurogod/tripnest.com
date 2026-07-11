@@ -259,7 +259,7 @@ public class AgentService : IAgentService
             $"You received a {rating}-star review for a completed viewing.");
     }
 
-    public async Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId)
+    public async Task<PagedResult<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId, int page, int pageSize)
     {
         // The caller may be the requesting tenant and/or an assigned agent.
         var agent = await _agentRepository.GetByUserIdAsync(userId);
@@ -267,10 +267,10 @@ public class AgentService : IAgentService
         var requests = await _viewingRequestRepository.FindAsync(
             v => v.TenantId == userId || (agentId != null && v.AgentId == agentId));
 
-        return requests
+        return Paging.Page(requests
             .OrderByDescending(v => v.ScheduledAt)
             .Select(MapToViewingRequest)
-            .ToList();
+            .ToList(), page, pageSize);
     }
 
     /// <summary>Notifies the party who did NOT perform the action (tenant ↔ agent's user).</summary>

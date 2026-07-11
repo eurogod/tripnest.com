@@ -189,7 +189,8 @@ public class MarketplaceEndpointsTests : TestBase
         Assert.Equal(1, posts.GetProperty("items")[0].GetProperty("replyCount").GetInt32());
 
         var replies = await DataOf(await _httpClient.GetAsync($"/api/exchange/posts/{postId}/replies"));
-        Assert.Equal(1, replies.GetArrayLength());
+        Assert.Equal(1, replies.GetProperty("totalCount").GetInt32());
+        Assert.Equal(1, replies.GetProperty("items").GetArrayLength());
     }
 
     // -------------------------------------------------------------- Resources
@@ -207,7 +208,7 @@ public class MarketplaceEndpointsTests : TestBase
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
         var list = await DataOf(await _httpClient.GetAsync("/api/resources"));
-        Assert.Equal(1, list.GetArrayLength());
+        Assert.Equal(1, list.GetProperty("items").GetArrayLength());
     }
 
     // ------------------------------------------------------- Payment methods
@@ -264,7 +265,7 @@ public class MarketplaceEndpointsTests : TestBase
     {
         await RegisterAndLoginAsync(UserRole.Landlord);
         var data = await DataOf(await _httpClient.GetAsync("/api/statements"));
-        Assert.Equal(0, data.GetArrayLength());
+        Assert.Equal(0, data.GetProperty("items").GetArrayLength());
     }
 
     // ------------------------------------------------ Landlord workspace + inquiry

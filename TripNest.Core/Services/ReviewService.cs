@@ -93,10 +93,10 @@ public class ReviewService : IReviewService
         return Paging.Result(items.Select(MapToResponse).ToList(), totalCount, pageNum, size);
     }
 
-    public async Task<List<ReviewResponse>> GetUserReviewsAsync(string userId)
+    public async Task<PagedResult<ReviewResponse>> GetUserReviewsAsync(string userId, int page, int pageSize)
     {
         var reviews = await _reviewRepository.GetByRevieweeIdAsync(userId);
-        return reviews.Select(MapToResponse).ToList();
+        return Paging.Page(reviews.Select(MapToResponse).ToList(), page, pageSize);
     }
 
     public async Task<ReviewResponse?> GetReviewAsync(string reviewId)

@@ -57,15 +57,15 @@ public class ReviewsController : ControllerBase
     /// </summary>
     [HttpGet("mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<List<ReviewResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ReviewResponse>>>> GetMyReviews()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ReviewResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ReviewResponse>>>> GetMyReviews([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<ReviewResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<ReviewResponse>>.UnAuthorized());
 
-        var reviews = await _reviewService.GetUserReviewsAsync(userId);
-        return Ok(ApiResponse<List<ReviewResponse>>.Ok("Reviews retrieved", reviews));
+        var reviews = await _reviewService.GetUserReviewsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ReviewResponse>>.Ok("Reviews retrieved", reviews));
     }
 
     /// <summary>

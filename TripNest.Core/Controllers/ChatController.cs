@@ -32,15 +32,15 @@ public class ChatController : ControllerBase
     /// Get current user's conversations
     /// </summary>
     [HttpGet("conversations/mine")]
-    [ProducesResponseType(typeof(ApiResponse<List<ConversationResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ConversationResponse>>>> GetMyConversations()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ConversationResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ConversationResponse>>>> GetMyConversations([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<ConversationResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<ConversationResponse>>.UnAuthorized());
 
-        var conversations = await _chatService.GetUserConversationsAsync(userId);
-        return Ok(ApiResponse<List<ConversationResponse>>.Ok("Conversations retrieved", conversations));
+        var conversations = await _chatService.GetUserConversationsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ConversationResponse>>.Ok("Conversations retrieved", conversations));
     }
 
     /// <summary>

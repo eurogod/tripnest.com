@@ -138,7 +138,7 @@ public class AgentViewingLifecycleTests : TestBase
 
         UseToken(tenantToken);
         var mine = await _httpClient.GetAsync("/api/agents/viewing-requests/mine");
-        var mineData = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var mineData = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("items");
         Assert.Equal("Declined", mineData[0].GetProperty("status").GetString());
     }
 

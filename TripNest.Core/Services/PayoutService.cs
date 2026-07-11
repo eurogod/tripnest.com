@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using TripNest.Core.DTOs.Payouts;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -93,10 +94,10 @@ public class PayoutService : IPayoutService
         return MapAccount(account);
     }
 
-    public async Task<List<PayoutResponse>> GetMyPayoutsAsync(string userId)
+    public async Task<PagedResult<PayoutResponse>> GetMyPayoutsAsync(string userId, int page, int pageSize)
     {
         var payouts = await _payoutRepository.FindAsync(p => p.LandlordId == userId);
-        return payouts.OrderByDescending(p => p.CreatedAt).Select(Map).ToList();
+        return Paging.Page(payouts.OrderByDescending(p => p.CreatedAt).Select(Map).ToList(), page, pageSize);
     }
 
     public async Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId, decimal? grossOverride = null)

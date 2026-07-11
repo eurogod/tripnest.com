@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Payouts;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Interfaces.Services;
@@ -17,7 +18,7 @@ public interface IPayoutService
     Task<PayoutAccountResponse> UpsertMyAccountAsync(string userId, UpsertPayoutAccountRequest request);
 
     /// <summary>The caller's payouts, newest first.</summary>
-    Task<List<PayoutResponse>> GetMyPayoutsAsync(string userId);
+    Task<PagedResult<PayoutResponse>> GetMyPayoutsAsync(string userId, int page, int pageSize);
 
     /// <summary>
     /// Creates the payout for a just-released escrow (idempotent — one payout per escrow) and

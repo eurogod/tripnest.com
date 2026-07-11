@@ -122,7 +122,7 @@ public class CaretakerMarketplaceTests : TestBase
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
 
         var mine = await _httpClient.GetAsync("/api/caretakers/assignments/mine");
-        var mineData = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var mineData = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("items");
         Assert.Equal(1, mineData.GetArrayLength());
         Assert.True(mineData[0].GetProperty("isActive").GetBoolean());
 
@@ -131,7 +131,7 @@ public class CaretakerMarketplaceTests : TestBase
         Assert.Equal(HttpStatusCode.OK, unassign.StatusCode);
 
         var after = await _httpClient.GetAsync("/api/caretakers/assignments/mine");
-        var afterData = JsonDocument.Parse(await after.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var afterData = JsonDocument.Parse(await after.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("items");
         Assert.False(afterData[0].GetProperty("isActive").GetBoolean());
         Assert.NotEqual(JsonValueKind.Null, afterData[0].GetProperty("endedAt").ValueKind);
 

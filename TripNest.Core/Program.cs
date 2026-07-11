@@ -1,5 +1,7 @@
+using System.IO.Compression;
 using System.Text;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -403,6 +405,18 @@ builder.Services.AddHealthChecks()
 // [OutputCache(PolicyName=...)]). Only anonymous, identical-for-everyone reads are annotated, so a
 // shared cached response is always correct. TTLs are short; tag-based eviction on writes can be
 // layered on later for instant freshness.
+// Response compression (Brotli preferred, Gzip fallback). Kestrel serves clients directly (no
+// reverse proxy compressing for us), so without this every JSON payload goes out uncompressed.
+// EnableForHttps is safe here: responses never reflect attacker-controlled input alongside secrets.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+
 builder.Services.AddMemoryCache();
 builder.Services.AddOutputCache(options =>
 {
@@ -546,6 +560,10 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Compress response bodies (runs early so later middleware/endpoints write through it; static
+// uploads are mostly already-compressed images, but JSON responses shrink substantially).
+app.UseResponseCompression();
 
 // Serve locally-stored uploads (/uploads/...). Ensure the web root exists so the static file
 // provider has a directory to serve even before the first upload.

@@ -136,15 +136,15 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpGet("assignments/mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<List<CaretakerAssignmentResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<CaretakerAssignmentResponse>>>> GetMyAssignments()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<CaretakerAssignmentResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<CaretakerAssignmentResponse>>>> GetMyAssignments([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<CaretakerAssignmentResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<CaretakerAssignmentResponse>>.UnAuthorized());
 
-        var assignments = await _caretakerService.GetMyAssignmentsAsync(userId);
-        return Ok(ApiResponse<List<CaretakerAssignmentResponse>>.Ok("Assignments retrieved", assignments));
+        var assignments = await _caretakerService.GetMyAssignmentsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<CaretakerAssignmentResponse>>.Ok("Assignments retrieved", assignments));
     }
 
     /// <summary>
@@ -169,15 +169,15 @@ public class CaretakersController : ControllerBase
     /// </summary>
     [HttpGet("service-requests/mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<List<ServiceRequestResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ServiceRequestResponse>>>> GetMyServiceRequests()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ServiceRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ServiceRequestResponse>>>> GetMyServiceRequests([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Unauthorized(ApiResponse<List<ServiceRequestResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<ServiceRequestResponse>>.UnAuthorized());
 
-        var requests = await _caretakerService.GetServiceRequestsAsync(userId);
-        return Ok(ApiResponse<List<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
+        var requests = await _caretakerService.GetServiceRequestsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ServiceRequestResponse>>.Ok("Service requests retrieved", requests));
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using TripNest.Core.DTOs.Escrow;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -303,19 +304,19 @@ public class EscrowService : IEscrowService
         return MapToResponse(updated!);
     }
 
-    public async Task<List<EscrowResponse>> GetMyEscrowsAsync(string userId)
+    public async Task<PagedResult<EscrowResponse>> GetMyEscrowsAsync(string userId, int page, int pageSize)
     {
         // The caller's bookings as a tenant, then the escrows attached to them.
         var bookings = await _bookingRepository.FindAsync(b => b.TenantId == userId);
         var bookingIds = bookings.Select(b => b.Id).ToList();
         if (bookingIds.Count == 0)
-            return new List<EscrowResponse>();
+            return Paging.Page(new List<EscrowResponse>(), page, pageSize);
 
         var escrows = await _escrowRepository.FindAsync(e => bookingIds.Contains(e.BookingId));
-        return escrows
+        return Paging.Page(escrows
             .OrderByDescending(e => e.CreatedAt)
             .Select(e => MapToResponse(e))
-            .ToList();
+            .ToList(), page, pageSize);
     }
 
     public async Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId)

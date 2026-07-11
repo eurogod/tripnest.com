@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Assistant;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Interfaces.Services;
 
@@ -11,6 +12,6 @@ public interface IAssistantService
 {
     Task<AssistantReplyResponse> AskAsync(string userId, string question);
     Task<List<AssistantHistoryItem>> GetHistoryAsync(string userId, int limit = 50);
-    Task<List<SupportTicketResponse>> GetOpenTicketsAsync();
+    Task<PagedResult<SupportTicketResponse>> GetOpenTicketsAsync(int page, int pageSize);
     Task ResolveTicketAsync(string ticketId, string adminId);
 }

@@ -161,7 +161,7 @@ public class AssistantTests : TestBase
         await LoginAsync(adminEmail);
 
         var list = await _httpClient.GetAsync("/api/admin/support-tickets");
-        var tickets = JsonDocument.Parse(await list.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var tickets = JsonDocument.Parse(await list.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("items");
         Assert.Contains(tickets.EnumerateArray(), t => t.GetProperty("ticketId").GetString() == ticketId);
 
         var resolve = await _httpClient.PostAsync($"/api/admin/support-tickets/{ticketId}/resolve", null);

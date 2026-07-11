@@ -38,13 +38,17 @@ public class ChatService : IChatService
         _logger = logger;
     }
 
-    public async Task<List<ConversationResponse>> GetUserConversationsAsync(string userId)
+    public async Task<PagedResult<ConversationResponse>> GetUserConversationsAsync(string userId, int page, int pageSize)
     {
         try
         {
-            var conversations = (await _conversationRepository.GetUserConversationsAsync(userId)).ToList();
-            if (conversations.Count == 0)
-                return new List<ConversationResponse>();
+            var all = (await _conversationRepository.GetUserConversationsAsync(userId)).ToList();
+            if (all.Count == 0)
+                return Paging.Page(new List<ConversationResponse>(), page, pageSize);
+
+            // Page before enriching so the queries below only cover the requested slice.
+            var paged = Paging.Page(all, page, pageSize);
+            var conversations = paged.Items;
 
             // Enrich the list view in three set-based queries (names, previews,
             // unread counts) so the client never needs a per-row lookup.
@@ -65,19 +69,25 @@ public class ChatService : IChatService
                 .GroupBy(m => m.ConversationId)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            return conversations.Select(c =>
+            return new PagedResult<ConversationResponse>
             {
-                var otherId = c.User1Id == userId ? c.User2Id : c.User1Id;
-                var otherUser = otherUsers.GetValueOrDefault(otherId);
-                var response = MapConversation(c);
-                response.OtherUserId = otherId;
-                response.OtherUserName = otherUser?.FullName;
-                response.LastMessagePreview = lastMessageByConversation.GetValueOrDefault(c.Id);
-                response.UnreadCount = unreadByConversation.GetValueOrDefault(c.Id);
-                response.OtherUserIsOnline = _presence.IsOnline(otherId);
-                response.OtherUserLastSeenAt = response.OtherUserIsOnline ? null : otherUser?.LastSeenAt;
-                return response;
-            }).ToList();
+                Items = conversations.Select(c =>
+                {
+                    var otherId = c.User1Id == userId ? c.User2Id : c.User1Id;
+                    var otherUser = otherUsers.GetValueOrDefault(otherId);
+                    var response = MapConversation(c);
+                    response.OtherUserId = otherId;
+                    response.OtherUserName = otherUser?.FullName;
+                    response.LastMessagePreview = lastMessageByConversation.GetValueOrDefault(c.Id);
+                    response.UnreadCount = unreadByConversation.GetValueOrDefault(c.Id);
+                    response.OtherUserIsOnline = _presence.IsOnline(otherId);
+                    response.OtherUserLastSeenAt = response.OtherUserIsOnline ? null : otherUser?.LastSeenAt;
+                    return response;
+                }).ToList(),
+                TotalCount = paged.TotalCount,
+                Page = paged.Page,
+                PageSize = paged.PageSize
+            };
         }
         catch (Exception ex)
         {

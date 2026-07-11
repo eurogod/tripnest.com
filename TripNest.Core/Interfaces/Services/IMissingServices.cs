@@ -25,7 +25,7 @@ public interface IEscrowService
     Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId);
     Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId);
     // All escrows for the caller's own bookings (as the paying tenant), newest first.
-    Task<List<EscrowResponse>> GetMyEscrowsAsync(string userId);
+    Task<PagedResult<EscrowResponse>> GetMyEscrowsAsync(string userId, int page, int pageSize);
     Task ReleaseEscrowAsync(string escrowId, string userId);
     Task RaiseDisputeAsync(string escrowId, string userId, string reason);
     Task ResolveDisputeAsync(string escrowId, bool approved);
@@ -35,7 +35,7 @@ public interface IEscrowService
 public interface IAgreementService
 {
     Task<AgreementResponse> CreateAgreementAsync(string bookingId, string userId);
-    Task<List<AgreementResponse>> GetUserAgreementsAsync(string userId);
+    Task<PagedResult<AgreementResponse>> GetUserAgreementsAsync(string userId, int page, int pageSize);
     Task<AgreementResponse?> GetAgreementAsync(string agreementId, string userId);
     Task SignAgreementAsync(string agreementId, string userId);
     Task<(byte[], string)> DownloadAgreementPdfAsync(string agreementId, string userId);
@@ -54,9 +54,9 @@ public interface ICaretakerService
     /// <summary>Ends the active assignment between the caretaker and the landlord's property.</summary>
     Task UnassignCaretakerFromPropertyAsync(string propertyId, string caretakerId, string landlordId);
     /// <summary>Assignments the caller is party to — on their properties and/or as the caretaker.</summary>
-    Task<List<CaretakerAssignmentResponse>> GetMyAssignmentsAsync(string userId);
+    Task<PagedResult<CaretakerAssignmentResponse>> GetMyAssignmentsAsync(string userId, int page, int pageSize);
     Task<ServiceRequestResponse> CreateServiceRequestAsync(CreateServiceRequestRequest request, string userId);
-    Task<List<ServiceRequestResponse>> GetServiceRequestsAsync(string userId);
+    Task<PagedResult<ServiceRequestResponse>> GetServiceRequestsAsync(string userId, int page, int pageSize);
     Task AcceptServiceRequestAsync(string requestId, string caretakerId);
     /// <summary>Caretaker turns down a pending request (Pending → Declined).</summary>
     Task DeclineServiceRequestAsync(string requestId, string caretakerId);
@@ -67,8 +67,8 @@ public interface ICaretakerService
 public interface IMaintenanceService
 {
     Task<MaintenanceResponse> ReportMaintenanceAsync(CreateMaintenanceRequest request, string tenantId);
-    Task<List<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId);
-    Task<List<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId);
+    Task<PagedResult<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId, int page, int pageSize);
+    Task<PagedResult<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId, int page, int pageSize);
     Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId, bool isAdmin);
     Task<ServiceRequestResponse> ConvertToServiceRequestAsync(string maintenanceId, string? caretakerId, string landlordId);
 }
@@ -89,14 +89,14 @@ public interface IAgentService
     /// <summary>The requesting tenant reviews a completed viewing (rating 1–5).</summary>
     Task SubmitViewingReviewAsync(string requestId, string userId, int rating, string? comment);
     // Viewing requests the caller is party to — as the requesting tenant and/or the assigned agent.
-    Task<List<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId);
+    Task<PagedResult<ViewingRequestResponse>> GetMyViewingRequestsAsync(string userId, int page, int pageSize);
 }
 
 public interface IReviewService
 {
     Task<ReviewResponse> CreateReviewAsync(string bookingId, string propertyId, string reviewerId, int rating, string? comment);
     Task<PagedResult<ReviewResponse>> GetPropertyReviewsAsync(string propertyId, int page, int pageSize);
-    Task<List<ReviewResponse>> GetUserReviewsAsync(string userId);
+    Task<PagedResult<ReviewResponse>> GetUserReviewsAsync(string userId, int page, int pageSize);
     Task<ReviewResponse?> GetReviewAsync(string reviewId);
     Task DeleteReviewAsync(string reviewId, string userId);
 }
@@ -143,7 +143,7 @@ public interface IScamDetectionService
 
 public interface IChatService
 {
-    Task<List<ConversationResponse>> GetUserConversationsAsync(string userId);
+    Task<PagedResult<ConversationResponse>> GetUserConversationsAsync(string userId, int page, int pageSize);
     Task<ConversationResponse> StartConversationAsync(string userId, string otherUserId, string? propertyId);
     Task<ConversationResponse?> GetConversationAsync(string conversationId, string userId);
     Task<PagedResult<MessageResponse>> GetConversationMessagesAsync(string conversationId, string userId, int page, int pageSize);

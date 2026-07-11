@@ -195,7 +195,7 @@ public class CaretakerService : ICaretakerService
                 $"Your caretaker assignment for \"{property.Title}\" has ended.");
     }
 
-    public async Task<List<CaretakerAssignmentResponse>> GetMyAssignmentsAsync(string userId)
+    public async Task<PagedResult<CaretakerAssignmentResponse>> GetMyAssignmentsAsync(string userId, int page, int pageSize)
     {
         var myPropertyIds = (await _propertyRepository.FindAsync(p => p.UserId == userId))
             .Select(p => p.Id).ToList();
@@ -205,7 +205,7 @@ public class CaretakerService : ICaretakerService
         var assignments = await _assignmentRepository.FindAsync(
             a => myPropertyIds.Contains(a.PropertyId) || myCaretakerIds.Contains(a.CaretakerId));
 
-        return assignments
+        return Paging.Page(assignments
             .OrderByDescending(a => a.AssignedAt)
             .Select(a => new CaretakerAssignmentResponse
             {
@@ -217,7 +217,7 @@ public class CaretakerService : ICaretakerService
                 AssignedAt = a.AssignedAt,
                 EndedAt = a.EndedAt
             })
-            .ToList();
+            .ToList(), page, pageSize);
     }
 
     public async Task<ServiceRequestResponse> CreateServiceRequestAsync(CreateServiceRequestRequest request, string userId)
@@ -271,7 +271,7 @@ public class CaretakerService : ICaretakerService
         return MapToServiceRequest(serviceRequest);
     }
 
-    public async Task<List<ServiceRequestResponse>> GetServiceRequestsAsync(string userId)
+    public async Task<PagedResult<ServiceRequestResponse>> GetServiceRequestsAsync(string userId, int page, int pageSize)
     {
         // A caller sees requests they raised (RequestedByUserId) plus requests assigned to any
         // caretaker profile they own. ServiceRequest.CaretakerId is the Caretaker *entity* id, not
@@ -280,10 +280,10 @@ public class CaretakerService : ICaretakerService
         var requests = await _serviceRequestRepository.FindAsync(
             s => s.RequestedByUserId == userId || myCaretakerIds.Contains(s.CaretakerId));
 
-        return requests
+        return Paging.Page(requests
             .OrderByDescending(s => s.CreatedAt)
             .Select(MapToServiceRequest)
-            .ToList();
+            .ToList(), page, pageSize);
     }
 
     public Task AcceptServiceRequestAsync(string requestId, string userId) =>

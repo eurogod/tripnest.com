@@ -33,7 +33,7 @@ public interface IExchangeService
 {
     Task<PagedResult<ExchangePostResponse>> GetPostsAsync(int page, int pageSize);
     Task<ExchangePostResponse> CreatePostAsync(CreateExchangePostRequest request, string authorId);
-    Task<List<ExchangeReplyResponse>> GetRepliesAsync(string postId);
+    Task<PagedResult<ExchangeReplyResponse>> GetRepliesAsync(string postId, int page, int pageSize);
     Task<ExchangeReplyResponse> AddReplyAsync(string postId, CreateExchangeReplyRequest request, string authorId);
 }
 
@@ -55,13 +55,13 @@ public interface ITeamService
 
 public interface IResourceService
 {
-    Task<List<ResourceResponse>> GetAllAsync();
+    Task<PagedResult<ResourceResponse>> GetAllAsync(int page, int pageSize);
     Task<ResourceResponse> CreateAsync(CreateResourceRequest request);
 }
 
 public interface IStatementService
 {
-    Task<List<StatementResponse>> GetForLandlordAsync(string landlordId);
+    Task<PagedResult<StatementResponse>> GetForLandlordAsync(string landlordId, int page, int pageSize);
 }
 
 public interface ITourService
