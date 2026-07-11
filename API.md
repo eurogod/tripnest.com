@@ -352,6 +352,10 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/calendar?propertyId=&year=&month=` | 🔒 `[Landlord,Admin]` priced month w/ weekend/blocked/maintenance/booked flags |
 | GET | `/api/calendar/{propertyId}/feed-url` | 🔒 `[Landlord,Admin]` (owner only) tokenized public iCal URL — paste into Airbnb/VRBO/Booking.com "import calendar" to prevent double-bookings |
 | GET | `/api/calendar/{propertyId}.ics?token=` | 🌐 (token-authorized) RFC 5545 feed of confirmed stays + blocked ranges |
+| POST | `/api/calendar/{propertyId}/external` | 🔒 `[Landlord,Admin]` (owner only) link an external iCal feed (`{name, feedUrl}` — Airbnb/VRBO/Booking.com export URL; http(s) + public hostname only); imports immediately, fetch failures reported via `lastSyncError` |
+| GET | `/api/calendar/{propertyId}/external` | 🔒 `[Landlord,Admin]` (owner only) linked feeds with sync status + imported-range counts |
+| POST | `/api/calendar/external/{id}/sync` | 🔒 `[Landlord,Admin]` (owner only) re-import one feed now (a background worker also re-imports all feeds every `Calendar:ExternalSyncMinutes`, default 60) |
+| DELETE | `/api/calendar/external/{id}` | 🔒 `[Landlord,Admin]` (owner only) unlink; removes that feed's imported blocked dates, manual blocks stay |
 
 ### Landlord workspace — `api/landlord`
 | Method | Path | Access |

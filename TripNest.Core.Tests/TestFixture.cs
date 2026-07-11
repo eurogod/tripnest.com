@@ -65,6 +65,11 @@ public class TestFixture : WebApplicationFactory<Program>
             services.RemoveAll<IAiClient>();
             services.AddSingleton<StubAiClient>();
             services.AddSingleton<IAiClient>(sp => sp.GetRequiredService<StubAiClient>());
+
+            // Canned iCal feeds so external-calendar import never touches the network.
+            services.RemoveAll<IIcalFeedFetcher>();
+            services.AddSingleton<StubIcalFeedFetcher>();
+            services.AddSingleton<IIcalFeedFetcher>(sp => sp.GetRequiredService<StubIcalFeedFetcher>());
         });
 
         builder.UseEnvironment("Testing");

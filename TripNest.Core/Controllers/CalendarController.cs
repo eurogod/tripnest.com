@@ -14,8 +14,13 @@ namespace TripNest.Core.Controllers;
 public class CalendarController : ControllerBase
 {
     private readonly ICalendarService _calendarService;
+    private readonly IExternalCalendarService _externalCalendarService;
 
-    public CalendarController(ICalendarService calendarService) => _calendarService = calendarService;
+    public CalendarController(ICalendarService calendarService, IExternalCalendarService externalCalendarService)
+    {
+        _calendarService = calendarService;
+        _externalCalendarService = externalCalendarService;
+    }
 
     /// <summary>
     /// The priced availability calendar for a listing for a given month, with weekend / blocked /
@@ -67,5 +72,66 @@ public class CalendarController : ControllerBase
     {
         var ics = await _calendarService.GetIcalFeedAsync(propertyId, token);
         return Content(ics, "text/calendar");
+    }
+
+    /// <summary>
+    /// Links an external iCal feed (Airbnb/VRBO/Booking.com export URL) to the listing and runs
+    /// the first import immediately — the import half of cross-platform sync. Imported busy
+    /// ranges appear as blocked dates, so double-bookings are prevented at source.
+    /// </summary>
+    [HttpPost("{propertyId}/external")]
+    [ProducesResponseType(typeof(ApiResponse<ExternalCalendarResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ExternalCalendarResponse>>> AddExternalCalendar(
+        string propertyId, [FromBody] AddExternalCalendarRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var isAdmin = User.IsInRole("Admin");
+        var calendar = await _externalCalendarService.AddAsync(propertyId, request.Name, request.FeedUrl, userId, isAdmin);
+        calendar = await _externalCalendarService.SyncAsync(calendar.Id, userId, isAdmin);
+        return StatusCode(201, ApiResponse<ExternalCalendarResponse>.Created("External calendar", calendar));
+    }
+
+    /// <summary>The listing's linked external calendars with sync status.</summary>
+    [HttpGet("{propertyId}/external")]
+    [ProducesResponseType(typeof(ApiResponse<List<ExternalCalendarResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<ExternalCalendarResponse>>>> GetExternalCalendars(string propertyId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var calendars = await _externalCalendarService.GetForPropertyAsync(propertyId, userId, User.IsInRole("Admin"));
+        return Ok(ApiResponse<List<ExternalCalendarResponse>>.Ok("External calendars retrieved", calendars));
+    }
+
+    /// <summary>Re-imports one linked feed on demand (the worker also does this periodically).</summary>
+    [HttpPost("external/{id}/sync")]
+    [ProducesResponseType(typeof(ApiResponse<ExternalCalendarResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ExternalCalendarResponse>>> SyncExternalCalendar(string id)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var calendar = await _externalCalendarService.SyncAsync(id, userId, User.IsInRole("Admin"));
+        return Ok(ApiResponse<ExternalCalendarResponse>.Ok("Calendar synced", calendar));
+    }
+
+    /// <summary>Unlinks a feed and removes the blocked dates it imported (manual blocks stay).</summary>
+    [HttpDelete("external/{id}")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> RemoveExternalCalendar(string id)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        await _externalCalendarService.RemoveAsync(id, userId, User.IsInRole("Admin"));
+        return Ok(ApiResponse<object>.Ok("External calendar removed", new { }));
     }
 }

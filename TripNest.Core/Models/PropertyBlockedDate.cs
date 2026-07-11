@@ -10,5 +10,9 @@ public class PropertyBlockedDate
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public string? Reason { get; set; }
+    /// <summary>Set when this range was imported from an external iCal feed; a re-sync of that
+    /// feed replaces exactly its own rows and never touches manual blocks (null).</summary>
+    public string? ExternalCalendarId { get; set; }
+    public ExternalCalendar? ExternalCalendar { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

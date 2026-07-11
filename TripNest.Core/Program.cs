@@ -216,6 +216,13 @@ builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
 builder.Services.AddHttpClient<IGoogleAuthService, GoogleAuthService>();
 builder.Services.AddHttpClient<IFacebookAuthService, FacebookAuthService>();
 
+// External iCal import (cross-platform calendar sync): a named client with a tight timeout —
+// third-party calendar hosts can be slow and the worker loop must never hang on one of them.
+builder.Services.AddHttpClient(HttpIcalFeedFetcher.ClientName, c => c.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddSingleton<IIcalFeedFetcher, HttpIcalFeedFetcher>();
+builder.Services.AddScoped<IExternalCalendarService, ExternalCalendarService>();
+builder.Services.AddHostedService<ExternalCalendarSyncWorker>();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo

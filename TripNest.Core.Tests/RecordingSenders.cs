@@ -121,3 +121,15 @@ public class StubPaymentGateway : IPaymentGateway
         return Task.FromResult(new TransferResult(true, $"TRF_STUB_{reference[..Math.Min(8, reference.Length)]}", TransferStatus, null));
     }
 }
+
+/// <summary>Serves canned iCal documents keyed by feed URL — no network in tests.</summary>
+public class StubIcalFeedFetcher : TripNest.Core.Interfaces.Services.IIcalFeedFetcher
+{
+    /// <summary>Feed URL → ICS body. A missing URL throws, simulating a dead feed.</summary>
+    public Dictionary<string, string> Feeds { get; } = new();
+
+    public Task<string> FetchAsync(string url, CancellationToken cancellationToken = default) =>
+        Feeds.TryGetValue(url, out var ics)
+            ? Task.FromResult(ics)
+            : throw new HttpRequestException($"Stub has no feed for {url}");
+}
