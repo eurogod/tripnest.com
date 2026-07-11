@@ -1,6 +1,7 @@
 using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.DTOs.Maintenance;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -30,7 +31,7 @@ public class MaintenanceService : IMaintenanceService
     {
         var property = await _propertyRepository.GetByIdAsync(request.PropertyId);
         if (property == null)
-            throw new InvalidOperationException("Property not found");
+            throw new NotFoundException("Property");
 
         var maintenance = new Maintenance
         {
@@ -52,10 +53,10 @@ public class MaintenanceService : IMaintenanceService
     {
         var property = await _propertyRepository.GetByIdAsync(propertyId);
         if (property == null)
-            throw new InvalidOperationException("Property not found");
+            throw new NotFoundException("Property");
 
         if (property.UserId != landlordId)
-            throw new UnauthorizedAccessException("You do not have permission to view maintenance for this property");
+            throw new ForbiddenException("You do not have permission to view maintenance for this property");
 
         var records = await _maintenanceRepository.GetByPropertyIdAsync(propertyId);
         return records.Select(MapToResponse).ToList();
@@ -71,7 +72,7 @@ public class MaintenanceService : IMaintenanceService
     {
         var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
         if (maintenance == null)
-            throw new InvalidOperationException("Maintenance record not found");
+            throw new NotFoundException("Maintenance record");
 
         // Only the property's owner (landlord) — or an admin — may change a maintenance status.
         // Without this any authenticated user could update any property's maintenance record.
@@ -79,11 +80,11 @@ public class MaintenanceService : IMaintenanceService
         {
             var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
             if (property == null || property.UserId != userId)
-                throw new UnauthorizedAccessException("You do not have permission to update this maintenance record");
+                throw new ForbiddenException("You do not have permission to update this maintenance record");
         }
 
         if (!Enum.TryParse<MaintenanceStatus>(status, ignoreCase: true, out var parsedStatus))
-            throw new ArgumentException($"Invalid maintenance status: {status}");
+            throw new ValidationException($"Invalid maintenance status: {status}");
 
         maintenance.Status = parsedStatus;
 
@@ -100,14 +101,14 @@ public class MaintenanceService : IMaintenanceService
     {
         var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
         if (maintenance == null)
-            throw new InvalidOperationException("Maintenance record not found");
+            throw new NotFoundException("Maintenance record");
 
         var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
         if (property == null)
-            throw new InvalidOperationException("Property not found");
+            throw new NotFoundException("Property");
 
         if (property.UserId != landlordId)
-            throw new UnauthorizedAccessException("You do not have permission to convert this maintenance record");
+            throw new ForbiddenException("You do not have permission to convert this maintenance record");
 
         var serviceRequest = new ServiceRequest
         {

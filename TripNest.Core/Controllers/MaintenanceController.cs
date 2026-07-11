@@ -17,12 +17,10 @@ namespace TripNest.Core.Controllers;
 public class MaintenanceController : ControllerBase
 {
     private readonly IMaintenanceService _maintenanceService;
-    private readonly ILogger<MaintenanceController> _logger;
 
-    public MaintenanceController(IMaintenanceService maintenanceService, ILogger<MaintenanceController> logger)
+    public MaintenanceController(IMaintenanceService maintenanceService)
     {
         _maintenanceService = maintenanceService;
-        _logger = logger;
     }
 
     /// <summary>
@@ -47,27 +45,16 @@ public class MaintenanceController : ControllerBase
     [HttpGet("property/{propertyId}")]
     [Authorize(Roles = "Landlord,Admin")]
     [ProducesResponseType(typeof(ApiResponse<List<MaintenanceResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<List<MaintenanceResponse>>>> GetPropertyMaintenance(string propertyId)
     {
-        try
-        {
-            var landlordId = User.GetUserId();
-            if (string.IsNullOrEmpty(landlordId))
-                return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
+        var landlordId = User.GetUserId();
+        if (string.IsNullOrEmpty(landlordId))
+            return Unauthorized(ApiResponse<List<MaintenanceResponse>>.UnAuthorized());
 
-            var requests = await _maintenanceService.GetPropertyMaintenanceAsync(propertyId, landlordId);
-            return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
-        }
-        catch (InvalidOperationException)
-        {
-            // Service throws this when the property doesn't exist / isn't the landlord's — that's a 404, not a 500.
-            return NotFound(ApiResponse<List<MaintenanceResponse>>.NotFound("Property"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving maintenance requests");
-            return StatusCode(500, ApiResponse<List<MaintenanceResponse>>.InternalServerError());
-        }
+        var requests = await _maintenanceService.GetPropertyMaintenanceAsync(propertyId, landlordId);
+        return Ok(ApiResponse<List<MaintenanceResponse>>.Ok("Maintenance requests retrieved", requests));
     }
 
     /// <summary>
