@@ -22,6 +22,12 @@ public class User
 
     public string? ProfilePhotoPath { get; set; }
 
+    /// <summary>The user's drawn/handwritten signature image, stamped onto agreements they sign.
+    /// Private to the owner. Replacing it requires re-auth (password + Ghana Card for verified
+    /// users) and a cooldown since <see cref="SignatureUpdatedAt"/>.</summary>
+    public string? SignatureImagePath { get; set; }
+    public DateTime? SignatureUpdatedAt { get; set; }
+
     // Optional public display handle / nickname the user can set.
     public string? Username { get; set; }
 
@@ -64,6 +70,16 @@ public class User
     public string? EmailOtpHash { get; set; }
     public DateTime? EmailOtpExpiry { get; set; }
     public int EmailOtpAttempts { get; set; }
+
+    // Student verification: OTP to an academic email (separate from the account email) proves
+    // enrolment and unlocks student rates on Student-stayType listings. Expires after
+    // Student:ValidityDays (students graduate) and can be re-verified any time.
+    public string? PendingStudentEmail { get; set; }
+    public string? StudentEmail { get; set; }
+    public DateTime? StudentVerifiedAt { get; set; }
+    public string? StudentOtpHash { get; set; }
+    public DateTime? StudentOtpExpiry { get; set; }
+    public int StudentOtpAttempts { get; set; }
 
     // Saved trusted contact for safe-arrival check-ins (overridable per check-in request).
     public string? TrustedContactName { get; set; }

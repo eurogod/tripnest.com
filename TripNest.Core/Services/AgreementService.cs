@@ -11,17 +11,28 @@ public class AgreementService : IAgreementService
 {
     private readonly IAgreementRepository _agreementRepository;
     private readonly IBookingRepository _bookingRepository;
+    private readonly IUserRepository _userRepository;
+    private readonly IFileStorage _fileStorage;
     private readonly ILogger<AgreementService> _logger;
 
     public AgreementService(
         IAgreementRepository agreementRepository,
         IBookingRepository bookingRepository,
+        IUserRepository userRepository,
+        IFileStorage fileStorage,
         ILogger<AgreementService> logger)
     {
         _agreementRepository = agreementRepository;
         _bookingRepository = bookingRepository;
+        _userRepository = userRepository;
+        _fileStorage = fileStorage;
         _logger = logger;
     }
+
+    /// <summary>SHA-256 (hex, lowercase) of the terms text — what both signatures bind to.</summary>
+    private static string HashTerms(string termsContent) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(termsContent))).ToLowerInvariant();
 
     public async Task<AgreementResponse> CreateAgreementAsync(string bookingId, string userId)
     {
@@ -154,15 +165,31 @@ public class AgreementService : IAgreementService
 
             var landlordId = booking.Property?.UserId;
 
+            // Tamper evidence: the first signature captures the hash of the terms; the second
+            // refuses to bind if the text no longer hashes to the same value — nobody can sign a
+            // document different from what the first party signed.
+            var termsHash = HashTerms(agreement.TermsContent);
+            if (agreement.TermsHash is null)
+                agreement.TermsHash = termsHash;
+            else if (agreement.TermsHash != termsHash)
+                throw new InvalidOperationException(
+                    "The agreement terms changed after the first signature — signing is blocked. Contact support.");
+
             var signature = $"SIGNED:{userId}:{DateTime.UtcNow:O}";
+
+            // Snapshot the signer's current profile signature image (may be null — the click
+            // record above is the actual signature; the image is presentation on the PDF).
+            var signerImagePath = (await _userRepository.GetByIdAsync(userId))?.SignatureImagePath;
 
             if (booking.TenantId == userId)
             {
                 agreement.TenantSignature = signature;
+                agreement.TenantSignatureImagePath = signerImagePath;
             }
             else if (landlordId == userId)
             {
                 agreement.LandlordSignature = signature;
+                agreement.LandlordSignatureImagePath = signerImagePath;
             }
             else
             {
@@ -208,12 +235,36 @@ public class AgreementService : IAgreementService
         if (booking.TenantId != userId && landlordId != userId)
             throw new UnauthorizedAccessException("User is not authorised to download this agreement");
 
-        var bytes = Pdf.AgreementPdf.Render(agreement, booking);
+        var bytes = Pdf.AgreementPdf.Render(agreement, booking,
+            await TryReadImageAsync(agreement.TenantSignatureImagePath),
+            await TryReadImageAsync(agreement.LandlordSignatureImagePath));
         var filename = $"agreement-{agreementId}.pdf";
 
         _logger.LogInformation("Agreement {AgreementId} downloaded by user {UserId}", agreementId, userId);
 
         return (bytes, filename);
+    }
+
+    /// <summary>Best-effort load of a snapshotted signature image for the PDF; a missing or
+    /// unreadable file falls back to the text signature block rather than failing the download.</summary>
+    private async Task<byte[]?> TryReadImageAsync(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        try
+        {
+            await using var stream = await _fileStorage.OpenReadAsync(path);
+            if (stream is null)
+                return null;
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            return ms.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load signature image {Path} for agreement PDF", path);
+            return null;
+        }
     }
 
     private static AgreementResponse MapToResponse(Agreement a) =>
@@ -227,6 +278,7 @@ public class AgreementService : IAgreementService
             SignedAt = a.SignedAt,
             TenantSignature = a.TenantSignature,
             LandlordSignature = a.LandlordSignature,
+            TermsHash = a.TermsHash,
             ExpiryDate = a.ExpiryDate
         };
 }
