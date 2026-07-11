@@ -21,6 +21,8 @@ public class BookingService : IBookingService
     private readonly ILoyaltyService _loyaltyService;
     private readonly ISplitBillingService _splitBillingService;
     private readonly IRentService _rentService;
+    private readonly IStudentVerificationService _studentVerificationService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -36,6 +38,8 @@ public class BookingService : IBookingService
         ILoyaltyService loyaltyService,
         ISplitBillingService splitBillingService,
         IRentService rentService,
+        IStudentVerificationService studentVerificationService,
+        IConfiguration configuration,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -50,6 +54,8 @@ public class BookingService : IBookingService
         _loyaltyService = loyaltyService;
         _splitBillingService = splitBillingService;
         _rentService = rentService;
+        _studentVerificationService = studentVerificationService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -84,8 +90,12 @@ public class BookingService : IBookingService
         if (pricing is { MinNights: > 1 } && (checkOut - checkIn).Days < pricing.MinNights)
             throw new ValidationException($"This listing requires a minimum stay of {pricing.MinNights} nights");
 
-        var loyaltyPercent = await _loyaltyService.GetDiscountPercentAsync(tenantId);
-        var totalAmount = StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, loyaltyPercent).Total;
+        // Same discount rule as the quote endpoint (loyalty tier, or the student rate on
+        // Student-stayType listings — whichever is larger) so quote and charge always agree.
+        var memberPercent = await _loyaltyService.GetDiscountPercentAsync(tenantId);
+        if (property.StayType == StayType.Student && await _studentVerificationService.IsActiveStudentAsync(tenantId))
+            memberPercent = Math.Max(memberPercent, _configuration.GetValue("Student:DiscountPercent", 5m));
+        var totalAmount = StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, memberPercent).Total;
 
         // Long-term stays (2+ rent periods on a LongTerm/Student listing) pay monthly instead of
         // a lump sum: the upfront charge — and so the escrow and TotalAmount — covers only the

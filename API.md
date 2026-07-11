@@ -101,6 +101,9 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/phone/verify-otp` | 🔒 (body `{ code }` → marks phone verified) |
 | POST | `/email/send-otp` | 🔒 (no body → emails a code) |
 | POST | `/email/verify-otp` | 🔒 (body `{ code }` → marks email verified) |
+| GET | `/student` | 🔒 student status (email, active flag, verified/expires dates) |
+| POST | `/student/send-otp` | 🔒 (body `{ studentEmail }` — must be an academic domain per `Student:AcademicDomainSuffixes`; code goes to the student mailbox) |
+| POST | `/student/verify-otp` | 🔒 (body `{ code }` → verified student for `Student:ValidityDays` (365); unlocks `Student:DiscountPercent` (5%) on Student-stayType listings — the larger of student/loyalty discount applies, never stacked) |
 
 ### Verification — `api/verification`
 | Method | Path | Access |
