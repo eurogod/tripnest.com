@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using TripNest.Core.Context;
@@ -11,9 +12,11 @@ using TripNest.Core.Context;
 namespace TripNest.Core.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260711231801_ProfileSignaturesAndAgreementIntegrity")]
+    partial class ProfileSignaturesAndAgreementIntegrity
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1888,9 +1891,6 @@ namespace TripNest.Core.Migrations
                     b.Property<DateTime?>("PasswordResetTokenExpiry")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("PendingStudentEmail")
-                        .HasColumnType("text");
-
                     b.Property<string>("Phone")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -1928,21 +1928,6 @@ namespace TripNest.Core.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("SignatureUpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("StudentEmail")
-                        .HasColumnType("text");
-
-                    b.Property<int>("StudentOtpAttempts")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("StudentOtpExpiry")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("StudentOtpHash")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("StudentVerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("TripNestId")

@@ -17,5 +17,12 @@ public class Agreement
     public DateTime? SignedAt { get; set; }
     public string? TenantSignature { get; set; }
     public string? LandlordSignature { get; set; }
+    /// <summary>Snapshot of each party's profile signature image at the moment THEY signed —
+    /// executed contracts keep showing the signature as it was, even if the profile one changes.</summary>
+    public string? TenantSignatureImagePath { get; set; }
+    public string? LandlordSignatureImagePath { get; set; }
+    /// <summary>SHA-256 (hex) of <see cref="TermsContent"/> captured at the first signature. The
+    /// second signature refuses to bind if the text no longer hashes to this — tamper evidence.</summary>
+    public string? TermsHash { get; set; }
     public DateTime? ExpiryDate { get; set; }
 }

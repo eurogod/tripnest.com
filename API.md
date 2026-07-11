@@ -101,6 +101,9 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/phone/verify-otp` | 🔒 (body `{ code }` → marks phone verified) |
 | POST | `/email/send-otp` | 🔒 (no body → emails a code) |
 | POST | `/email/verify-otp` | 🔒 (body `{ code }` → marks email verified) |
+| GET | `/student` | 🔒 student status (email, active flag, verified/expires dates) |
+| POST | `/student/send-otp` | 🔒 (body `{ studentEmail }` — must be an academic domain per `Student:AcademicDomainSuffixes`; code goes to the student mailbox) |
+| POST | `/student/verify-otp` | 🔒 (body `{ code }` → verified student for `Student:ValidityDays` (365); unlocks `Student:DiscountPercent` (5%) on Student-stayType listings — the larger of student/loyalty discount applies, never stacked) |
 
 ### Verification — `api/verification`
 | Method | Path | Access |
@@ -170,8 +173,8 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/` | 🔒 |
 | GET | `/mine?page=&pageSize=` | 🔒 (paged) |
 | GET | `/{id}` | 🔒 |
-| POST | `/{id}/sign` | 🔒 |
-| GET | `/{id}/download` | 🔒 (PDF) |
+| POST | `/{id}/sign` | 🔒 (each party signs from their own account; the first signature captures a SHA-256 hash of the terms and the second refuses to bind if the text changed — tamper evidence; the signer's profile signature image is snapshotted onto the agreement at that moment) |
+| GET | `/{id}/download` | 🔒 (PDF — drawn signature images in each party's block when on file, plus a document-integrity footer with the terms hash) |
 
 ### Chat — `api/chat` (REST companion to SignalR hub `/hubs/chat`)
 | Method | Path | Access |
@@ -322,6 +325,8 @@ From a match: start a chat (`POST api/chat/conversations`) and later book togeth
 | GET | `/me` | 🔒 |
 | PUT | `/me` | 🔒 (incl. `preferredLanguage`: 0=English, 1=Twi, 2=Ga, 3=French — used for AI-generated text) |
 | POST | `/photo` | 🔒 (multipart/form-data) |
+| GET | `/signature` | 🔒 own signature status (on file?, last set, editable-from date); the image itself is never served via API — it only appears inside agreement PDFs |
+| POST | `/signature` | 🔒 multipart image. First upload is free; changing it requires the account password + the Ghana Card number (verified identities) + `Profile:SignatureEditCooldownDays` (30 days) since the last change |
 
 ### Settings — `api/settings`
 | Method | Path | Access |

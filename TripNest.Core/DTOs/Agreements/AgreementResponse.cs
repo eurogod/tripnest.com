@@ -12,5 +12,8 @@ public class AgreementResponse
     public DateTime? SignedAt { get; set; }
     public string? TenantSignature { get; set; }
     public string? LandlordSignature { get; set; }
+    /// <summary>SHA-256 of the terms, captured at the first signature — recompute it over
+    /// <see cref="TermsContent"/> to verify the text hasn't changed since signing.</summary>
+    public string? TermsHash { get; set; }
     public DateTime? ExpiryDate { get; set; }
 }
