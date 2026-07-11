@@ -22,6 +22,7 @@ public class EscrowController : ControllerBase
     private readonly IEscrowService _escrowService;
     private readonly IPayoutService _payoutService;
     private readonly ISplitBillingService _splitBillingService;
+    private readonly IRentService _rentService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<EscrowController> _logger;
 
@@ -29,12 +30,14 @@ public class EscrowController : ControllerBase
         IEscrowService escrowService,
         IPayoutService payoutService,
         ISplitBillingService splitBillingService,
+        IRentService rentService,
         IConfiguration configuration,
         ILogger<EscrowController> logger)
     {
         _escrowService = escrowService;
         _payoutService = payoutService;
         _splitBillingService = splitBillingService;
+        _rentService = rentService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -131,6 +134,15 @@ public class EscrowController : ControllerBase
                 var shareId = bookingId[SplitBillingService.ReferencePrefix.Length..];
                 await _splitBillingService.ApplySharePaymentAsync(shareId, reference, paidAmount);
                 return Ok(ApiResponse<object>.Ok("Share payment recorded", null));
+            }
+
+            // Monthly-rent charges carry "rent:{invoiceId}" — they pay one period of a long-term
+            // stay and disburse to the landlord immediately (no escrow hold).
+            if (bookingId.StartsWith(RentService.ReferencePrefix, StringComparison.Ordinal))
+            {
+                var invoiceId = bookingId[RentService.ReferencePrefix.Length..];
+                await _rentService.ApplyRentPaymentAsync(invoiceId, reference, paidAmount);
+                return Ok(ApiResponse<object>.Ok("Rent payment recorded", null));
             }
 
             await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference, paidAmount);

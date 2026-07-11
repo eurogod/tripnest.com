@@ -312,6 +312,7 @@ builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
 builder.Services.AddScoped<IEscrowService, EscrowService>();
 builder.Services.AddScoped<ISplitBillingService, SplitBillingService>();
 builder.Services.AddScoped<IRoommateService, RoommateService>();
+builder.Services.AddScoped<IRentService, RentService>();
 builder.Services.AddScoped<IAgreementService, AgreementService>();
 builder.Services.AddScoped<ICaretakerService, CaretakerService>();
 builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
@@ -372,6 +373,7 @@ builder.Services.AddScoped<ILandlordWorkspaceService, LandlordWorkspaceService>(
 // Register background services
 builder.Services.AddHostedService<EscrowAutoReleaseService>();
 builder.Services.AddHostedService<SplitBookingExpiryWorker>();
+builder.Services.AddHostedService<RentDueWorker>();
 builder.Services.AddHostedService<TrustScoreDailySnapshotService>();
 builder.Services.AddHostedService<VerificationProcessingService>();
 builder.Services.AddHostedService<NotificationDispatchService>();

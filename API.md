@@ -144,7 +144,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | Method | Path | Access |
 |---|---|---|
 | GET | `/{bookingId}` | 🔒 (tenant or the property's landlord only) |
-| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates; optional `splitWithEmails` creates a group booking — the total splits equally into per-member shares, booker absorbs rounding, and the booking confirms only when every share is paid within `Booking:SplitPaymentWindowHours`, default 24h, else it is cancelled and paid shares refunded) |
+| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates; long-term stays (LongTerm/Student listing, 60+ nights) charge only the first 30-day period upfront and generate a monthly rent-invoice schedule for the rest (see `api/rent`); optional `splitWithEmails` creates a group booking — the total splits equally into per-member shares, booker absorbs rounding, and the booking confirms only when every share is paid within `Booking:SplitPaymentWindowHours`, default 24h, else it is cancelled and paid shares refunded) |
 | GET | `/user/my-bookings` | 🔒 |
 | GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change; a platform-wide grace period — `Platform:CancellationGraceHours`, default 48h after booking while check-in is ≥2 days out — refunds 100% regardless of the listing policy, reported as policyName `GracePeriod`) |
 | POST | `/{bookingId}/cancel` | 🔒 (owner only; tiered refund per policy, issued via the gateway) |
@@ -286,6 +286,20 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/mine` | 🔒 |
 | POST | `/{propertyId}` | 🔒 |
 | DELETE | `/{propertyId}` | 🔒 |
+
+### Monthly rent — `api/rent` (long-term stays)
+| Method | Path | Access |
+|---|---|---|
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) the caller's rent invoices across bookings, soonest due first |
+| GET | `/booking/{bookingId}` | 🔒 (tenant or landlord) the booking's full schedule — 30-day periods at the listing's monthly rent, final partial month pro-rated |
+| POST | `/invoices/{id}/pay` | 🔒 (tenant only) checkout for one month's rent (provider metadata `rent:{id}` routes the webhook) |
+| POST | `/invoices/{id}/verify` | 🔒 (tenant only) actively confirm with the provider (webhook fallback) |
+
+A paid invoice immediately creates the landlord's payout net of `Platform:ManagementFeePercent`
+(no escrow hold — the tenant already lives there). A twice-daily sweep flips invoices to **Due**
+inside `Rent:DueReminderDays` (default 3) and to **Overdue** past the due date, notifying both
+parties. Cancelling the booking voids outstanding invoices; rent charged against a voided invoice
+is auto-refunded.
 
 ### Roommate matching — `api/roommates`
 | Method | Path | Access |

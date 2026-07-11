@@ -137,6 +137,39 @@ public class PayoutService : IPayoutService
         }
     }
 
+    public async Task CreateForPaidRentAsync(RentInvoice invoice)
+    {
+        try
+        {
+            // Idempotent: at most one payout per rent invoice (backed by a unique index).
+            var existing = (await _payoutRepository.FindAsync(p => p.RentInvoiceId == invoice.Id)).FirstOrDefault();
+            if (existing is not null)
+                return;
+
+            var fee = Math.Round(invoice.Amount * _platform.ManagementFeePercent / 100m, 2);
+            var payout = new Payout
+            {
+                RentInvoiceId = invoice.Id,
+                BookingId = invoice.BookingId,
+                LandlordId = invoice.LandlordId,
+                GrossAmount = invoice.Amount,
+                FeeAmount = fee,
+                Amount = invoice.Amount - fee,
+                Status = PayoutStatus.Pending
+            };
+            await _payoutRepository.AddAsync(payout);
+            await _payoutRepository.SaveChangesAsync();
+
+            await AttemptTransferAsync(payout);
+        }
+        catch (Exception ex)
+        {
+            // Same contract as the escrow path: the rent payment stands; the payout row (or its
+            // absence in logs) is the recovery point.
+            _logger.LogError(ex, "Failed to create payout for rent invoice {InvoiceId}", invoice.Id);
+        }
+    }
+
     public async Task<PayoutResponse> RetryAsync(string payoutId, string userId)
     {
         var payout = await _payoutRepository.GetByIdAsync(payoutId)

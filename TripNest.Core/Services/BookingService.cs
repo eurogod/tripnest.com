@@ -20,6 +20,7 @@ public class BookingService : IBookingService
     private readonly IRepository<PricingSettings> _pricingRepository;
     private readonly ILoyaltyService _loyaltyService;
     private readonly ISplitBillingService _splitBillingService;
+    private readonly IRentService _rentService;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -34,6 +35,7 @@ public class BookingService : IBookingService
         IRepository<PricingSettings> pricingRepository,
         ILoyaltyService loyaltyService,
         ISplitBillingService splitBillingService,
+        IRentService rentService,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -47,6 +49,7 @@ public class BookingService : IBookingService
         _pricingRepository = pricingRepository;
         _loyaltyService = loyaltyService;
         _splitBillingService = splitBillingService;
+        _rentService = rentService;
         _logger = logger;
     }
 
@@ -84,6 +87,16 @@ public class BookingService : IBookingService
         var loyaltyPercent = await _loyaltyService.GetDiscountPercentAsync(tenantId);
         var totalAmount = StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, loyaltyPercent).Total;
 
+        // Long-term stays (2+ rent periods on a LongTerm/Student listing) pay monthly instead of
+        // a lump sum: the upfront charge — and so the escrow and TotalAmount — covers only the
+        // first 30-day period at the listing's monthly rent; the rest becomes a rent-invoice
+        // schedule the tenant pays month by month. Loyalty discounts apply to short stays only.
+        var nights = (checkOut - checkIn).Days;
+        var monthlyBilling = property.StayType is StayType.LongTerm or StayType.Student &&
+                             nights >= 2 * RentService.DaysPerPeriod;
+        if (monthlyBilling)
+            totalAmount = property.MonthlyRent;
+
         var booking = new Booking
         {
             TenantId = tenantId,
@@ -111,7 +124,16 @@ public class BookingService : IBookingService
         // a booking must never exist with half its shares.
         List<Models.BookingShare>? shares = null;
         if (request.SplitWithEmails is { Count: > 0 })
+        {
+            if (monthlyBilling)
+                throw new ValidationException(
+                    "Split billing and monthly rent cannot be combined yet — book a long-term stay individually");
             shares = await _splitBillingService.BuildSharesAsync(booking, tenantId, request.SplitWithEmails);
+        }
+
+        // Monthly billing: the rent-invoice schedule for periods 2..N, committed with the booking.
+        if (monthlyBilling)
+            await _rentService.BuildScheduleAsync(booking, property.UserId, property.MonthlyRent);
 
         await _bookingRepository.SaveChangesAsync();
 
@@ -160,6 +182,10 @@ public class BookingService : IBookingService
 
         booking.Status = BookingStatus.Cancelled;
         booking.CancelledAt = DateTime.UtcNow;
+
+        // A cancelled long-term booking owes no future rent — void its unpaid invoices
+        // (saved with the cancellation below; already-paid months are not clawed back here).
+        await _rentService.CancelOutstandingAsync(bookingId);
 
         var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
         var retainedAmount = 0m;

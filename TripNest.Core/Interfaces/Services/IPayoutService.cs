@@ -30,6 +30,13 @@ public interface IPayoutService
     /// </summary>
     Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId, decimal? grossOverride = null);
 
+    /// <summary>
+    /// Creates the payout for a just-paid monthly rent invoice (idempotent — one payout per
+    /// invoice) and attempts the provider transfer immediately. Same never-throws contract as the
+    /// escrow path: a payout hiccup must not unwind the rent payment that triggered it.
+    /// </summary>
+    Task CreateForPaidRentAsync(RentInvoice invoice);
+
     /// <summary>Re-attempts a Pending or Failed payout (e.g. after the host fixes their account).</summary>
     Task<PayoutResponse> RetryAsync(string payoutId, string userId);
 
