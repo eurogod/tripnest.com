@@ -144,15 +144,18 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | Method | Path | Access |
 |---|---|---|
 | GET | `/{bookingId}` | 🔒 (tenant or the property's landlord only) |
-| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates) |
+| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates; optional `splitWithEmails` creates a group booking — the total splits equally into per-member shares, booker absorbs rounding, and the booking confirms only when every share is paid within `Booking:SplitPaymentWindowHours`, default 24h, else it is cancelled and paid shares refunded) |
 | GET | `/user/my-bookings` | 🔒 |
 | GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change; a platform-wide grace period — `Platform:CancellationGraceHours`, default 48h after booking while check-in is ≥2 days out — refunds 100% regardless of the listing policy, reported as policyName `GracePeriod`) |
 | POST | `/{bookingId}/cancel` | 🔒 (owner only; tiered refund per policy, issued via the gateway) |
+| GET | `/{bookingId}/shares` | 🔒 (group members + the property's landlord) who owes what and who has paid |
+| POST | `/shares/{shareId}/pay` | 🔒 (share owner only) starts the member's own provider checkout for their slice |
+| POST | `/shares/{shareId}/verify` | 🔒 (share owner only) actively confirms the share with the provider; the last share confirms the booking and holds the escrow |
 
 ### Escrow — `api/escrow`
 | Method | Path | Access |
 |---|---|---|
-| POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`) |
+| POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`; 400 for group bookings — members pay per-share instead) |
 | POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401. Charged amount must match the booking total or the hold is rejected |
 | GET | `/mine?page=&pageSize=` | 🔒 (paged; the caller's escrows as paying tenant, newest first) |
 | GET | `/{id}` | 🔒 |

@@ -20,6 +20,7 @@ public class EscrowService : IEscrowService
     private readonly IPaymentGateway _paymentGateway;
     private readonly IPayoutService _payoutService;
     private readonly IRepository<EscrowEvent> _escrowEventRepository;
+    private readonly IRepository<BookingShare> _shareRepository;
     private readonly PlatformOptions _platform;
     private readonly ILogger<EscrowService> _logger;
 
@@ -30,6 +31,7 @@ public class EscrowService : IEscrowService
         IPaymentGateway paymentGateway,
         IPayoutService payoutService,
         IRepository<EscrowEvent> escrowEventRepository,
+        IRepository<BookingShare> shareRepository,
         IOptions<PlatformOptions> platformOptions,
         ILogger<EscrowService> logger)
     {
@@ -39,6 +41,7 @@ public class EscrowService : IEscrowService
         _paymentGateway = paymentGateway;
         _payoutService = payoutService;
         _escrowEventRepository = escrowEventRepository;
+        _shareRepository = shareRepository;
         _platform = platformOptions.Value;
         _logger = logger;
     }
@@ -52,6 +55,12 @@ public class EscrowService : IEscrowService
         // Only the tenant who owns the booking may initiate its payment.
         if (booking.TenantId != userId)
             throw new InvalidOperationException("Only the booking's tenant can initiate payment");
+
+        // A group booking is paid share-by-share (each member's own checkout) — a single
+        // whole-amount charge would double-collect on top of any shares already paid.
+        if ((await _shareRepository.FindAsync(s => s.BookingId == bookingId)).Any())
+            throw new InvalidOperationException(
+                "This is a group booking — each member pays their own share (see the booking's shares)");
 
         // Idempotency: a booking has at most one escrow. CreateBookingAsync already creates a
         // Pending escrow with the booking, so the common case is finding one here. Escrows whose

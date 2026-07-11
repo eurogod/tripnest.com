@@ -19,6 +19,7 @@ public class BookingService : IBookingService
     private readonly IPayoutService _payoutService;
     private readonly IRepository<PricingSettings> _pricingRepository;
     private readonly ILoyaltyService _loyaltyService;
+    private readonly ISplitBillingService _splitBillingService;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -32,6 +33,7 @@ public class BookingService : IBookingService
         IPayoutService payoutService,
         IRepository<PricingSettings> pricingRepository,
         ILoyaltyService loyaltyService,
+        ISplitBillingService splitBillingService,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -44,6 +46,7 @@ public class BookingService : IBookingService
         _payoutService = payoutService;
         _pricingRepository = pricingRepository;
         _loyaltyService = loyaltyService;
+        _splitBillingService = splitBillingService;
         _logger = logger;
     }
 
@@ -103,11 +106,29 @@ public class BookingService : IBookingService
         // booking and its escrow atomically (EF wraps it in one transaction).
         await _bookingRepository.AddAsync(booking);
         await _escrowRepository.AddAsync(escrow);
+
+        // Group booking: split the total into per-member shares in the same transaction —
+        // a booking must never exist with half its shares.
+        List<Models.BookingShare>? shares = null;
+        if (request.SplitWithEmails is { Count: > 0 })
+            shares = await _splitBillingService.BuildSharesAsync(booking, tenantId, request.SplitWithEmails);
+
         await _bookingRepository.SaveChangesAsync();
 
-        _logger.LogInformation("Booking created: {BookingId}", booking.Id);
+        _logger.LogInformation("Booking created: {BookingId}{Split}", booking.Id,
+            shares is null ? "" : $" (split across {shares.Count} members)");
 
-        return MapToResponse(booking);
+        var response = MapToResponse(booking);
+        if (shares is not null)
+            response.Shares = shares.Select(s => new BookingShareResponse
+            {
+                ShareId = s.Id,
+                BookingId = s.BookingId,
+                ParticipantUserId = s.ParticipantUserId,
+                Amount = s.Amount,
+                Status = s.Status
+            }).ToList();
+        return response;
     }
 
     public async Task<BookingResponse> GetBookingAsync(string bookingId, string userId)

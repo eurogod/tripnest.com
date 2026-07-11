@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using TripNest.Core.DTOs.Escrow;
 using TripNest.Core.Exceptions;
+using TripNest.Core.Services;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
@@ -20,17 +21,20 @@ public class EscrowController : ControllerBase
 {
     private readonly IEscrowService _escrowService;
     private readonly IPayoutService _payoutService;
+    private readonly ISplitBillingService _splitBillingService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<EscrowController> _logger;
 
     public EscrowController(
         IEscrowService escrowService,
         IPayoutService payoutService,
+        ISplitBillingService splitBillingService,
         IConfiguration configuration,
         ILogger<EscrowController> logger)
     {
         _escrowService = escrowService;
         _payoutService = payoutService;
+        _splitBillingService = splitBillingService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -119,6 +123,15 @@ public class EscrowController : ControllerBase
             var paidAmount = data.TryGetProperty("amount", out var amt) && amt.TryGetDecimal(out var minor)
                 ? minor / 100m
                 : 0m;
+
+            // Split-billing charges carry "share:{shareId}" instead of a booking id — they pay
+            // one member's slice, and the escrow holds only when the whole group has paid.
+            if (bookingId.StartsWith(SplitBillingService.ReferencePrefix, StringComparison.Ordinal))
+            {
+                var shareId = bookingId[SplitBillingService.ReferencePrefix.Length..];
+                await _splitBillingService.ApplySharePaymentAsync(shareId, reference, paidAmount);
+                return Ok(ApiResponse<object>.Ok("Share payment recorded", null));
+            }
 
             await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference, paidAmount);
             return Ok(ApiResponse<object>.Ok("Payment verified", null));
