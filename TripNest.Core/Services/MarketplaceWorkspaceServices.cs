@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using TripNest.Core.DTOs.Marketplace;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
@@ -7,6 +8,7 @@ using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
+using TripNest.Core.Options;
 
 namespace TripNest.Core.Services;
 
@@ -195,35 +197,34 @@ public class StatementService : IStatementService
 {
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
-    private readonly IConfiguration _configuration;
+    private readonly PlatformOptions _platform;
 
     public StatementService(
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
-        IConfiguration configuration)
+        IOptions<PlatformOptions> platformOptions)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
-        _configuration = configuration;
+        _platform = platformOptions.Value;
     }
 
-    // Same fee source as the reservation-details breakdown — statements and per-reservation
-    // earnings must never disagree about what the platform keeps.
-    private decimal ManagementFeeRate =>
-        _configuration.GetValue("Platform:ManagementFeePercent", 20m) / 100m;
+    // Same fee source as payouts and the reservation-details breakdown — statements and
+    // per-reservation earnings must never disagree about what the platform keeps.
+    private decimal ManagementFeeRate => _platform.ManagementFeePercent / 100m;
 
-    public async Task<List<StatementResponse>> GetForLandlordAsync(string landlordId)
+    public async Task<PagedResult<StatementResponse>> GetForLandlordAsync(string landlordId, int page, int pageSize)
     {
         var propertyIds = (await _propertyRepository.GetByUserIdAsync(landlordId)).Select(p => p.Id).ToList();
         if (propertyIds.Count == 0)
-            return new List<StatementResponse>();
+            return Paging.Page(new List<StatementResponse>(), page, pageSize);
 
         // Single query for all of the landlord's bookings (no per-property round-trips).
         var bookings = (await _bookingRepository.FindAsync(b => propertyIds.Contains(b.PropertyId)))
             .Where(b => b.Status != BookingStatus.Cancelled);
         var now = DateTime.UtcNow;
 
-        return bookings
+        return Paging.Page(bookings
             .GroupBy(b => new { b.CheckInDate.Year, b.CheckInDate.Month })
             .OrderByDescending(g => g.Key.Year).ThenByDescending(g => g.Key.Month)
             .Select(g =>
@@ -243,7 +244,7 @@ public class StatementService : IStatementService
                     Status = isPast ? StatementStatus.Paid : StatementStatus.Pending
                 };
             })
-            .ToList();
+            .ToList(), page, pageSize);
     }
 }
 
@@ -303,20 +304,20 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
     private readonly IBookingRepository _bookingRepository;
     private readonly IRepository<User> _userRepository;
     private readonly IReviewRepository _reviewRepository;
-    private readonly IConfiguration _configuration;
+    private readonly PlatformOptions _platform;
 
     public LandlordWorkspaceService(
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
         IRepository<User> userRepository,
         IReviewRepository reviewRepository,
-        IConfiguration configuration)
+        IOptions<PlatformOptions> platformOptions)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
         _userRepository = userRepository;
         _reviewRepository = reviewRepository;
-        _configuration = configuration;
+        _platform = platformOptions.Value;
     }
 
     /// <summary>Display stage for the reservations table, derived from status + dates.</summary>
@@ -377,7 +378,7 @@ public class LandlordWorkspaceService : ILandlordWorkspaceService
 
         // Earnings breakdown: the platform's management fee is a configurable percentage of the
         // gross booking revenue; the host receives the remainder.
-        var feePercent = _configuration.GetValue("Platform:ManagementFeePercent", 20m);
+        var feePercent = _platform.ManagementFeePercent;
         var managementFee = Math.Round(booking.TotalAmount * feePercent / 100m, 2);
 
         var guestReviews = (await _reviewRepository.GetByPropertyIdAsync(booking.PropertyId))

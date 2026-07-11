@@ -12,4 +12,6 @@ public class BookingResponse
     public decimal TotalAmount { get; set; }
     public BookingStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>Present only for group (split-billing) bookings: one share per member.</summary>
+    public List<BookingShareResponse>? Shares { get; set; }
 }

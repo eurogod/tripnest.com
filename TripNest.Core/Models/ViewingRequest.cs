@@ -14,5 +14,7 @@ public class ViewingRequest
     public DateTime ScheduledAt { get; set; }
     public string? Notes { get; set; }
     public ViewingRequestStatus Status { get; set; } = ViewingRequestStatus.Pending;
+    public int? Rating { get; set; }
+    public string? ReviewComment { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

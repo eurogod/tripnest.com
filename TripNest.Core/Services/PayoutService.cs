@@ -1,9 +1,12 @@
+using Microsoft.Extensions.Options;
 using TripNest.Core.DTOs.Payouts;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
+using TripNest.Core.Options;
 
 namespace TripNest.Core.Services;
 
@@ -13,7 +16,7 @@ public class PayoutService : IPayoutService
     private readonly IRepository<PayoutAccount> _accountRepository;
     private readonly IPaymentGateway _paymentGateway;
     private readonly INotificationService _notificationService;
-    private readonly IConfiguration _configuration;
+    private readonly PlatformOptions _platform;
     private readonly ILogger<PayoutService> _logger;
 
     public PayoutService(
@@ -21,14 +24,14 @@ public class PayoutService : IPayoutService
         IRepository<PayoutAccount> accountRepository,
         IPaymentGateway paymentGateway,
         INotificationService notificationService,
-        IConfiguration configuration,
+        IOptions<PlatformOptions> platformOptions,
         ILogger<PayoutService> logger)
     {
         _payoutRepository = payoutRepository;
         _accountRepository = accountRepository;
         _paymentGateway = paymentGateway;
         _notificationService = notificationService;
-        _configuration = configuration;
+        _platform = platformOptions.Value;
         _logger = logger;
     }
 
@@ -56,7 +59,7 @@ public class PayoutService : IPayoutService
         // so a payout can never be sent to an unregistered account.
         var recipient = await _paymentGateway.CreateTransferRecipientAsync(
             request.AccountName.Trim(), request.AccountNumber.Trim(), request.ProviderCode.Trim().ToUpperInvariant(),
-            channel, "GHS");
+            channel, _platform.Currency);
         if (!recipient.Success)
             throw new ValidationException(recipient.Error ?? "The payout account was rejected by the payment provider.");
 
@@ -91,13 +94,13 @@ public class PayoutService : IPayoutService
         return MapAccount(account);
     }
 
-    public async Task<List<PayoutResponse>> GetMyPayoutsAsync(string userId)
+    public async Task<PagedResult<PayoutResponse>> GetMyPayoutsAsync(string userId, int page, int pageSize)
     {
         var payouts = await _payoutRepository.FindAsync(p => p.LandlordId == userId);
-        return payouts.OrderByDescending(p => p.CreatedAt).Select(Map).ToList();
+        return Paging.Page(payouts.OrderByDescending(p => p.CreatedAt).Select(Map).ToList(), page, pageSize);
     }
 
-    public async Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId)
+    public async Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId, decimal? grossOverride = null)
     {
         try
         {
@@ -108,17 +111,17 @@ public class PayoutService : IPayoutService
 
             // Same fee source as statements and the reservation breakdown — the money that moves
             // must match the money the UI promised.
-            var feePercent = _configuration.GetValue("Platform:ManagementFeePercent", 20m);
-            var fee = Math.Round(escrow.Amount * feePercent / 100m, 2);
+            var gross = grossOverride ?? escrow.Amount;
+            var fee = Math.Round(gross * _platform.ManagementFeePercent / 100m, 2);
 
             var payout = new Payout
             {
                 EscrowId = escrow.Id,
                 BookingId = escrow.BookingId,
                 LandlordId = landlordId,
-                GrossAmount = escrow.Amount,
+                GrossAmount = gross,
                 FeeAmount = fee,
-                Amount = escrow.Amount - fee,
+                Amount = gross - fee,
                 Status = PayoutStatus.Pending
             };
             await _payoutRepository.AddAsync(payout);
@@ -131,6 +134,39 @@ public class PayoutService : IPayoutService
             // Never let a payout hiccup undo or block the escrow release that triggered it —
             // the payout row (or its absence in logs) is the recovery point.
             _logger.LogError(ex, "Failed to create payout for escrow {EscrowId}", escrow.Id);
+        }
+    }
+
+    public async Task CreateForPaidRentAsync(RentInvoice invoice)
+    {
+        try
+        {
+            // Idempotent: at most one payout per rent invoice (backed by a unique index).
+            var existing = (await _payoutRepository.FindAsync(p => p.RentInvoiceId == invoice.Id)).FirstOrDefault();
+            if (existing is not null)
+                return;
+
+            var fee = Math.Round(invoice.Amount * _platform.ManagementFeePercent / 100m, 2);
+            var payout = new Payout
+            {
+                RentInvoiceId = invoice.Id,
+                BookingId = invoice.BookingId,
+                LandlordId = invoice.LandlordId,
+                GrossAmount = invoice.Amount,
+                FeeAmount = fee,
+                Amount = invoice.Amount - fee,
+                Status = PayoutStatus.Pending
+            };
+            await _payoutRepository.AddAsync(payout);
+            await _payoutRepository.SaveChangesAsync();
+
+            await AttemptTransferAsync(payout);
+        }
+        catch (Exception ex)
+        {
+            // Same contract as the escrow path: the rent payment stands; the payout row (or its
+            // absence in logs) is the recovery point.
+            _logger.LogError(ex, "Failed to create payout for rent invoice {InvoiceId}", invoice.Id);
         }
     }
 
@@ -213,7 +249,7 @@ public class PayoutService : IPayoutService
         }
 
         var result = await _paymentGateway.InitiateTransferAsync(
-            payout.Amount, "GHS", account.RecipientCode, payout.Id,
+            payout.Amount, _platform.Currency, account.RecipientCode, payout.Id,
             $"TripNest payout for booking {payout.BookingId}");
 
         if (result.Success)

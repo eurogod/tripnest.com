@@ -31,4 +31,7 @@ public class UpdateProfileRequest
     public string? Bio { get; set; }
 
     public string? Username { get; set; }
+
+    /// <summary>Preferred language for AI-generated text: English, Twi, Ga, or French.</summary>
+    public TripNest.Core.Enums.Language? PreferredLanguage { get; set; }
 }

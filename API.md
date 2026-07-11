@@ -113,12 +113,14 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 |---|---|---|
 | GET | `/` | 🌐 (active listings) |
 | GET | `/{propertyId}` | 🌐 |
-| GET | `/search?location=&minBedrooms=&maxBedrooms=` | 🌐 |
+| GET | `/search?location=&minBedrooms=&maxBedrooms=&stayType=&propertyType=&amenities=&minPrice=&maxPrice=&minLat=&maxLat=&minLng=&maxLng=&checkIn=&checkOut=&page=&pageSize=` | 🌐 (paged in the DB; `data` = array of properties, pagination via `X-Total-Count`/`X-Page`/`X-Page-Size`/`X-Total-Pages` headers; pageSize default/max 100; case-insensitive location match; amenities = CSV, all required; min/max Lat/Lng = map viewport; checkIn/checkOut filter to available listings and attach a per-result `quote` with the all-in stay total) |
+| GET | `/{propertyId}/quote?checkIn=&checkOut=` | 🌐 (true-total price breakdown: nightly subtotal incl. weekend rates, cleaning fee, length-of-stay discount, and the caller's loyalty discount when authenticated — the exact amount booking charges) |
 | GET | `/user/my-properties` | 🔒 |
 | POST | `/` | 🔒 🛡️ (incl. `stayType`, `cancellationPolicy`) |
 | PUT | `/{propertyId}` | 🔒 🛡️ |
 | DELETE | `/{propertyId}` | 🔒 🛡️ |
 | POST | `/{propertyId}/photos` | 🔒 🛡️ (multipart/form-data, owner only) |
+| POST | `/{propertyId}/generate-copy` | 🔒 🛡️ (owner only; AI-drafted `{title, description, highlights}` from facts + photos, for review — never auto-applied; 400 with a clear message when no AI provider key is configured; `Ai:Provider` selects claude or gemini) |
 
 ### Availability — `api/properties/{propertyId}`
 | Method | Path | Access |
@@ -142,16 +144,20 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | Method | Path | Access |
 |---|---|---|
 | GET | `/{bookingId}` | 🔒 (tenant or the property's landlord only) |
-| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates) |
+| POST | `/` | 🔒 (checks availability: confirmed bookings + blocked dates; long-term stays (LongTerm/Student listing, 60+ nights) charge only the first 30-day period upfront and generate a monthly rent-invoice schedule for the rest (see `api/rent`); optional `splitWithEmails` creates a group booking — the total splits equally into per-member shares, booker absorbs rounding, and the booking confirms only when every share is paid within `Booking:SplitPaymentWindowHours`, default 24h, else it is cancelled and paid shares refunded) |
 | GET | `/user/my-bookings` | 🔒 |
-| GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change) |
+| GET | `/{bookingId}/cancellation-preview` | 🔒 (refund % + amount per policy, no state change; a platform-wide grace period — `Platform:CancellationGraceHours`, default 48h after booking while check-in is ≥2 days out — refunds 100% regardless of the listing policy, reported as policyName `GracePeriod`) |
 | POST | `/{bookingId}/cancel` | 🔒 (owner only; tiered refund per policy, issued via the gateway) |
+| GET | `/{bookingId}/shares` | 🔒 (group members + the property's landlord) who owes what and who has paid |
+| POST | `/shares/{shareId}/pay` | 🔒 (share owner only) starts the member's own provider checkout for their slice |
+| POST | `/shares/{shareId}/verify` | 🔒 (share owner only) actively confirms the share with the provider; the last share confirms the booking and holds the escrow |
 
 ### Escrow — `api/escrow`
 | Method | Path | Access |
 |---|---|---|
-| POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`) |
+| POST | `/initiate` | 🔒 (returns Paystack `checkoutUrl` + `paymentReference`; 400 for group bookings — members pay per-share instead) |
 | POST | `/webhook` | 🌐 Paystack `x-paystack-signature` (HMAC-SHA512); unsigned/invalid → 401. Charged amount must match the booking total or the hold is rejected |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged; the caller's escrows as paying tenant, newest first) |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/release` | 🔒 |
 | POST | `/{id}/dispute` | 🔒 |
@@ -162,7 +168,7 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | Method | Path | Access |
 |---|---|---|
 | POST | `/` | 🔒 |
-| GET | `/mine` | 🔒 |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) |
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/sign` | 🔒 |
 | GET | `/{id}/download` | 🔒 (PDF) |
@@ -170,43 +176,60 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 ### Chat — `api/chat` (REST companion to SignalR hub `/hubs/chat`)
 | Method | Path | Access |
 |---|---|---|
-| GET | `/conversations/mine` | 🔒 |
+| GET | `/conversations/mine?page=&pageSize=` | 🔒 (paged) |
 | POST | `/conversations` | 🔒 |
 | GET | `/conversations/{id}` | 🔒 |
 | GET | `/conversations/{id}/messages?page=&pageSize=` | 🔒 |
-| POST | `/conversations/{id}/messages` | 🔒 |
+| POST | `/conversations/{id}/messages` | 🔒 (scanned for off-platform-payment attempts — warns the recipient in-app, never blocks the message) |
+| POST | `/conversations/{id}/suggest-reply` | 🔒 (participant only; AI-drafted reply from the linked listing's facts, for the user to edit and send; 400 when AI unconfigured; rate-limited `ai`) |
 | PATCH | `/messages/{id}/read` | 🔒 |
 | PATCH | `/conversations/{id}/mark-read` | 🔒 |
 | DELETE | `/conversations/{id}` | 🔒 |
 
+### Assistant — `api/assistant`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/ask` | 🔒 (AI Q&A grounded in platform rules + the caller's own bookings/escrow/verification, answered in their `preferredLanguage`; when a human is needed it opens a **live chat with an admin** — response returns `supportConversationId` — and files a support ticket; 400 when AI unconfigured; rate-limited `ai`) |
+| GET | `/history?limit=` | 🔒 (the caller's assistant conversation, oldest first) |
+
 ### Caretakers — `api/caretakers`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/` | 🌐 |
-| GET | `/{id}` | 🌐 |
-| POST | `/assign` | 🔒 `[Landlord]` 🛡️ |
-| POST | `/service-requests` | 🔒 |
-| GET | `/service-requests/mine` | 🔒 |
-| PATCH | `/service-requests/{id}/accept` | 🔒 `[Caretaker]` 🛡️ |
-| PATCH | `/service-requests/{id}/status` | 🔒 |
-| POST | `/service-requests/{id}/review` | 🔒 |
+| GET | `/?serviceType=&area=&page=&pageSize=` | 🌐 (paged; Active directory profiles with rating aggregates — see PUT `/me`) |
+| GET | `/me` | 🔒 `[Caretaker]` own directory profile (404 until created) |
+| PUT | `/me` | 🔒 `[Caretaker]` 🛡️ create/update own directory profile (responsibilities, bio, area, rate) — required to appear in the list / be assignable |
+| GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from service-request reviews) |
+| POST | `/assign` | 🔒 `[Landlord]` 🛡️ (owner only; creates an active `PropertyCaretakerAssignment` — a caretaker can hold several; 409 if already assigned) |
+| POST | `/unassign` | 🔒 `[Landlord]` 🛡️ (ends the active assignment; 404 if none) |
+| GET | `/assignments/mine?page=&pageSize=` | 🔒 (paged; assignments on the caller's properties and/or as the caretaker) |
+| POST | `/service-requests` | 🔒 (`propertyId` optional only when the caretaker serves exactly one property) |
+| GET | `/service-requests/mine?page=&pageSize=` | 🔒 (paged) |
+| PATCH | `/service-requests/{id}/accept` | 🔒 `[Caretaker]` 🛡️ (Pending → Accepted) |
+| PATCH | `/service-requests/{id}/decline` | 🔒 `[Caretaker]` 🛡️ (Pending → Declined) |
+| PATCH | `/service-requests/{id}/status` | 🔒 (role-gated transitions — caretaker: Accepted→InProgress/Completed; requester: Pending/Accepted→Cancelled; anything else 400) |
+| POST | `/service-requests/{id}/review` | 🔒 (requester only, Completed only, rating 1–5) |
+
+Status changes, new requests, reviews, and (un)assignments notify the counterparty via `NotificationService`.
 
 ### Agents — `api/agents`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/` | 🌐 (lists agents with an Active directory profile — see PUT `/me`) |
+| GET | `/?serviceArea=&page=&pageSize=` | 🌐 (paged; Active directory profiles with rating aggregates — see PUT `/me`) |
 | GET | `/me` | 🔒 `[Agent]` own directory profile (404 until created) |
-| PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates) — required to appear in the list |
-| GET | `/{id}` | 🌐 |
-| POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` |
-| PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ |
+| PUT | `/me` | 🔒 `[Agent]` 🛡️ create/update own directory profile (licence, bio, rates, service area) — required to appear in the list |
+| GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from viewing reviews) |
+| POST | `/{id}/viewing-requests` | 🔒 `[Tenant]` (must be scheduled in the future; notifies the agent) |
+| GET | `/viewing-requests/mine?page=&pageSize=` | 🔒 (paged; as requesting tenant and/or assigned agent) |
+| PATCH | `/viewing-requests/{id}/status` | 🔒 `[Agent,Tenant]` 🛡️ (role-gated transitions — agent: Pending→Confirmed/Declined, Confirmed→Completed; tenant: Pending/Confirmed→Cancelled; anything else 400) |
+| PATCH | `/viewing-requests/{id}/decline` | 🔒 `[Agent]` 🛡️ (Pending → Declined) |
+| POST | `/viewing-requests/{id}/review` | 🔒 `[Tenant]` (requester only, Completed only, rating 1–5) |
 
 ### Payouts — `api/payouts` (host disbursements via Paystack Transfers)
 | Method | Path | Access |
 |---|---|---|
 | GET | `/account` | 🔒 `[Landlord,Agent]` own payout destination (masked; 404 until registered) |
 | PUT | `/account` | 🔒 `[Landlord,Agent]` register MoMo wallet (`mobile_money`: MTN/ATL/VOD) or bank (`ghipss`) — validated with Paystack as a transfer recipient |
-| GET | `/mine` | 🔒 `[Landlord,Agent]` own payouts, newest first (gross, fee, net, status) |
+| GET | `/mine?page=&pageSize=` | 🔒 `[Landlord,Agent]` own payouts, newest first, paged (gross, fee, net, status) |
 | POST | `/{id}/retry` | 🔒 `[Landlord,Agent]` re-attempt a Pending/Failed payout |
 
 Escrow release (manual, auto after checkout+grace, or dispute-approved) creates one payout per
@@ -220,8 +243,8 @@ notifying the host either way.
 |---|---|---|
 | POST | `/` | 🔒 (report) |
 | PATCH | `/{id}/status` | 🔒 |
-| GET | `/property/{propertyId}` | 🔒 `[Landlord,Admin]` |
-| GET | `/mine` | 🔒 `[Tenant]` |
+| GET | `/property/{propertyId}?page=&pageSize=` | 🔒 `[Landlord,Admin]` (paged) |
+| GET | `/mine?page=&pageSize=` | 🔒 `[Tenant]` (paged) |
 | POST | `/{id}/convert-to-service-request` | 🔒 `[Landlord,Admin]` 🛡️ |
 
 ### Reviews — `api/reviews`
@@ -230,7 +253,7 @@ notifying the host either way.
 | GET | `/property/{propertyId}?page=&pageSize=` | 🌐 |
 | GET | `/{id}` | 🌐 |
 | POST | `/` | 🔒 |
-| GET | `/mine` | 🔒 |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) |
 | DELETE | `/{id}` | 🔒 |
 
 ### Notifications — `api/notifications`
@@ -264,11 +287,40 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | POST | `/{propertyId}` | 🔒 |
 | DELETE | `/{propertyId}` | 🔒 |
 
+### Monthly rent — `api/rent` (long-term stays)
+| Method | Path | Access |
+|---|---|---|
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) the caller's rent invoices across bookings, soonest due first |
+| GET | `/booking/{bookingId}` | 🔒 (tenant or landlord) the booking's full schedule — 30-day periods at the listing's monthly rent, final partial month pro-rated |
+| POST | `/invoices/{id}/pay` | 🔒 (tenant only) checkout for one month's rent (provider metadata `rent:{id}` routes the webhook) |
+| POST | `/invoices/{id}/verify` | 🔒 (tenant only) actively confirm with the provider (webhook fallback) |
+
+A paid invoice immediately creates the landlord's payout net of `Platform:ManagementFeePercent`
+(no escrow hold — the tenant already lives there). A twice-daily sweep flips invoices to **Due**
+inside `Rent:DueReminderDays` (default 3) and to **Overdue** past the due date, notifying both
+parties. Cancelling the booking voids outstanding invoices; rent charged against a voided invoice
+is auto-refunded.
+
+### Roommate matching — `api/roommates`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/me` | 🔒 own roommate profile (404 until created) |
+| PUT | `/me` | 🔒 create/update profile: bio, university, preferred location, monthly budget, move-in date, habits (smoking/pets/night-owl/cleanliness), visibility |
+| DELETE | `/me` | 🔒 remove profile (also removes matching access) |
+| GET | `/matches?location=&maxBudget=&university=&page=&pageSize=` | 🔒 (paged) compatibility-ranked matches, best first; requires the caller's own **visible** profile (reciprocal); smoking/pets hard conflicts are excluded outright; score 0–100 = budget proximity + location overlap + same university + sleep schedule + cleanliness; each match carries the user's identity-verification badge |
+
+From a match: start a chat (`POST api/chat/conversations`) and later book together with split billing (`splitWithEmails`).
+
+### Loyalty — `api/loyalty`
+| Method | Path | Access |
+|---|---|---|
+| GET | `/me` | 🔒 tier (Bronze 0+ / Silver 3+ / Gold 6+ / Platinum 10+ completed stays), active stay-discount % (0/3/5/8 — platform-funded, applied to quotes and booking totals), and progress to the next tier |
+
 ### Profile — `api/profile`
 | Method | Path | Access |
 |---|---|---|
 | GET | `/me` | 🔒 |
-| PUT | `/me` | 🔒 |
+| PUT | `/me` | 🔒 (incl. `preferredLanguage`: 0=English, 1=Twi, 2=Ga, 3=French — used for AI-generated text) |
 | POST | `/photo` | 🔒 (multipart/form-data) |
 
 ### Settings — `api/settings`
@@ -316,6 +368,8 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/landlord/properties/performance` | 🔒 `[Landlord]` |
 | GET | `/api/admin/stats` | 🔒 `[Admin]` |
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
+| GET | `/api/admin/support-tickets?page=&pageSize=` | 🔒 `[Admin]` (paged; open assistant escalations, oldest first) |
+| POST | `/api/admin/support-tickets/{ticketId}/resolve` | 🔒 `[Admin]` (marks resolved, notifies the user; idempotent) |
 
 ### Pricing & calendar — `api/pricing`, `api/calendar`
 | Method | Path | Access |
@@ -323,6 +377,12 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` (defaults derived from listing if unset) |
 | PUT | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` |
 | GET | `/api/calendar?propertyId=&year=&month=` | 🔒 `[Landlord,Admin]` priced month w/ weekend/blocked/maintenance/booked flags |
+| GET | `/api/calendar/{propertyId}/feed-url` | 🔒 `[Landlord,Admin]` (owner only) tokenized public iCal URL — paste into Airbnb/VRBO/Booking.com "import calendar" to prevent double-bookings |
+| GET | `/api/calendar/{propertyId}.ics?token=` | 🌐 (token-authorized) RFC 5545 feed of confirmed stays + blocked ranges |
+| POST | `/api/calendar/{propertyId}/external` | 🔒 `[Landlord,Admin]` (owner only) link an external iCal feed (`{name, feedUrl}` — Airbnb/VRBO/Booking.com export URL; http(s) + public hostname only); imports immediately, fetch failures reported via `lastSyncError` |
+| GET | `/api/calendar/{propertyId}/external` | 🔒 `[Landlord,Admin]` (owner only) linked feeds with sync status + imported-range counts |
+| POST | `/api/calendar/external/{id}/sync` | 🔒 `[Landlord,Admin]` (owner only) re-import one feed now (a background worker also re-imports all feeds every `Calendar:ExternalSyncMinutes`, default 60) |
+| DELETE | `/api/calendar/external/{id}` | 🔒 `[Landlord,Admin]` (owner only) unlink; removes that feed's imported blocked dates, manual blocks stay |
 
 ### Landlord workspace — `api/landlord`
 | Method | Path | Access |
@@ -365,20 +425,20 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 ### Statements — `api/statements`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/statements` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed) |
+| GET | `/api/statements?page=&pageSize=` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed, paged) |
 
 ### Owner Exchange — `api/exchange`
 | Method | Path | Access |
 |---|---|---|
 | GET | `/api/exchange/posts?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/exchange/posts` | 🔒 |
-| GET | `/api/exchange/posts/{id}/replies` | 🔒 |
+| GET | `/api/exchange/posts/{id}/replies?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/exchange/posts/{id}/replies` | 🔒 |
 
 ### Resources — `api/resources`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/resources` | 🔒 |
+| GET | `/api/resources?page=&pageSize=` | 🔒 (paged) |
 | POST | `/api/resources` | 🔒 `[Admin]` |
 
 ### Virtual tour — `api/properties/{propertyId}/tour`

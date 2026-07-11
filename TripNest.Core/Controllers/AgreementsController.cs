@@ -5,6 +5,7 @@ using TripNest.Core.DTOs.Agreements;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -31,47 +32,27 @@ public class AgreementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<AgreementResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<AgreementResponse>>> CreateAgreement([FromBody] CreateAgreementRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<AgreementResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<AgreementResponse>.UnAuthorized());
 
-            var agreement = await _agreementService.CreateAgreementAsync(request.BookingId, userId);
-            return Created($"api/agreements/{agreement.AgreementId}", ApiResponse<AgreementResponse>.Created("Agreement", agreement));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<AgreementResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating agreement");
-            return StatusCode(500, ApiResponse<AgreementResponse>.InternalServerError());
-        }
+        var agreement = await _agreementService.CreateAgreementAsync(request.BookingId, userId);
+        return Created($"api/agreements/{agreement.AgreementId}", ApiResponse<AgreementResponse>.Created("Agreement", agreement));
     }
 
     /// <summary>
     /// Get all agreements for current user
     /// </summary>
     [HttpGet("mine")]
-    [ProducesResponseType(typeof(ApiResponse<List<AgreementResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<AgreementResponse>>>> GetMyAgreements()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AgreementResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgreementResponse>>>> GetMyAgreements([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<AgreementResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<AgreementResponse>>.UnAuthorized());
 
-            var agreements = await _agreementService.GetUserAgreementsAsync(userId);
-            return Ok(ApiResponse<List<AgreementResponse>>.Ok("Agreements retrieved", agreements));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agreements");
-            return StatusCode(500, ApiResponse<List<AgreementResponse>>.InternalServerError());
-        }
+        var agreements = await _agreementService.GetUserAgreementsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<AgreementResponse>>.Ok("Agreements retrieved", agreements));
     }
 
     /// <summary>
@@ -82,23 +63,15 @@ public class AgreementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<AgreementResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<AgreementResponse>>> GetAgreement(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<AgreementResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<AgreementResponse>.UnAuthorized());
 
-            var agreement = await _agreementService.GetAgreementAsync(id, userId);
-            if (agreement == null)
-                return NotFound(ApiResponse<AgreementResponse>.NotFound("Agreement"));
+        var agreement = await _agreementService.GetAgreementAsync(id, userId);
+        if (agreement == null)
+            return NotFound(ApiResponse<AgreementResponse>.NotFound("Agreement"));
 
-            return Ok(ApiResponse<AgreementResponse>.Ok("Agreement retrieved", agreement));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agreement");
-            return StatusCode(500, ApiResponse<AgreementResponse>.InternalServerError());
-        }
+        return Ok(ApiResponse<AgreementResponse>.Ok("Agreement retrieved", agreement));
     }
 
     /// <summary>
@@ -109,24 +82,12 @@ public class AgreementsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<object>>> SignAgreement(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            await _agreementService.SignAgreementAsync(id, userId);
-            return Ok(ApiResponse<object>.Ok("Agreement signed", null));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error signing agreement");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _agreementService.SignAgreementAsync(id, userId);
+        return Ok(ApiResponse<object>.Ok("Agreement signed", null));
     }
 
     /// <summary>

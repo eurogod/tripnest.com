@@ -30,7 +30,7 @@ public class EscrowMineTests : TestBase
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var data = JsonDocument.Parse(body).RootElement.GetProperty("data");
+        var data = JsonDocument.Parse(body).RootElement.GetProperty("data").GetProperty("items");
         Assert.Equal(0, data.GetArrayLength());
     }
 
@@ -59,7 +59,7 @@ public class EscrowMineTests : TestBase
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.True(response.StatusCode == HttpStatusCode.OK, $"Expected OK but got {response.StatusCode}: {body}");
-        var data = JsonDocument.Parse(body).RootElement.GetProperty("data");
+        var data = JsonDocument.Parse(body).RootElement.GetProperty("data").GetProperty("items");
 
         Assert.Equal(2, data.GetArrayLength());
         Assert.Equal(newerEscrowId, data[0].GetProperty("escrowId").GetString());

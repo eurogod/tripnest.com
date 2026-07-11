@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripNest.Core.DTOs.Marketplace;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -18,11 +19,11 @@ public class ResourcesController : ControllerBase
 
     /// <summary>List host resources (guides, policies, templates, videos).</summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<List<ResourceResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ResourceResponse>>>> GetAll()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ResourceResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ResourceResponse>>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var resources = await _resourceService.GetAllAsync();
-        return Ok(ApiResponse<List<ResourceResponse>>.Ok("Resources retrieved", resources));
+        var resources = await _resourceService.GetAllAsync(page, pageSize);
+        return Ok(ApiResponse<PagedResult<ResourceResponse>>.Ok("Resources retrieved", resources));
     }
 
     /// <summary>Add a resource to the library (admin only).</summary>

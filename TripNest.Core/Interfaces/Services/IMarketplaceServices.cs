@@ -12,6 +12,12 @@ public interface IPricingService
 public interface ICalendarService
 {
     Task<CalendarMonthResponse> GetMonthAsync(string propertyId, int year, int month, string landlordId);
+    /// <summary>The tokenized public .ics URL path for a listing (owner/admin only) — paste into
+    /// Airbnb/VRBO/Booking.com "import calendar" to keep external platforms in sync.</summary>
+    Task<string> GetIcalFeedPathAsync(string propertyId, string landlordId, bool isAdmin);
+    /// <summary>The iCalendar document (confirmed stays + blocked ranges as busy events).
+    /// Anonymous — access is authorized by the per-property token.</summary>
+    Task<string> GetIcalFeedAsync(string propertyId, string token);
 }
 
 public interface IInquiryService
@@ -33,7 +39,7 @@ public interface IExchangeService
 {
     Task<PagedResult<ExchangePostResponse>> GetPostsAsync(int page, int pageSize);
     Task<ExchangePostResponse> CreatePostAsync(CreateExchangePostRequest request, string authorId);
-    Task<List<ExchangeReplyResponse>> GetRepliesAsync(string postId);
+    Task<PagedResult<ExchangeReplyResponse>> GetRepliesAsync(string postId, int page, int pageSize);
     Task<ExchangeReplyResponse> AddReplyAsync(string postId, CreateExchangeReplyRequest request, string authorId);
 }
 
@@ -55,13 +61,13 @@ public interface ITeamService
 
 public interface IResourceService
 {
-    Task<List<ResourceResponse>> GetAllAsync();
+    Task<PagedResult<ResourceResponse>> GetAllAsync(int page, int pageSize);
     Task<ResourceResponse> CreateAsync(CreateResourceRequest request);
 }
 
 public interface IStatementService
 {
-    Task<List<StatementResponse>> GetForLandlordAsync(string landlordId);
+    Task<PagedResult<StatementResponse>> GetForLandlordAsync(string landlordId, int page, int pageSize);
 }
 
 public interface ITourService

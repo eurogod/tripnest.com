@@ -31,20 +31,12 @@ public class NotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PagedResult<NotificationResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PagedResult<NotificationResponse>>>> GetMyNotifications([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<PagedResult<NotificationResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<NotificationResponse>>.UnAuthorized());
 
-            var notifications = await _notificationService.GetUserNotificationsAsync(userId, page, pageSize);
-            return Ok(ApiResponse<PagedResult<NotificationResponse>>.Ok("Notifications retrieved", notifications));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving notifications");
-            return StatusCode(500, ApiResponse<PagedResult<NotificationResponse>>.InternalServerError());
-        }
+        var notifications = await _notificationService.GetUserNotificationsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<NotificationResponse>>.Ok("Notifications retrieved", notifications));
     }
 
     /// <summary>
@@ -82,20 +74,12 @@ public class NotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<NotificationResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> MarkAllAsRead()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
 
-            await _notificationService.MarkAllAsReadAsync(userId);
-            return Ok(ApiResponse<NotificationResponse>.Ok("All notifications marked as read", null));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error marking notifications as read");
-            return StatusCode(500, ApiResponse<NotificationResponse>.InternalServerError());
-        }
+        await _notificationService.MarkAllAsReadAsync(userId);
+        return Ok(ApiResponse<NotificationResponse>.Ok("All notifications marked as read", null));
     }
 
     /// <summary>
@@ -105,20 +89,12 @@ public class NotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> GetUnreadCount()
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var count = await _notificationService.GetUnreadCountAsync(userId);
-            return Ok(ApiResponse<object>.Ok("Unread count retrieved", new { unreadCount = count }));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving unread count");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var count = await _notificationService.GetUnreadCountAsync(userId);
+        return Ok(ApiResponse<object>.Ok("Unread count retrieved", new { unreadCount = count }));
     }
 
     /// <summary>
@@ -128,19 +104,11 @@ public class NotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<NotificationResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> DeleteNotification(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
 
-            await _notificationService.DeleteNotificationAsync(id, userId);
-            return Ok(ApiResponse<NotificationResponse>.Ok("Notification deleted", null));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting notification");
-            return StatusCode(500, ApiResponse<NotificationResponse>.InternalServerError());
-        }
+        await _notificationService.DeleteNotificationAsync(id, userId);
+        return Ok(ApiResponse<NotificationResponse>.Ok("Notification deleted", null));
     }
 }

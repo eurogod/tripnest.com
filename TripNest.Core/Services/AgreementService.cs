@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Agreements;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
@@ -77,15 +78,21 @@ public class AgreementService : IAgreementService
         }
     }
 
-    public async Task<List<AgreementResponse>> GetUserAgreementsAsync(string userId)
+    public async Task<PagedResult<AgreementResponse>> GetUserAgreementsAsync(string userId, int page, int pageSize)
     {
         // Narrow to the user's agreements in the database (tenant on the booking, or the property's
         // landlord) instead of loading every agreement and filtering in memory.
-        var agreements = await _agreementRepository.FindAsync(
-            a => a.Booking!.TenantId == userId || a.Booking!.Property!.UserId == userId);
+        var agreements = (await _agreementRepository.FindAsync(
+                a => a.Booking!.TenantId == userId || a.Booking!.Property!.UserId == userId))
+            .OrderByDescending(a => a.CreatedAt)
+            .ToList();
+
+        // Page before the per-agreement booking fallback below so at most one page's worth of
+        // detail lookups run per request.
+        var paged = Paging.Page(agreements, page, pageSize);
         var result = new List<AgreementResponse>();
 
-        foreach (var agreement in agreements)
+        foreach (var agreement in paged.Items)
         {
             var booking = agreement.Booking
                 ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId);
@@ -99,7 +106,13 @@ public class AgreementService : IAgreementService
                 result.Add(MapToResponse(agreement));
         }
 
-        return result;
+        return new PagedResult<AgreementResponse>
+        {
+            Items = result,
+            TotalCount = paged.TotalCount,
+            Page = paged.Page,
+            PageSize = paged.PageSize
+        };
     }
 
     public async Task<AgreementResponse?> GetAgreementAsync(string agreementId, string userId)

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Context;
@@ -31,6 +32,10 @@ public class AppDbContext : DbContext
     public DbSet<ServiceRequest> ServiceRequests { get; set; }
     public DbSet<ViewingRequest> ViewingRequests { get; set; }
     public DbSet<PropertyBlockedDate> PropertyBlockedDates { get; set; }
+    public DbSet<ExternalCalendar> ExternalCalendars { get; set; }
+    public DbSet<BookingShare> BookingShares { get; set; }
+    public DbSet<RoommateProfile> RoommateProfiles { get; set; }
+    public DbSet<RentInvoice> RentInvoices { get; set; }
     public DbSet<WishlistItem> WishlistItems { get; set; }
     public DbSet<CommunicationPreference> CommunicationPreferences { get; set; }
     public DbSet<PropertyPhoto> PropertyPhotos { get; set; }
@@ -55,5 +60,43 @@ public class AppDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+    }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+        // Npgsql maps DateTime to "timestamp with time zone" and rejects Kind=Unspecified values
+        // at write time. Client JSON routinely carries bare dates ("2026-08-04" → Unspecified),
+        // so normalize the Kind here — the one boundary every entity passes through — instead of
+        // remembering to SpecifyKind in each endpoint.
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+        configurationBuilder.Properties<DateTime?>().HaveConversion<NullableUtcDateTimeConverter>();
+    }
+}
+
+/// <summary>Writes: Unspecified is taken as UTC, Local is converted. Reads: stamped as UTC.</summary>
+internal class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+{
+    public UtcDateTimeConverter() : base(
+        v => v.Kind == DateTimeKind.Utc
+            ? v
+            : v.Kind == DateTimeKind.Local ? v.ToUniversalTime() : DateTime.SpecifyKind(v, DateTimeKind.Utc),
+        v => DateTime.SpecifyKind(v, DateTimeKind.Utc))
+    {
+    }
+}
+
+internal class NullableUtcDateTimeConverter : ValueConverter<DateTime?, DateTime?>
+{
+    public NullableUtcDateTimeConverter() : base(
+        v => v == null
+            ? v
+            : v.Value.Kind == DateTimeKind.Utc
+                ? v
+                : v.Value.Kind == DateTimeKind.Local
+                    ? v.Value.ToUniversalTime()
+                    : DateTime.SpecifyKind(v.Value, DateTimeKind.Utc),
+        v => v == null ? v : DateTime.SpecifyKind(v.Value, DateTimeKind.Utc))
+    {
     }
 }

@@ -101,17 +101,83 @@ public class CalendarService : ICalendarService
     private readonly IRepository<PropertyBlockedDate> _blockedRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IPropertyRepository _propertyRepository;
+    private readonly IConfiguration _configuration;
 
     public CalendarService(
         IRepository<PricingSettings> pricingRepository,
         IRepository<PropertyBlockedDate> blockedRepository,
         IBookingRepository bookingRepository,
-        IPropertyRepository propertyRepository)
+        IPropertyRepository propertyRepository,
+        IConfiguration configuration)
     {
         _pricingRepository = pricingRepository;
         _blockedRepository = blockedRepository;
         _bookingRepository = bookingRepository;
         _propertyRepository = propertyRepository;
+        _configuration = configuration;
+    }
+
+    public async Task<string> GetIcalFeedPathAsync(string propertyId, string landlordId, bool isAdmin)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        if (property.UserId != landlordId && !isAdmin)
+            throw new ForbiddenException("You do not own this listing");
+
+        return $"/api/calendar/{propertyId}.ics?token={FeedToken(propertyId)}";
+    }
+
+    public async Task<string> GetIcalFeedAsync(string propertyId, string token)
+    {
+        // The token is the only credential on this anonymous endpoint; compare in constant time.
+        var expected = FeedToken(propertyId);
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(expected),
+                System.Text.Encoding.UTF8.GetBytes(token ?? string.Empty)))
+            throw new ForbiddenException("Invalid calendar feed token");
+
+        _ = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+
+        var bookings = (await _bookingRepository.GetByPropertyIdAsync(propertyId))
+            .Where(b => b.Status is BookingStatus.Confirmed or BookingStatus.CheckedIn);
+        var blocked = await _blockedRepository.FindAsync(d => d.PropertyId == propertyId);
+
+        // Minimal RFC 5545 document: external platforms only need DTSTART/DTEND busy ranges.
+        // DTEND is exclusive, matching checkout-day semantics on every major platform.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("BEGIN:VCALENDAR\r\n");
+        sb.Append("VERSION:2.0\r\n");
+        sb.Append("PRODID:-//TripNest//Core//EN\r\n");
+        sb.Append("CALSCALE:GREGORIAN\r\n");
+        foreach (var b in bookings)
+            AppendEvent(sb, $"booking-{b.Id}", b.CheckInDate, b.CheckOutDate, "Reserved (TripNest)");
+        foreach (var d in blocked)
+            AppendEvent(sb, $"blocked-{d.Id}", d.StartDate, d.EndDate, "Not available");
+        sb.Append("END:VCALENDAR\r\n");
+        return sb.ToString();
+    }
+
+    private static void AppendEvent(System.Text.StringBuilder sb, string uid, DateTime start, DateTime end, string summary)
+    {
+        sb.Append("BEGIN:VEVENT\r\n");
+        sb.Append($"UID:{uid}@tripnest\r\n");
+        sb.Append($"DTSTAMP:{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}\r\n");
+        sb.Append($"DTSTART;VALUE=DATE:{start:yyyyMMdd}\r\n");
+        sb.Append($"DTEND;VALUE=DATE:{end:yyyyMMdd}\r\n");
+        sb.Append($"SUMMARY:{summary}\r\n");
+        sb.Append("END:VEVENT\r\n");
+    }
+
+    /// <summary>Deterministic per-property feed secret — HMAC of the property id under the JWT
+    /// signing key, so the URL is unguessable without storing anything new.</summary>
+    private string FeedToken(string propertyId)
+    {
+        var key = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is not configured");
+        var hash = System.Security.Cryptography.HMACSHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(key),
+            System.Text.Encoding.UTF8.GetBytes($"ical-feed:{propertyId}"));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     public async Task<CalendarMonthResponse> GetMonthAsync(string propertyId, int year, int month, string landlordId)

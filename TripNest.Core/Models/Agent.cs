@@ -15,4 +15,5 @@ public class Agent
     public int? YearsOfExperience { get; set; }
     public DateTime JoinDate { get; set; } = DateTime.UtcNow;
     public string? Certifications { get; set; }
+    public string? ServiceArea { get; set; }
 }

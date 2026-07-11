@@ -1,6 +1,8 @@
 using TripNest.Core.DTOs.Caretakers;
 using TripNest.Core.DTOs.Maintenance;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -28,159 +30,119 @@ public class MaintenanceService : IMaintenanceService
 
     public async Task<MaintenanceResponse> ReportMaintenanceAsync(CreateMaintenanceRequest request, string tenantId)
     {
-        try
+        var property = await _propertyRepository.GetByIdAsync(request.PropertyId);
+        if (property == null)
+            throw new NotFoundException("Property");
+
+        var maintenance = new Maintenance
         {
-            var property = await _propertyRepository.GetByIdAsync(request.PropertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+            PropertyId = request.PropertyId,
+            ReportedByUserId = tenantId,
+            Description = request.Description,
+            Status = MaintenanceStatus.Reported
+        };
 
-            var maintenance = new Maintenance
-            {
-                PropertyId = request.PropertyId,
-                ReportedByUserId = tenantId,
-                Description = request.Description,
-                Status = MaintenanceStatus.Reported
-            };
+        await _maintenanceRepository.AddAsync(maintenance);
+        await _maintenanceRepository.SaveChangesAsync();
 
-            await _maintenanceRepository.AddAsync(maintenance);
-            await _maintenanceRepository.SaveChangesAsync();
+        _logger.LogInformation("Maintenance reported: {MaintenanceId} for property {PropertyId}", maintenance.Id, maintenance.PropertyId);
 
-            _logger.LogInformation("Maintenance reported: {MaintenanceId} for property {PropertyId}", maintenance.Id, maintenance.PropertyId);
-
-            return MapToResponse(maintenance);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error reporting maintenance for property {PropertyId}", request.PropertyId);
-            throw;
-        }
+        return MapToResponse(maintenance);
     }
 
-    public async Task<List<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId)
+    public async Task<PagedResult<MaintenanceResponse>> GetPropertyMaintenanceAsync(string propertyId, string landlordId, int page, int pageSize)
     {
-        try
-        {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+        var property = await _propertyRepository.GetByIdAsync(propertyId);
+        if (property == null)
+            throw new NotFoundException("Property");
 
-            if (property.UserId != landlordId)
-                throw new UnauthorizedAccessException("You do not have permission to view maintenance for this property");
+        if (property.UserId != landlordId)
+            throw new ForbiddenException("You do not have permission to view maintenance for this property");
 
-            var records = await _maintenanceRepository.GetByPropertyIdAsync(propertyId);
-            return records.Select(MapToResponse).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving maintenance for property {PropertyId}", propertyId);
-            throw;
-        }
+        var records = await _maintenanceRepository.GetByPropertyIdAsync(propertyId);
+        return Paging.Page(records.Select(MapToResponse).ToList(), page, pageSize);
     }
 
-    public async Task<List<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId)
+    public async Task<PagedResult<MaintenanceResponse>> GetTenantMaintenanceAsync(string tenantId, int page, int pageSize)
     {
-        try
-        {
-            var records = await _maintenanceRepository.GetByUserIdAsync(tenantId);
-            return records.Select(MapToResponse).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving maintenance for tenant {TenantId}", tenantId);
-            throw;
-        }
+        var records = await _maintenanceRepository.GetByUserIdAsync(tenantId);
+        return Paging.Page(records.Select(MapToResponse).ToList(), page, pageSize);
     }
 
     public async Task UpdateMaintenanceStatusAsync(string maintenanceId, string status, string userId, bool isAdmin)
     {
-        try
+        var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
+        if (maintenance == null)
+            throw new NotFoundException("Maintenance record");
+
+        // Only the property's owner (landlord) — or an admin — may change a maintenance status.
+        // Without this any authenticated user could update any property's maintenance record.
+        if (!isAdmin)
         {
-            var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
-            if (maintenance == null)
-                throw new InvalidOperationException("Maintenance record not found");
-
-            // Only the property's owner (landlord) — or an admin — may change a maintenance status.
-            // Without this any authenticated user could update any property's maintenance record.
-            if (!isAdmin)
-            {
-                var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
-                if (property == null || property.UserId != userId)
-                    throw new UnauthorizedAccessException("You do not have permission to update this maintenance record");
-            }
-
-            if (!Enum.TryParse<MaintenanceStatus>(status, ignoreCase: true, out var parsedStatus))
-                throw new ArgumentException($"Invalid maintenance status: {status}");
-
-            maintenance.Status = parsedStatus;
-
-            if (parsedStatus == MaintenanceStatus.Completed)
-                maintenance.CompletedAt = DateTime.UtcNow;
-
-            await _maintenanceRepository.UpdateAsync(maintenance);
-            await _maintenanceRepository.SaveChangesAsync();
-
-            _logger.LogInformation("Maintenance {MaintenanceId} status updated to {Status} by user {UserId}", maintenanceId, parsedStatus, userId);
+            var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
+            if (property == null || property.UserId != userId)
+                throw new ForbiddenException("You do not have permission to update this maintenance record");
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating maintenance status for {MaintenanceId}", maintenanceId);
-            throw;
-        }
+
+        if (!Enum.TryParse<MaintenanceStatus>(status, ignoreCase: true, out var parsedStatus))
+            throw new ValidationException($"Invalid maintenance status: {status}");
+
+        maintenance.Status = parsedStatus;
+
+        if (parsedStatus == MaintenanceStatus.Completed)
+            maintenance.CompletedAt = DateTime.UtcNow;
+
+        await _maintenanceRepository.UpdateAsync(maintenance);
+        await _maintenanceRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Maintenance {MaintenanceId} status updated to {Status} by user {UserId}", maintenanceId, parsedStatus, userId);
     }
 
     public async Task<ServiceRequestResponse> ConvertToServiceRequestAsync(string maintenanceId, string? caretakerId, string landlordId)
     {
-        try
+        var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
+        if (maintenance == null)
+            throw new NotFoundException("Maintenance record");
+
+        var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
+        if (property == null)
+            throw new NotFoundException("Property");
+
+        if (property.UserId != landlordId)
+            throw new ForbiddenException("You do not have permission to convert this maintenance record");
+
+        var serviceRequest = new ServiceRequest
         {
-            var maintenance = await _maintenanceRepository.GetByIdAsync(maintenanceId);
-            if (maintenance == null)
-                throw new InvalidOperationException("Maintenance record not found");
+            CaretakerId = caretakerId ?? "unassigned",
+            RequestedByUserId = landlordId,
+            PropertyId = maintenance.PropertyId,
+            ServiceType = "Maintenance",
+            Description = maintenance.Description
+        };
 
-            var property = await _propertyRepository.GetByIdAsync(maintenance.PropertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+        await _serviceRequestRepository.AddAsync(serviceRequest);
 
-            if (property.UserId != landlordId)
-                throw new UnauthorizedAccessException("You do not have permission to convert this maintenance record");
+        maintenance.Status = MaintenanceStatus.Assigned;
+        await _maintenanceRepository.UpdateAsync(maintenance);
 
-            var serviceRequest = new ServiceRequest
-            {
-                CaretakerId = caretakerId ?? "unassigned",
-                RequestedByUserId = landlordId,
-                PropertyId = maintenance.PropertyId,
-                ServiceType = "Maintenance",
-                Description = maintenance.Description
-            };
+        await _serviceRequestRepository.SaveChangesAsync();
 
-            await _serviceRequestRepository.AddAsync(serviceRequest);
+        _logger.LogInformation("Maintenance {MaintenanceId} converted to service request {ServiceRequestId}", maintenanceId, serviceRequest.Id);
 
-            maintenance.Status = MaintenanceStatus.Assigned;
-            await _maintenanceRepository.UpdateAsync(maintenance);
-
-            await _serviceRequestRepository.SaveChangesAsync();
-
-            _logger.LogInformation("Maintenance {MaintenanceId} converted to service request {ServiceRequestId}", maintenanceId, serviceRequest.Id);
-
-            return new ServiceRequestResponse
-            {
-                ServiceRequestId = serviceRequest.Id,
-                CaretakerId = serviceRequest.CaretakerId,
-                RequestedByUserId = serviceRequest.RequestedByUserId,
-                PropertyId = serviceRequest.PropertyId,
-                ServiceType = serviceRequest.ServiceType,
-                Description = serviceRequest.Description,
-                Status = serviceRequest.Status.ToString(),
-                Rating = serviceRequest.Rating,
-                ReviewComment = serviceRequest.ReviewComment,
-                CreatedAt = serviceRequest.CreatedAt,
-                CompletedAt = serviceRequest.CompletedAt
-            };
-        }
-        catch (Exception ex)
+        return new ServiceRequestResponse
         {
-            _logger.LogError(ex, "Error converting maintenance {MaintenanceId} to service request", maintenanceId);
-            throw;
-        }
+            ServiceRequestId = serviceRequest.Id,
+            CaretakerId = serviceRequest.CaretakerId,
+            RequestedByUserId = serviceRequest.RequestedByUserId,
+            PropertyId = serviceRequest.PropertyId,
+            ServiceType = serviceRequest.ServiceType,
+            Description = serviceRequest.Description,
+            Status = serviceRequest.Status.ToString(),
+            Rating = serviceRequest.Rating,
+            ReviewComment = serviceRequest.ReviewComment,
+            CreatedAt = serviceRequest.CreatedAt,
+            CompletedAt = serviceRequest.CompletedAt
+        };
     }
 
     private static MaintenanceResponse MapToResponse(Maintenance m)

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Properties;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
@@ -12,20 +13,100 @@ public class PropertyService : IPropertyService
 {
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<PropertyPhoto> _photoRepository;
+    private readonly IBookingRepository _bookingRepository;
+    private readonly IRepository<PricingSettings> _pricingRepository;
+    private readonly ILoyaltyService _loyaltyService;
     private readonly IFileStorage _fileStorage;
+    private readonly IAiClient _aiClient;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<PropertyService> _logger;
 
     public PropertyService(
         IPropertyRepository propertyRepository,
         IRepository<PropertyPhoto> photoRepository,
+        IBookingRepository bookingRepository,
+        IRepository<PricingSettings> pricingRepository,
+        ILoyaltyService loyaltyService,
         IFileStorage fileStorage,
+        IAiClient aiClient,
+        IUserRepository userRepository,
         ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
         _photoRepository = photoRepository;
+        _bookingRepository = bookingRepository;
+        _pricingRepository = pricingRepository;
+        _loyaltyService = loyaltyService;
         _fileStorage = fileStorage;
+        _aiClient = aiClient;
+        _userRepository = userRepository;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Drafts AI listing copy for the host to review — never applied automatically. Feeds the
+    /// model the property's structured facts plus up to four listing photos.
+    /// </summary>
+    public async Task<ListingCopySuggestion> GenerateListingCopyAsync(string propertyId, string userId)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        if (property.UserId != userId)
+            throw new ForbiddenException("You are not authorised to generate copy for this property");
+
+        if (!_aiClient.IsConfigured)
+            throw new ValidationException("AI listing suggestions are not configured on this server.");
+
+        var photos = await LoadPhotosForAiAsync(propertyId);
+        var owner = await _userRepository.GetByIdAsync(userId);
+        var language = owner?.PreferredLanguage ?? Enums.Language.English;
+        var suggestion = await _aiClient.GenerateListingCopyAsync(property, photos, language);
+        return suggestion
+            ?? throw new ValidationException("Listing suggestions are unavailable right now. Please try again.");
+    }
+
+    // Claude accepts up to ~5MB per image; anything larger is skipped rather than resized —
+    // listing photos are usually smaller, and copy quality barely depends on any single one.
+    private const int MaxAiPhotos = 4;
+    private const long MaxAiPhotoBytes = 4_500_000;
+
+    private async Task<IReadOnlyList<AiImage>> LoadPhotosForAiAsync(string propertyId)
+    {
+        var photoRows = (await _photoRepository.FindAsync(p => p.PropertyId == propertyId))
+            .OrderByDescending(p => p.IsPrimary)
+            .ThenBy(p => p.SortOrder)
+            .Take(MaxAiPhotos)
+            .ToList();
+
+        var images = new List<AiImage>();
+        foreach (var row in photoRows)
+        {
+            var mediaType = MediaTypeFor(row.PhotoPath);
+            if (mediaType is null)
+                continue;
+
+            await using var stream = await _fileStorage.OpenReadAsync(row.PhotoPath);
+            if (stream is null)
+                continue;
+
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            if (buffer.Length == 0 || buffer.Length > MaxAiPhotoBytes)
+                continue;
+
+            images.Add(new AiImage(buffer.ToArray(), mediaType));
+        }
+        return images;
+    }
+
+    private static string? MediaTypeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".png" => "image/png",
+        ".webp" => "image/webp",
+        ".gif" => "image/gif",
+        _ => null,
+    };
 
     public async Task<List<string>> AddPhotosAsync(string propertyId, string userId, IFormFileCollection files)
     {
@@ -100,13 +181,16 @@ public class PropertyService : IPropertyService
         }
     }
 
-    public async Task<PropertyResponse> UpdatePropertyAsync(string propertyId, CreatePropertyRequest request)
+    public async Task<PropertyResponse> UpdatePropertyAsync(string propertyId, string userId, bool isAdmin, CreatePropertyRequest request)
     {
         try
         {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+            var property = await _propertyRepository.GetByIdAsync(propertyId)
+                ?? throw new NotFoundException("Property");
+
+            // Only the owner (or an admin) may edit a listing.
+            if (property.UserId != userId && !isAdmin)
+                throw new ForbiddenException("This property is not yours");
 
             property.Title = request.Title;
             property.Description = request.Description;
@@ -182,38 +266,76 @@ public class PropertyService : IPropertyService
         }
     }
 
-    public async Task<IEnumerable<PropertyResponse>> SearchPropertiesAsync(string location, int minBedrooms, int maxBedrooms)
+    public async Task<PagedResult<PropertyResponse>> SearchPropertiesAsync(
+        DTOs.Search.PropertySearchCriteria criteria, int page, int pageSize)
     {
-        try
+        var (pageNum, size) = Paging.Clamp(page, pageSize);
+        var (items, totalCount) = await _propertyRepository.SearchPageAsync(criteria, pageNum, size);
+        var responses = items.Select(MapToResponse).ToList();
+
+        // True total pricing: when the search carries dates, each result gets the exact all-in
+        // cost for that stay (weekend rates, length discounts, cleaning fee) — the same number the
+        // booking will charge — so there is never a surprise fee at checkout.
+        if (criteria.HasDates && items.Count > 0)
         {
-            var properties = await _propertyRepository.SearchAsync(location, minBedrooms, maxBedrooms);
-            return properties.Select(MapToResponse);
+            var ids = items.Select(p => p.Id).ToList();
+            var pricingById = (await _pricingRepository.FindAsync(s => ids.Contains(s.PropertyId)))
+                .ToDictionary(s => s.PropertyId);
+            foreach (var (property, response) in items.Zip(responses))
+                response.Quote = StayPricingCalculator.Quote(
+                    property, pricingById.GetValueOrDefault(property.Id),
+                    criteria.CheckIn!.Value, criteria.CheckOut!.Value);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error searching properties");
-            throw;
-        }
+
+        return Paging.Result(responses, totalCount, pageNum, size);
     }
 
-    public async Task DeletePropertyAsync(string propertyId)
+    /// <summary>
+    /// All-in price breakdown for a stay on one listing — the number the booking will charge.
+    /// Pass the caller's user id to include their loyalty discount; anonymous quotes get none.
+    /// </summary>
+    public async Task<StayQuote> GetStayQuoteAsync(string propertyId, DateTime checkIn, DateTime checkOut, string? userId)
     {
-        try
-        {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
+        if (checkOut.Date <= checkIn.Date)
+            throw new ValidationException("Check-out date must be after the check-in date");
 
-            await _propertyRepository.DeleteAsync(property);
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+
+        var pricing = (await _pricingRepository.FindAsync(s => s.PropertyId == propertyId)).FirstOrDefault();
+        var loyaltyPercent = string.IsNullOrEmpty(userId) ? 0m : await _loyaltyService.GetDiscountPercentAsync(userId);
+        return StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, loyaltyPercent);
+    }
+
+    /// <summary>Deletes a never-booked listing outright; archives one with booking history.
+    /// Returns true when hard-deleted, false when archived.</summary>
+    public async Task<bool> DeletePropertyAsync(string propertyId, string userId, bool isAdmin)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+
+        // Only the owner (or an admin) may remove a listing.
+        if (property.UserId != userId && !isAdmin)
+            throw new ForbiddenException("This property is not yours");
+
+        // A property with booking history can't be hard-deleted: the cascade would reach escrows,
+        // whose audit events are deliberately delete-restricted (money history must survive).
+        // Archive it instead — it leaves search/booking (only Active listings surface) while
+        // bookings, escrows, and agreements keep valid references.
+        var hasBookings = (await _bookingRepository.FindAsync(b => b.PropertyId == propertyId)).Any();
+        if (hasBookings)
+        {
+            property.Status = PropertyStatus.Archived;
+            await _propertyRepository.UpdateAsync(property);
             await _propertyRepository.SaveChangesAsync();
+            _logger.LogInformation("Property archived (has booking history): {PropertyId}", propertyId);
+            return false;
+        }
 
-            _logger.LogInformation("Property deleted: {PropertyId}", propertyId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting property");
-            throw;
-        }
+        await _propertyRepository.DeleteAsync(property);
+        await _propertyRepository.SaveChangesAsync();
+        _logger.LogInformation("Property deleted: {PropertyId}", propertyId);
+        return true;
     }
 
     private PropertyResponse MapToResponse(Property property)

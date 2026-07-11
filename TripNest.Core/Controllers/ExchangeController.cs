@@ -42,11 +42,11 @@ public class ExchangeController : ControllerBase
 
     /// <summary>List replies on a post.</summary>
     [HttpGet("posts/{postId}/replies")]
-    [ProducesResponseType(typeof(ApiResponse<List<ExchangeReplyResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ExchangeReplyResponse>>>> GetReplies(string postId)
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ExchangeReplyResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ExchangeReplyResponse>>>> GetReplies(string postId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var replies = await _exchangeService.GetRepliesAsync(postId);
-        return Ok(ApiResponse<List<ExchangeReplyResponse>>.Ok("Replies retrieved", replies));
+        var replies = await _exchangeService.GetRepliesAsync(postId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ExchangeReplyResponse>>.Ok("Replies retrieved", replies));
     }
 
     /// <summary>Reply to a post.</summary>

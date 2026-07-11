@@ -5,21 +5,28 @@ using TripNest.Core.Services;
 namespace TripNest.Core.Tests;
 
 /// <summary>
-/// Verifies the Paystack gateway degrades gracefully without a configured secret key, so dev/CI
-/// flows work: initiate returns a simulated reference + checkout URL, and refund succeeds.
+/// The real Paystack gateway must refuse to exist without a secret key (Program.cs registers
+/// SimulatedPaymentGateway instead, Development only), and the simulator must cover the same
+/// surface so dev/CI flows work: initiate returns a simulated reference + checkout URL, verify
+/// reports Simulated=true, and refund succeeds.
 /// </summary>
 public class PaystackGatewayTests
 {
-    private static PaystackPaymentGateway BuildUnconfigured()
+    [Fact]
+    public void PaystackGateway_WithoutKey_Throws()
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
-        return new PaystackPaymentGateway(new HttpClient(), config, NullLogger<PaystackPaymentGateway>.Instance);
+        Assert.Throws<InvalidOperationException>(() =>
+            new PaystackPaymentGateway(new HttpClient(), config, NullLogger<PaystackPaymentGateway>.Instance));
     }
 
+    private static SimulatedPaymentGateway BuildSimulated() =>
+        new(NullLogger<SimulatedPaymentGateway>.Instance);
+
     [Fact]
-    public async Task InitiatePayment_WithoutKey_ReturnsSimulatedReference()
+    public async Task SimulatedInitiatePayment_ReturnsSimulatedReference()
     {
-        var result = await BuildUnconfigured().InitiatePaymentAsync(500m, "GHS", "tenant@example.com", "booking123");
+        var result = await BuildSimulated().InitiatePaymentAsync(500m, "GHS", "tenant@example.com", "booking123");
 
         Assert.True(result.Success);
         Assert.False(string.IsNullOrWhiteSpace(result.Reference));
@@ -27,8 +34,17 @@ public class PaystackGatewayTests
     }
 
     [Fact]
-    public async Task Refund_WithoutKey_ReturnsTrue()
+    public async Task SimulatedVerify_ReportsSimulated()
     {
-        Assert.True(await BuildUnconfigured().RefundAsync("ref123", 100m));
+        var result = await BuildSimulated().VerifyPaymentAsync("ref123");
+
+        Assert.True(result.Success);
+        Assert.True(result.Simulated);
+    }
+
+    [Fact]
+    public async Task SimulatedRefund_ReturnsTrue()
+    {
+        Assert.True(await BuildSimulated().RefundAsync("ref123", 100m));
     }
 }

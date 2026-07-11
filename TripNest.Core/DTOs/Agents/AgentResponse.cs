@@ -14,4 +14,8 @@ public class AgentResponse
     public int? YearsOfExperience { get; set; }
     public DateTime JoinDate { get; set; }
     public string? Certifications { get; set; }
+    public string? ServiceArea { get; set; }
+    /// <summary>Mean of viewing-request review ratings; null until the first review.</summary>
+    public double? AverageRating { get; set; }
+    public int ReviewCount { get; set; }
 }

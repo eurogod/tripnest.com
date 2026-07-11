@@ -3,17 +3,22 @@ using TripNest.Core.Enums;
 namespace TripNest.Core.Models;
 
 /// <summary>
-/// The disbursement of a released escrow to the host, executed via Paystack Transfers. Exactly one
-/// per escrow (unique index): created when the escrow is released, then driven to Paid/Failed by
-/// the transfer webhook. The payout id doubles as the provider transfer reference, which makes the
-/// provider call idempotent across retries.
+/// A disbursement to the host, executed via Paystack Transfers. Sourced either from a released
+/// escrow (exactly one per escrow) or from a paid monthly rent invoice (exactly one per invoice) —
+/// exactly one of <see cref="EscrowId"/>/<see cref="RentInvoiceId"/> is set. Created Pending, then
+/// driven to Paid/Failed by the transfer webhook. The payout id doubles as the provider transfer
+/// reference, which makes the provider call idempotent across retries.
 /// </summary>
 public class Payout
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
-    public required string EscrowId { get; set; }
+    public string? EscrowId { get; set; }
     public Escrow? Escrow { get; set; }
+
+    /// <summary>Set instead of <see cref="EscrowId"/> when this payout disburses a monthly rent payment.</summary>
+    public string? RentInvoiceId { get; set; }
+    public RentInvoice? RentInvoice { get; set; }
 
     public required string BookingId { get; set; }
 

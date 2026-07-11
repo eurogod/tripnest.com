@@ -31,20 +31,12 @@ public class ReceiptsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<PagedResult<ReceiptResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<PagedResult<ReceiptResponse>>>> GetMyReceipts([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<PagedResult<ReceiptResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<ReceiptResponse>>.UnAuthorized());
 
-            var receipts = await _receiptService.GetUserReceiptsAsync(userId, page, pageSize);
-            return Ok(ApiResponse<PagedResult<ReceiptResponse>>.Ok("Receipts retrieved", receipts));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving receipts");
-            return StatusCode(500, ApiResponse<PagedResult<ReceiptResponse>>.InternalServerError());
-        }
+        var receipts = await _receiptService.GetUserReceiptsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ReceiptResponse>>.Ok("Receipts retrieved", receipts));
     }
 
     /// <summary>
@@ -55,23 +47,15 @@ public class ReceiptsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ReceiptResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ReceiptResponse>>> GetReceipt(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<ReceiptResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ReceiptResponse>.UnAuthorized());
 
-            var receipt = await _receiptService.GetReceiptAsync(id, userId);
-            if (receipt == null)
-                return NotFound(ApiResponse<ReceiptResponse>.NotFound("Receipt"));
+        var receipt = await _receiptService.GetReceiptAsync(id, userId);
+        if (receipt == null)
+            return NotFound(ApiResponse<ReceiptResponse>.NotFound("Receipt"));
 
-            return Ok(ApiResponse<ReceiptResponse>.Ok("Receipt retrieved", receipt));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving receipt");
-            return StatusCode(500, ApiResponse<ReceiptResponse>.InternalServerError());
-        }
+        return Ok(ApiResponse<ReceiptResponse>.Ok("Receipt retrieved", receipt));
     }
 
     /// <summary>
@@ -114,22 +98,14 @@ public class ReceiptsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ReceiptResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<ReceiptResponse>>> GetReceiptByBooking(string bookingId)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<ReceiptResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ReceiptResponse>.UnAuthorized());
 
-            var receipt = await _receiptService.GetReceiptByBookingAsync(bookingId, userId);
-            if (receipt == null)
-                return NotFound(ApiResponse<ReceiptResponse>.NotFound("Receipt"));
+        var receipt = await _receiptService.GetReceiptByBookingAsync(bookingId, userId);
+        if (receipt == null)
+            return NotFound(ApiResponse<ReceiptResponse>.NotFound("Receipt"));
 
-            return Ok(ApiResponse<ReceiptResponse>.Ok("Receipt retrieved", receipt));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving receipt");
-            return StatusCode(500, ApiResponse<ReceiptResponse>.InternalServerError());
-        }
+        return Ok(ApiResponse<ReceiptResponse>.Ok("Receipt retrieved", receipt));
     }
 }

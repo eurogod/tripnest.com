@@ -7,40 +7,33 @@ namespace TripNest.Core.Services;
 
 /// <summary>
 /// Paystack payment gateway (test or live mode). Talks to https://api.paystack.co for
-/// transaction initialize / verify / refund. If no secret key is configured it degrades
-/// gracefully — returning a simulated reference + checkout URL and logging — so dev flows
-/// work without credentials. Amounts are sent in the minor unit (pesewas = GHS * 100).
+/// transaction initialize / verify / refund. Requires a secret key — when none is configured,
+/// Program.cs registers <see cref="SimulatedPaymentGateway"/> instead (Development only), so this
+/// class never simulates. Amounts are sent in the minor unit (pesewas = GHS * 100).
 /// </summary>
 public class PaystackPaymentGateway : IPaymentGateway
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<PaystackPaymentGateway> _logger;
-    private readonly string? _secretKey;
+    private readonly string _secretKey;
     private readonly string? _callbackUrl;
 
     public PaystackPaymentGateway(HttpClient httpClient, IConfiguration configuration, ILogger<PaystackPaymentGateway> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
-        _secretKey = configuration["PaystackSettings:SecretKey"];
+        _secretKey = configuration["PaystackSettings:SecretKey"]
+            ?? throw new InvalidOperationException(
+                "PaystackPaymentGateway requires PaystackSettings:SecretKey; without it Program.cs registers SimulatedPaymentGateway instead.");
         _callbackUrl = configuration["PaystackSettings:CallbackUrl"];
 
         _httpClient.BaseAddress ??= new Uri("https://api.paystack.co/");
-        if (!string.IsNullOrWhiteSpace(_secretKey))
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _secretKey);
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _secretKey);
     }
-
-    private bool Configured => !string.IsNullOrWhiteSpace(_secretKey);
 
     public async Task<PaymentInitResult> InitiatePaymentAsync(decimal amount, string currency, string customerEmail, string bookingId, string? callbackUrl = null)
     {
         var reference = $"TN-{bookingId[..Math.Min(8, bookingId.Length)]}-{Guid.NewGuid():N}";
-
-        if (!Configured)
-        {
-            _logger.LogInformation("[Paystack not configured] simulating checkout for booking {BookingId}, ref {Reference}", bookingId, reference);
-            return new PaymentInitResult(true, $"https://checkout.paystack.test/simulated/{reference}", reference);
-        }
 
         try
         {
@@ -76,12 +69,6 @@ public class PaystackPaymentGateway : IPaymentGateway
 
     public async Task<PaymentVerifyResult> VerifyPaymentAsync(string reference)
     {
-        if (!Configured)
-        {
-            _logger.LogInformation("[Paystack not configured] simulating verify success for ref {Reference}", reference);
-            return new PaymentVerifyResult(true, 0m);
-        }
-
         try
         {
             using var resp = await _httpClient.GetAsync($"transaction/verify/{Uri.EscapeDataString(reference)}");
@@ -107,12 +94,6 @@ public class PaystackPaymentGateway : IPaymentGateway
 
     public async Task<bool> RefundAsync(string reference, decimal amount)
     {
-        if (!Configured)
-        {
-            _logger.LogInformation("[Paystack not configured] simulating refund of {Amount} for ref {Reference}", amount, reference);
-            return true;
-        }
-
         try
         {
             var payload = new { transaction = reference, amount = (long)(amount * 100) };
@@ -134,12 +115,6 @@ public class PaystackPaymentGateway : IPaymentGateway
     public async Task<TransferRecipientResult> CreateTransferRecipientAsync(
         string accountName, string accountNumber, string providerCode, string channel, string currency)
     {
-        if (!Configured)
-        {
-            _logger.LogInformation("[Paystack not configured] simulating transfer recipient for {AccountName}", accountName);
-            return new TransferRecipientResult(true, $"RCP_SIM_{Guid.NewGuid():N}", null);
-        }
-
         try
         {
             // Ghana: MoMo wallets use type "mobile_money" (codes MTN/ATL/VOD); banks use "ghipss".
@@ -173,12 +148,6 @@ public class PaystackPaymentGateway : IPaymentGateway
     public async Task<TransferResult> InitiateTransferAsync(
         decimal amount, string currency, string recipientCode, string reference, string reason)
     {
-        if (!Configured)
-        {
-            _logger.LogInformation("[Paystack not configured] simulating transfer of {Amount} {Currency}, ref {Reference}", amount, currency, reference);
-            return new TransferResult(true, $"TRF_SIM_{Guid.NewGuid():N}", "success", null);
-        }
-
         try
         {
             var payload = new

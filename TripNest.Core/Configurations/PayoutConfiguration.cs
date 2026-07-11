@@ -11,8 +11,10 @@ public class PayoutConfiguration : IEntityTypeConfiguration<Payout>
         builder.HasKey(p => p.Id);
         builder.Property(p => p.Id).ValueGeneratedNever();
 
-        // Exactly one payout per escrow — the DB backstop for the service's idempotency check.
+        // Exactly one payout per source — the DB backstop for the service's idempotency checks
+        // (Postgres unique indexes ignore NULLs, so escrow- and rent-sourced payouts coexist).
         builder.HasIndex(p => p.EscrowId).IsUnique();
+        builder.HasIndex(p => p.RentInvoiceId).IsUnique();
         builder.HasIndex(p => p.LandlordId);
         builder.HasIndex(p => p.Status);
 
@@ -25,6 +27,11 @@ public class PayoutConfiguration : IEntityTypeConfiguration<Payout>
         builder.HasOne(p => p.Escrow)
             .WithMany()
             .HasForeignKey(p => p.EscrowId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(p => p.RentInvoice)
+            .WithMany()
+            .HasForeignKey(p => p.RentInvoiceId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

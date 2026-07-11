@@ -4,9 +4,12 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TripNest.Core.DTOs.Escrow;
+using TripNest.Core.Exceptions;
+using TripNest.Core.Services;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -18,17 +21,23 @@ public class EscrowController : ControllerBase
 {
     private readonly IEscrowService _escrowService;
     private readonly IPayoutService _payoutService;
+    private readonly ISplitBillingService _splitBillingService;
+    private readonly IRentService _rentService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<EscrowController> _logger;
 
     public EscrowController(
         IEscrowService escrowService,
         IPayoutService payoutService,
+        ISplitBillingService splitBillingService,
+        IRentService rentService,
         IConfiguration configuration,
         ILogger<EscrowController> logger)
     {
         _escrowService = escrowService;
         _payoutService = payoutService;
+        _splitBillingService = splitBillingService;
+        _rentService = rentService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -42,25 +51,13 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<EscrowResponse>>> InitiatePayment([FromBody] InitiateEscrowRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
 
-            // Amount is derived from the booking server-side, not taken from the client.
-            var result = await _escrowService.InitiatePaymentAsync(request.BookingId, userId);
-            return Ok(ApiResponse<EscrowResponse>.Ok("Payment initiated", result));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<EscrowResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error initiating payment");
-            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
-        }
+        // Amount is derived from the booking server-side, not taken from the client.
+        var result = await _escrowService.InitiatePaymentAsync(request.BookingId, userId);
+        return Ok(ApiResponse<EscrowResponse>.Ok("Payment initiated", result));
     }
 
     /// <summary>
@@ -130,12 +127,36 @@ public class EscrowController : ControllerBase
                 ? minor / 100m
                 : 0m;
 
+            // Split-billing charges carry "share:{shareId}" instead of a booking id — they pay
+            // one member's slice, and the escrow holds only when the whole group has paid.
+            if (bookingId.StartsWith(SplitBillingService.ReferencePrefix, StringComparison.Ordinal))
+            {
+                var shareId = bookingId[SplitBillingService.ReferencePrefix.Length..];
+                await _splitBillingService.ApplySharePaymentAsync(shareId, reference, paidAmount);
+                return Ok(ApiResponse<object>.Ok("Share payment recorded", null));
+            }
+
+            // Monthly-rent charges carry "rent:{invoiceId}" — they pay one period of a long-term
+            // stay and disburse to the landlord immediately (no escrow hold).
+            if (bookingId.StartsWith(RentService.ReferencePrefix, StringComparison.Ordinal))
+            {
+                var invoiceId = bookingId[RentService.ReferencePrefix.Length..];
+                await _rentService.ApplyRentPaymentAsync(invoiceId, reference, paidAmount);
+                return Ok(ApiResponse<object>.Ok("Rent payment recorded", null));
+            }
+
             await _escrowService.VerifyAndHoldPaymentAsync(bookingId, reference, paidAmount);
             return Ok(ApiResponse<object>.Ok("Payment verified", null));
         }
         catch (JsonException)
         {
             return BadRequest(ApiResponse<object>.BadRequest("Malformed webhook payload"));
+        }
+        catch (ConflictException)
+        {
+            // Double-booking race, fully handled by the service (payment refunded or parked in
+            // Disputed). Ack with 200 so the provider does not keep retrying a resolved event.
+            return Ok(ApiResponse<object>.Ok("Payment could not be applied (dates already booked); resolution recorded", null));
         }
         catch (InvalidOperationException ex)
         {
@@ -175,47 +196,27 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<EscrowResponse>>> VerifyPayment(string bookingId)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
 
-            var result = await _escrowService.VerifyPaymentByBookingAsync(bookingId, userId);
-            return Ok(ApiResponse<EscrowResponse>.Ok("Payment verified", result));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<EscrowResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error verifying payment for booking {BookingId}", bookingId);
-            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
-        }
+        var result = await _escrowService.VerifyPaymentByBookingAsync(bookingId, userId);
+        return Ok(ApiResponse<EscrowResponse>.Ok("Payment verified", result));
     }
 
     /// <summary>
     /// List the caller's own escrows (as the paying tenant), for the payments "held funds" view.
     /// </summary>
     [HttpGet("mine")]
-    [ProducesResponseType(typeof(ApiResponse<List<EscrowResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<EscrowResponse>>>> GetMyEscrows()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<EscrowResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<EscrowResponse>>>> GetMyEscrows([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<EscrowResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<EscrowResponse>>.UnAuthorized());
 
-            var escrows = await _escrowService.GetMyEscrowsAsync(userId);
-            return Ok(ApiResponse<List<EscrowResponse>>.Ok("Escrows retrieved", escrows));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving escrows");
-            return StatusCode(500, ApiResponse<List<EscrowResponse>>.InternalServerError());
-        }
+        var escrows = await _escrowService.GetMyEscrowsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<EscrowResponse>>.Ok("Escrows retrieved", escrows));
     }
 
     /// <summary>
@@ -226,23 +227,15 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<EscrowResponse>>> GetEscrow(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
 
-            var escrow = await _escrowService.GetEscrowAsync(id, userId);
-            if (escrow == null)
-                return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
+        var escrow = await _escrowService.GetEscrowAsync(id, userId);
+        if (escrow == null)
+            return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
 
-            return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving escrow");
-            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
-        }
+        return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
     }
 
     /// <summary>
@@ -253,23 +246,15 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<EscrowResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<EscrowResponse>>> GetEscrowByBooking(string bookingId)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<EscrowResponse>.UnAuthorized());
 
-            var escrow = await _escrowService.GetEscrowByBookingAsync(bookingId, userId);
-            if (escrow == null)
-                return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
+        var escrow = await _escrowService.GetEscrowByBookingAsync(bookingId, userId);
+        if (escrow == null)
+            return NotFound(ApiResponse<EscrowResponse>.NotFound("Escrow"));
 
-            return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving escrow for booking");
-            return StatusCode(500, ApiResponse<EscrowResponse>.InternalServerError());
-        }
+        return Ok(ApiResponse<EscrowResponse>.Ok("Escrow retrieved", escrow));
     }
 
     /// <summary>
@@ -280,24 +265,12 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<object>>> ReleaseEscrow(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            await _escrowService.ReleaseEscrowAsync(id, userId);
-            return Ok(ApiResponse<object>.Ok("Escrow released", null));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error releasing escrow");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _escrowService.ReleaseEscrowAsync(id, userId);
+        return Ok(ApiResponse<object>.Ok("Escrow released", null));
     }
 
     /// <summary>
@@ -308,24 +281,12 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<object>>> DisputeEscrow(string id, [FromBody] DisputeRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            await _escrowService.RaiseDisputeAsync(id, userId, request.Reason);
-            return Ok(ApiResponse<object>.Ok("Dispute raised", null));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error raising dispute");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _escrowService.RaiseDisputeAsync(id, userId, request.Reason);
+        return Ok(ApiResponse<object>.Ok("Dispute raised", null));
     }
 
     /// <summary>
@@ -337,20 +298,8 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<object>>> ResolveDispute(string id, [FromBody] ResolveDisputeRequest request)
     {
-        try
-        {
-            await _escrowService.ResolveDisputeAsync(id, request.Approved);
-            return Ok(ApiResponse<object>.Ok("Dispute resolved", null));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error resolving dispute");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _escrowService.ResolveDisputeAsync(id, request.Approved);
+        return Ok(ApiResponse<object>.Ok("Dispute resolved", null));
     }
 
     /// <summary>
@@ -361,19 +310,7 @@ public class EscrowController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> RefundEscrow(string id, [FromBody] RefundRequest request)
     {
-        try
-        {
-            await _escrowService.RefundEscrowAsync(id, request.Reason);
-            return Ok(ApiResponse<object>.Ok("Escrow refunded", null));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refunding escrow");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        await _escrowService.RefundEscrowAsync(id, request.Reason);
+        return Ok(ApiResponse<object>.Ok("Escrow refunded", null));
     }
 }

@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Payouts;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Models;
 
 namespace TripNest.Core.Interfaces.Services;
@@ -17,15 +18,24 @@ public interface IPayoutService
     Task<PayoutAccountResponse> UpsertMyAccountAsync(string userId, UpsertPayoutAccountRequest request);
 
     /// <summary>The caller's payouts, newest first.</summary>
-    Task<List<PayoutResponse>> GetMyPayoutsAsync(string userId);
+    Task<PagedResult<PayoutResponse>> GetMyPayoutsAsync(string userId, int page, int pageSize);
 
     /// <summary>
     /// Creates the payout for a just-released escrow (idempotent — one payout per escrow) and
     /// attempts the provider transfer immediately when the host has a registered account.
     /// Never throws for provider/account problems: the payout stays Pending/Failed for retry,
     /// because a payout hiccup must not undo the escrow release that triggered it.
+    /// <paramref name="grossOverride"/> pays out only part of the escrow — the host's retained
+    /// share when a cancellation policy refunds the tenant the rest.
     /// </summary>
-    Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId);
+    Task CreateForReleasedEscrowAsync(Escrow escrow, string landlordId, decimal? grossOverride = null);
+
+    /// <summary>
+    /// Creates the payout for a just-paid monthly rent invoice (idempotent — one payout per
+    /// invoice) and attempts the provider transfer immediately. Same never-throws contract as the
+    /// escrow path: a payout hiccup must not unwind the rent payment that triggered it.
+    /// </summary>
+    Task CreateForPaidRentAsync(RentInvoice invoice);
 
     /// <summary>Re-attempts a Pending or Failed payout (e.g. after the host fixes their account).</summary>
     Task<PayoutResponse> RetryAsync(string payoutId, string userId);

@@ -116,7 +116,9 @@ public class CaretakerConfiguration : IEntityTypeConfiguration<Caretaker>
         builder.HasKey(c => c.Id);
         builder.Property(c => c.Id).ValueGeneratedNever();
         builder.Property(c => c.UserId).IsRequired().HasMaxLength(36);
-        builder.Property(c => c.PropertyId).IsRequired().HasMaxLength(36);
+        // Legacy link — caretakers are standalone marketplace profiles now; current property
+        // links live in PropertyCaretakerAssignment.
+        builder.Property(c => c.PropertyId).IsRequired(false).HasMaxLength(36);
         builder.Property(c => c.Status).IsRequired();
         builder.Property(c => c.MonthlyCompensation).HasPrecision(18, 2);
         builder.Property(c => c.Responsibilities).IsRequired();
@@ -129,7 +131,7 @@ public class CaretakerConfiguration : IEntityTypeConfiguration<Caretaker>
         builder.HasOne(c => c.Property)
             .WithMany()
             .HasForeignKey(c => c.PropertyId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.HasIndex(c => c.PropertyId);
         builder.HasIndex(c => c.UserId);

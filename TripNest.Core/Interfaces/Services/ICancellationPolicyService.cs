@@ -8,5 +8,6 @@ public interface ICancellationPolicyService
     Task<decimal> CalculateRefundPercentage(string bookingId);
 
     /// <summary>Full preview the tenant sees before confirming a cancellation.</summary>
-    Task<RefundPreview> PreviewAsync(string bookingId);
+    /// <summary>Participant-only (booking's tenant or the property's landlord).</summary>
+    Task<RefundPreview> PreviewAsync(string bookingId, string userId);
 }

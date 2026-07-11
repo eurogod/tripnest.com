@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.35.1" />
     <PackageReference Include="libphonenumber-csharp" Version="8.13.40" />
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.27" />

@@ -4,6 +4,7 @@ using TripNest.Core.DTOs.Marketplace;
 using TripNest.Core.Extensions;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
+using TripNest.Core.DTOs.Shared;
 
 namespace TripNest.Core.Controllers;
 
@@ -19,14 +20,14 @@ public class StatementsController : ControllerBase
 
     /// <summary>Monthly payout statements for the caller (gross, management fee, net).</summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<List<StatementResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<StatementResponse>>>> GetMine()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<StatementResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<StatementResponse>>>> GetMine([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var landlordId = User.GetUserId();
         if (string.IsNullOrEmpty(landlordId))
-            return Unauthorized(ApiResponse<List<StatementResponse>>.UnAuthorized());
+            return Unauthorized(ApiResponse<PagedResult<StatementResponse>>.UnAuthorized());
 
-        var statements = await _statementService.GetForLandlordAsync(landlordId);
-        return Ok(ApiResponse<List<StatementResponse>>.Ok("Statements retrieved", statements));
+        var statements = await _statementService.GetForLandlordAsync(landlordId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<StatementResponse>>.Ok("Statements retrieved", statements));
     }
 }

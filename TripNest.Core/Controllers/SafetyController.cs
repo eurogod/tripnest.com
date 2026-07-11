@@ -109,88 +109,80 @@ public class SafetyController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<SafetyCheckInResponse>), StatusCodes.Status201Created)]
     public async Task<ActionResult<ApiResponse<SafetyCheckInResponse>>> CheckIn([FromBody] SafetyCheckInRequest request)
     {
-        try
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var booking = await _bookingRepository.GetByIdAsync(request.BookingId);
+        if (booking == null)
+            return BadRequest(ApiResponse<object>.BadRequest("Booking not found"));
+
+        var user = await _userRepository.GetByIdAsync(userId);
+
+        // Resolve the contact to notify: per-request override first, else the saved trusted contact.
+        var contactPhoneRaw = !string.IsNullOrWhiteSpace(request.ContactPhone)
+            ? request.ContactPhone : user?.TrustedContactPhone;
+        var contactPhone = string.IsNullOrWhiteSpace(contactPhoneRaw)
+            ? null : (_phoneValidator.Normalize(contactPhoneRaw) ?? contactPhoneRaw);
+        var contactEmail = !string.IsNullOrWhiteSpace(request.ContactEmail)
+            ? request.ContactEmail : user?.TrustedContactEmail;
+
+        // Consent gate: attach/persist coordinates only when the user explicitly consented
+        // AND coordinates were supplied. The app is responsible for asking first.
+        string? mapsLink = null;
+        var shareLocation = request.ShareLocation
+            && request.Latitude is double && request.Longitude is double;
+        if (shareLocation)
+            mapsLink = $"https://maps.google.com/?q={request.Latitude},{request.Longitude}";
+
+        var checkIn = await _checkInRepository.GetByBookingIdAsync(request.BookingId);
+        if (checkIn == null)
         {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            var booking = await _bookingRepository.GetByIdAsync(request.BookingId);
-            if (booking == null)
-                return BadRequest(ApiResponse<object>.BadRequest("Booking not found"));
-
-            var user = await _userRepository.GetByIdAsync(userId);
-
-            // Resolve the contact to notify: per-request override first, else the saved trusted contact.
-            var contactPhoneRaw = !string.IsNullOrWhiteSpace(request.ContactPhone)
-                ? request.ContactPhone : user?.TrustedContactPhone;
-            var contactPhone = string.IsNullOrWhiteSpace(contactPhoneRaw)
-                ? null : (_phoneValidator.Normalize(contactPhoneRaw) ?? contactPhoneRaw);
-            var contactEmail = !string.IsNullOrWhiteSpace(request.ContactEmail)
-                ? request.ContactEmail : user?.TrustedContactEmail;
-
-            // Consent gate: attach/persist coordinates only when the user explicitly consented
-            // AND coordinates were supplied. The app is responsible for asking first.
-            string? mapsLink = null;
-            var shareLocation = request.ShareLocation
-                && request.Latitude is double && request.Longitude is double;
-            if (shareLocation)
-                mapsLink = $"https://maps.google.com/?q={request.Latitude},{request.Longitude}";
-
-            var checkIn = await _checkInRepository.GetByBookingIdAsync(request.BookingId);
-            if (checkIn == null)
+            checkIn = new SafetyCheckIn
             {
-                checkIn = new SafetyCheckIn
-                {
-                    BookingId = request.BookingId,
-                    EmergencyContactPhone = contactPhone,
-                    EmergencyContactEmail = contactEmail,
-                    CheckedInAt = DateTime.UtcNow
-                };
-                ApplyLocation(checkIn, shareLocation, request);
-                await _checkInRepository.AddAsync(checkIn);
-            }
-            else
-            {
-                checkIn.CheckedInAt = DateTime.UtcNow;
-                if (contactPhone != null) checkIn.EmergencyContactPhone = contactPhone;
-                if (contactEmail != null) checkIn.EmergencyContactEmail = contactEmail;
-                ApplyLocation(checkIn, shareLocation, request);
-                await _checkInRepository.UpdateAsync(checkIn);
-            }
-
-            await _checkInRepository.SaveChangesAsync();
-
-            // Notify the chosen contact that the traveller arrived safely (best-effort; the senders
-            // swallow failures and return false, so a delivery problem never fails the check-in).
-            var contactNotified = false;
-            if (contactPhone != null || contactEmail != null)
-            {
-                var name = string.IsNullOrWhiteSpace(user?.FullName) ? "Your TripNest contact" : user!.FullName;
-                var text = $"{name} has checked in safely via TripNest.";
-                if (mapsLink != null) text += $" Location: {mapsLink}";
-
-                if (contactPhone != null)
-                    contactNotified |= await _smsSender.SendSmsAsync(contactPhone, text);
-                if (contactEmail != null)
-                    contactNotified |= await _emailSender.SendAsync(contactEmail, "TripNest safe-arrival check-in", $"<p>{text}</p>");
-            }
-
-            return Created($"api/safety/checkin/{checkIn.Id}", ApiResponse<SafetyCheckInResponse>.Created("Check-in", new SafetyCheckInResponse
-            {
-                CheckInId = checkIn.Id,
-                BookingId = checkIn.BookingId,
-                IsCheckedIn = true,
-                CheckedInAt = checkIn.CheckedInAt,
-                ContactNotified = contactNotified,
-                LocationShared = checkIn.LocationShared
-            }));
+                BookingId = request.BookingId,
+                EmergencyContactPhone = contactPhone,
+                EmergencyContactEmail = contactEmail,
+                CheckedInAt = DateTime.UtcNow
+            };
+            ApplyLocation(checkIn, shareLocation, request);
+            await _checkInRepository.AddAsync(checkIn);
         }
-        catch (Exception ex)
+        else
         {
-            _logger.LogError(ex, "Error processing check-in");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
+            checkIn.CheckedInAt = DateTime.UtcNow;
+            if (contactPhone != null) checkIn.EmergencyContactPhone = contactPhone;
+            if (contactEmail != null) checkIn.EmergencyContactEmail = contactEmail;
+            ApplyLocation(checkIn, shareLocation, request);
+            await _checkInRepository.UpdateAsync(checkIn);
         }
+
+        await _checkInRepository.SaveChangesAsync();
+
+        // Notify the chosen contact that the traveller arrived safely (best-effort; the senders
+        // swallow failures and return false, so a delivery problem never fails the check-in).
+        var contactNotified = false;
+        if (contactPhone != null || contactEmail != null)
+        {
+            var name = string.IsNullOrWhiteSpace(user?.FullName) ? "Your TripNest contact" : user!.FullName;
+            var text = $"{name} has checked in safely via TripNest.";
+            if (mapsLink != null) text += $" Location: {mapsLink}";
+
+            if (contactPhone != null)
+                contactNotified |= await _smsSender.SendSmsAsync(contactPhone, text);
+            if (contactEmail != null)
+                contactNotified |= await _emailSender.SendAsync(contactEmail, "TripNest safe-arrival check-in", $"<p>{text}</p>");
+        }
+
+        return Created($"api/safety/checkin/{checkIn.Id}", ApiResponse<SafetyCheckInResponse>.Created("Check-in", new SafetyCheckInResponse
+        {
+            CheckInId = checkIn.Id,
+            BookingId = checkIn.BookingId,
+            IsCheckedIn = true,
+            CheckedInAt = checkIn.CheckedInAt,
+            ContactNotified = contactNotified,
+            LocationShared = checkIn.LocationShared
+        }));
     }
 
     // Persist coordinates only with consent; otherwise leave them cleared.
@@ -206,46 +198,38 @@ public class SafetyController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> SendEmergencyAlert([FromBody] SafetyCheckInRequest request)
     {
-        try
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        const string alertText = "Emergency alert from TripNest. Immediate assistance may be needed.";
+
+        // Auditable emergency notification to the tenant — bypasses their opt-out (SMS + email)
+        // and records IsEmergencyOverride = true. This is the one path that ignores preferences.
+        await _notificationService.NotifyAsync(userId, NotificationType.SafetyAlert,
+            "Emergency alert", alertText, isEmergency: true);
+
+        // Also alert the trusted contact directly (they may not be a TripNest user, so there's
+        // no in-app record / preference to attach to). Prefer the contact recorded on the
+        // check-in; fall back to the user's saved trusted contact.
+        var checkIn = await _checkInRepository.GetByBookingIdAsync(request.BookingId);
+        var user = await _userRepository.GetByIdAsync(userId);
+
+        var alertPhone = checkIn?.EmergencyContactPhone ?? user?.TrustedContactPhone;
+        var alertEmail = checkIn?.EmergencyContactEmail ?? user?.TrustedContactEmail;
+
+        if (!string.IsNullOrWhiteSpace(alertPhone))
+            await _smsSender.SendSmsAsync(alertPhone, alertText);
+        if (!string.IsNullOrWhiteSpace(alertEmail))
+            await _emailSender.SendAsync(alertEmail, "Emergency alert", $"<p>{alertText}</p>");
+
+        if (checkIn != null)
         {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            const string alertText = "Emergency alert from TripNest. Immediate assistance may be needed.";
-
-            // Auditable emergency notification to the tenant — bypasses their opt-out (SMS + email)
-            // and records IsEmergencyOverride = true. This is the one path that ignores preferences.
-            await _notificationService.NotifyAsync(userId, NotificationType.SafetyAlert,
-                "Emergency alert", alertText, isEmergency: true);
-
-            // Also alert the trusted contact directly (they may not be a TripNest user, so there's
-            // no in-app record / preference to attach to). Prefer the contact recorded on the
-            // check-in; fall back to the user's saved trusted contact.
-            var checkIn = await _checkInRepository.GetByBookingIdAsync(request.BookingId);
-            var user = await _userRepository.GetByIdAsync(userId);
-
-            var alertPhone = checkIn?.EmergencyContactPhone ?? user?.TrustedContactPhone;
-            var alertEmail = checkIn?.EmergencyContactEmail ?? user?.TrustedContactEmail;
-
-            if (!string.IsNullOrWhiteSpace(alertPhone))
-                await _smsSender.SendSmsAsync(alertPhone, alertText);
-            if (!string.IsNullOrWhiteSpace(alertEmail))
-                await _emailSender.SendAsync(alertEmail, "Emergency alert", $"<p>{alertText}</p>");
-
-            if (checkIn != null)
-            {
-                checkIn.AlertSentAt = DateTime.UtcNow;
-                await _checkInRepository.UpdateAsync(checkIn);
-                await _checkInRepository.SaveChangesAsync();
-            }
-
-            return Ok(ApiResponse<object>.Ok("Emergency alert sent", new { }));
+            checkIn.AlertSentAt = DateTime.UtcNow;
+            await _checkInRepository.UpdateAsync(checkIn);
+            await _checkInRepository.SaveChangesAsync();
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending emergency alert");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+
+        return Ok(ApiResponse<object>.Ok("Emergency alert sent", new { }));
     }
 }

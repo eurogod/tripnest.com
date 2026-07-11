@@ -1,5 +1,7 @@
+using System.IO.Compression;
 using System.Text;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -72,13 +74,15 @@ if (!builder.Environment.IsDevelopment() && (jwtKey == InsecureDefaultJwtKey || 
         "Jwt:Key must be set to a strong, unique secret (at least 32 characters) outside Development. " +
         "Configure it via environment variable Jwt__Key or user-secrets — never the committed default.");
 
-// A missing Paystack secret makes the payment gateway *simulate* successful charges/verifications —
-// convenient for local dev and tests, but catastrophic in production where it would report money as
-// received that was never paid. Refuse to boot in Production without it.
-if (builder.Environment.IsProduction() && string.IsNullOrWhiteSpace(builder.Configuration["PaystackSettings:SecretKey"]))
+// A missing Paystack secret swaps in SimulatedPaymentGateway, which pretends every charge and
+// verification succeeded — convenient for local dev and tests, but catastrophic anywhere real
+// bookings exist: it would report money as received that was never paid. Only Development may
+// run without the key; Staging/Production/anything else must fail fast.
+var paystackConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["PaystackSettings:SecretKey"]);
+if (!builder.Environment.IsDevelopment() && !paystackConfigured)
     throw new InvalidOperationException(
-        "PaystackSettings:SecretKey must be configured in Production — the unconfigured gateway simulates " +
-        "successful payments and must never run against real bookings. Set it via env/secrets.");
+        "PaystackSettings:SecretKey must be configured outside Development — the simulated gateway " +
+        "pretends payments succeeded and must never run against real bookings. Set it via env/secrets.");
 
 var key = Encoding.UTF8.GetBytes(jwtKey);
 
@@ -191,6 +195,7 @@ builder.Services.AddSingleton<INotificationDispatchQueue, NotificationDispatchQu
 builder.Services.AddScoped<IPropertyService, PropertyService>();
 builder.Services.AddScoped<IWalkthroughService, WalkthroughService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
+builder.Services.AddScoped<ILoyaltyService, LoyaltyService>();
 builder.Services.AddScoped<ITrustScoreService, TrustScoreService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAvailabilityService, AvailabilityService>();
@@ -201,10 +206,22 @@ builder.Services.AddScoped<IPhoneVerificationService, PhoneVerificationService>(
 builder.Services.AddScoped<IEmailVerificationService, EmailVerificationService>();
 builder.Services.AddHttpClient<ISmsSender, TextBeeSmsSender>();
 builder.Services.AddHttpClient<INiaClient, NiaClient>();
-builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
+// Real gateway when a key exists; otherwise the dev-only simulator (guarded above: unconfigured
+// is impossible outside Development). Keeps the test-mode branch out of the real money path.
+if (paystackConfigured)
+    builder.Services.AddHttpClient<IPaymentGateway, PaystackPaymentGateway>();
+else
+    builder.Services.AddSingleton<IPaymentGateway, SimulatedPaymentGateway>();
 builder.Services.AddHttpClient<IFaceMatchClient, FaceMatchClient>();
 builder.Services.AddHttpClient<IGoogleAuthService, GoogleAuthService>();
 builder.Services.AddHttpClient<IFacebookAuthService, FacebookAuthService>();
+
+// External iCal import (cross-platform calendar sync): a named client with a tight timeout —
+// third-party calendar hosts can be slow and the worker loop must never hang on one of them.
+builder.Services.AddHttpClient(HttpIcalFeedFetcher.ClientName, c => c.Timeout = TimeSpan.FromSeconds(20));
+builder.Services.AddSingleton<IIcalFeedFetcher, HttpIcalFeedFetcher>();
+builder.Services.AddScoped<IExternalCalendarService, ExternalCalendarService>();
+builder.Services.AddHostedService<ExternalCalendarSyncWorker>();
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -276,11 +293,26 @@ else
             .AddHttpClientInstrumentation());
 }
 
+// Typed, validated configuration. ValidateOnStart makes a bad value (fee out of range, blank
+// currency, absurd grace period) fail the boot instead of surfacing mid-payout, and gives every
+// consumer one source of truth instead of scattered raw IConfiguration reads with per-site defaults.
+builder.Services.AddOptions<TripNest.Core.Options.PlatformOptions>()
+    .BindConfiguration(TripNest.Core.Options.PlatformOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddOptions<TripNest.Core.Options.EscrowOptions>()
+    .BindConfiguration(TripNest.Core.Options.EscrowOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 // Register DatabaseSeeder
 builder.Services.AddScoped<IDatabaseSeeder, DatabaseSeeder>();
 
 // Module service implementations
 builder.Services.AddScoped<IEscrowService, EscrowService>();
+builder.Services.AddScoped<ISplitBillingService, SplitBillingService>();
+builder.Services.AddScoped<IRoommateService, RoommateService>();
+builder.Services.AddScoped<IRentService, RentService>();
 builder.Services.AddScoped<IAgreementService, AgreementService>();
 builder.Services.AddScoped<ICaretakerService, CaretakerService>();
 builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();
@@ -289,6 +321,16 @@ builder.Services.AddScoped<IReviewService, ReviewService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IReceiptService, ReceiptService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IDashboardStatsService, DashboardStatsService>();
+builder.Services.AddScoped<IAssistantService, AssistantService>();
+builder.Services.AddScoped<IScamDetectionService, ScamDetectionService>();
+// AI provider. Forced to Gemini (Google AI Studio free tier — Ai:Gemini:ApiKey, no card needed).
+// Claude is commented out for now; restore the if/else to re-enable provider selection via Ai:Provider.
+builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
+// if (string.Equals(builder.Configuration["Ai:Provider"], "gemini", StringComparison.OrdinalIgnoreCase))
+//     builder.Services.AddHttpClient<IAiClient, GeminiAiClient>();
+// else
+//     builder.Services.AddSingleton<IAiClient, ClaudeAiClient>();
 
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
@@ -330,6 +372,8 @@ builder.Services.AddScoped<ILandlordWorkspaceService, LandlordWorkspaceService>(
 
 // Register background services
 builder.Services.AddHostedService<EscrowAutoReleaseService>();
+builder.Services.AddHostedService<SplitBookingExpiryWorker>();
+builder.Services.AddHostedService<RentDueWorker>();
 builder.Services.AddHostedService<TrustScoreDailySnapshotService>();
 builder.Services.AddHostedService<VerificationProcessingService>();
 builder.Services.AddHostedService<NotificationDispatchService>();
@@ -374,6 +418,18 @@ builder.Services.AddHealthChecks()
 // [OutputCache(PolicyName=...)]). Only anonymous, identical-for-everyone reads are annotated, so a
 // shared cached response is always correct. TTLs are short; tag-based eviction on writes can be
 // layered on later for instant freshness.
+// Response compression (Brotli preferred, Gzip fallback). Kestrel serves clients directly (no
+// reverse proxy compressing for us), so without this every JSON payload goes out uncompressed.
+// EnableForHttps is safe here: responses never reflect attacker-controlled input alongside secrets.
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+
 builder.Services.AddMemoryCache();
 builder.Services.AddOutputCache(options =>
 {
@@ -430,6 +486,10 @@ builder.Services.AddRateLimiter(options =>
     // Tighter, per-user limit for OTP sends (defense-in-depth on top of the service cooldown),
     // so a caller can't fan out SMS even by rotating fast. Opt-in via [EnableRateLimiting("otp")].
     options.AddPolicy("otp", ctx => Partition(ctx, 5));
+
+    // AI endpoints call an external model per request — cap per-user so one caller can't burn
+    // the provider quota (or budget). Opt-in via [EnableRateLimiting("ai")].
+    options.AddPolicy("ai", ctx => Partition(ctx, 10));
 });
 
 var app = builder.Build();
@@ -513,6 +573,10 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Compress response bodies (runs early so later middleware/endpoints write through it; static
+// uploads are mostly already-compressed images, but JSON responses shrink substantially).
+app.UseResponseCompression();
 
 // Serve locally-stored uploads (/uploads/...). Ensure the web root exists so the static file
 // provider has a directory to serve even before the first upload.

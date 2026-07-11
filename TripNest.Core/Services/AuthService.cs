@@ -84,11 +84,13 @@ public class AuthService : IAuthService
         var user = await _userRepository.GetByEmailAsync(request.Email)
             ?? throw new InvalidOperationException("Invalid email or password");
 
-        // Refuse while locked out — don't even check the password, so a locked account can't be probed.
+        // Refuse while locked out — don't even check the password, so a locked account can't be
+        // probed. The error is the same generic one as a wrong password: a distinct "locked"
+        // message would confirm to an attacker that the account exists.
         if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
         {
             _logger.LogWarning("Login blocked for locked-out account: {Email}", request.Email);
-            throw new InvalidOperationException("Account temporarily locked due to too many failed attempts. Please try again later.");
+            throw new InvalidOperationException("Invalid email or password");
         }
 
         if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
@@ -214,7 +216,9 @@ public class AuthService : IAuthService
     {
         var user = await _userRepository.GetByRefreshTokenAsync(HashRefreshToken(refreshToken));
 
-        if (user == null)
+        // A deactivated account must not be able to keep rotating its session alive; use the
+        // same generic error so the response doesn't reveal that the account exists.
+        if (user == null || !user.IsActive)
             throw new InvalidOperationException("Invalid or expired refresh token");
 
         _logger.LogInformation("Token refreshed for user: {Email}", user.Email);

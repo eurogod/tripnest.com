@@ -15,13 +15,11 @@ public class VerificationController : ControllerBase
 {
     private readonly IVerificationService _verificationService;
     private readonly IFileStorage _fileStorage;
-    private readonly ILogger<VerificationController> _logger;
 
-    public VerificationController(IVerificationService verificationService, IFileStorage fileStorage, ILogger<VerificationController> logger)
+    public VerificationController(IVerificationService verificationService, IFileStorage fileStorage)
     {
         _verificationService = verificationService;
         _fileStorage = fileStorage;
-        _logger = logger;
     }
 
     /// <summary>
@@ -37,27 +35,15 @@ public class VerificationController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<object>>> UploadSelfie(IFormFile selfie)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (selfie == null || selfie.Length == 0)
-                return BadRequest(ApiResponse<object>.BadRequest("Selfie file is required"));
+        if (selfie == null || selfie.Length == 0)
+            return BadRequest(ApiResponse<object>.BadRequest("Selfie file is required"));
 
-            var path = await _fileStorage.SaveAsync($"verifications/{userId}", selfie, UploadKind.Image);
-            return Ok(ApiResponse<object>.Ok("Selfie uploaded", new { selfiePhotoPath = path }));
-        }
-        catch (TripNest.Core.Exceptions.ValidationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading verification selfie");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var path = await _fileStorage.SaveAsync($"verifications/{userId}", selfie, UploadKind.Image);
+        return Ok(ApiResponse<object>.Ok("Selfie uploaded", new { selfiePhotoPath = path }));
     }
 
     [HttpPost("start")]
@@ -65,61 +51,29 @@ public class VerificationController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<VerificationStatusResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<ApiResponse<VerificationStatusResponse>>> StartVerification([FromBody] StartVerificationRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            if (!ModelState.IsValid)
-                return BadRequest(ApiResponse<object>.BadRequest("Invalid request data"));
-
-            var response = await _verificationService.StartVerificationAsync(userId, request);
-
-            return Ok(ApiResponse<VerificationStatusResponse>.Ok("Verification started successfully", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Verification failed: {Message}", ex.Message);
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error during verification");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _verificationService.StartVerificationAsync(userId, request);
+        return Ok(ApiResponse<VerificationStatusResponse>.Ok("Verification started successfully", response));
     }
 
     [HttpGet("status")]
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<VerificationStatusResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<VerificationStatusResponse>>> GetVerificationStatus()
     {
-        try
-        {
-            var userId = User.GetUserId();
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
-
-            var response = await _verificationService.GetVerificationStatusAsync(userId);
-
-            return Ok(ApiResponse<VerificationStatusResponse>.Ok("Verification status retrieved", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogWarning(ex, "Failed to retrieve verification status: {Message}", ex.Message);
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unexpected error retrieving verification status");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _verificationService.GetVerificationStatusAsync(userId);
+        return Ok(ApiResponse<VerificationStatusResponse>.Ok("Verification status retrieved", response));
     }
 }

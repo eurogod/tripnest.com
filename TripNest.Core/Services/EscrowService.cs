@@ -1,8 +1,14 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Npgsql;
 using TripNest.Core.DTOs.Escrow;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
+using TripNest.Core.Options;
 
 namespace TripNest.Core.Services;
 
@@ -13,6 +19,9 @@ public class EscrowService : IEscrowService
     private readonly IUserRepository _userRepository;
     private readonly IPaymentGateway _paymentGateway;
     private readonly IPayoutService _payoutService;
+    private readonly IRepository<EscrowEvent> _escrowEventRepository;
+    private readonly IRepository<BookingShare> _shareRepository;
+    private readonly PlatformOptions _platform;
     private readonly ILogger<EscrowService> _logger;
 
     public EscrowService(
@@ -21,6 +30,9 @@ public class EscrowService : IEscrowService
         IUserRepository userRepository,
         IPaymentGateway paymentGateway,
         IPayoutService payoutService,
+        IRepository<EscrowEvent> escrowEventRepository,
+        IRepository<BookingShare> shareRepository,
+        IOptions<PlatformOptions> platformOptions,
         ILogger<EscrowService> logger)
     {
         _escrowRepository = escrowRepository;
@@ -28,6 +40,9 @@ public class EscrowService : IEscrowService
         _userRepository = userRepository;
         _paymentGateway = paymentGateway;
         _payoutService = payoutService;
+        _escrowEventRepository = escrowEventRepository;
+        _shareRepository = shareRepository;
+        _platform = platformOptions.Value;
         _logger = logger;
     }
 
@@ -41,14 +56,50 @@ public class EscrowService : IEscrowService
         if (booking.TenantId != userId)
             throw new InvalidOperationException("Only the booking's tenant can initiate payment");
 
-        // Idempotency: a booking has at most one escrow. If one already exists,
-        // return it rather than creating a duplicate.
-        var existing = await _escrowRepository.GetByBookingIdAsync(bookingId);
-        if (existing != null)
-            return MapToResponse(existing);
+        // A group booking is paid share-by-share (each member's own checkout) — a single
+        // whole-amount charge would double-collect on top of any shares already paid.
+        if ((await _shareRepository.FindAsync(s => s.BookingId == bookingId)).Any())
+            throw new InvalidOperationException(
+                "This is a group booking — each member pays their own share (see the booking's shares)");
 
+        // Idempotency: a booking has at most one escrow. CreateBookingAsync already creates a
+        // Pending escrow with the booking, so the common case is finding one here. Escrows whose
+        // funds have already moved (held/released/refunded/disputed) are returned as-is; a
+        // Pending escrow still needs a way to pay, so fall through and start its checkout.
+        var escrow = await _escrowRepository.GetByBookingIdAsync(bookingId);
+        if (escrow != null && escrow.Status != EscrowStatus.Pending)
+            return MapToResponse(escrow);
+
+        // A checkout was already started for this escrow: ask the provider about the existing
+        // reference BEFORE minting a fresh one. Overwriting a reference the tenant just paid under
+        // (double-click, lost redirect) would orphan the capture wherever the webhook can't reach —
+        // the verify endpoint only checks the escrow's stored reference. Simulated verifies always
+        // report success, so they never count as "already paid" here.
+        if (escrow is not null && !string.IsNullOrEmpty(escrow.PaymentReference))
+        {
+            var existing = await _paymentGateway.VerifyPaymentAsync(escrow.PaymentReference);
+            if (existing.Success && !existing.Simulated)
+            {
+                try
+                {
+                    await VerifyAndHoldPaymentAsync(bookingId, escrow.PaymentReference, existing.Amount);
+                    var held = await _escrowRepository.GetByBookingIdAsync(bookingId);
+                    return MapToResponse(held!);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // The paid reference couldn't be applied (e.g. amount mismatch on a stale
+                    // checkout) — log it and fall through to starting a fresh checkout.
+                    _logger.LogWarning(ex,
+                        "Existing paid reference {Reference} for booking {BookingId} could not be held; starting a new checkout",
+                        escrow.PaymentReference, bookingId);
+                }
+            }
+        }
+
+        var isNew = escrow == null;
         // The amount is derived from the booking server-side — never trusted from the client.
-        var escrow = new Escrow
+        escrow ??= new Escrow
         {
             BookingId = bookingId,
             Amount = booking.TotalAmount,
@@ -57,14 +108,21 @@ public class EscrowService : IEscrowService
 
         // Start a Paystack checkout for the booking's tenant. The tenant always exists (the booking
         // references them and we authorized against TenantId above) — fail loudly rather than send
-        // the receipt to a bogus address.
+        // the receipt to a bogus address. Re-initiating a Pending escrow (e.g. the tenant lost the
+        // checkout page) just mints a fresh reference; the webhook/verify path stamps whichever
+        // reference actually gets paid.
         var tenant = await _userRepository.GetByIdAsync(booking.TenantId)
             ?? throw new InvalidOperationException("Booking tenant not found");
         var payment = await _paymentGateway.InitiatePaymentAsync(
-            escrow.Amount, "GHS", tenant.Email, bookingId);
+            escrow.Amount, _platform.Currency, tenant.Email, bookingId);
+        if (!payment.Success)
+            throw new InvalidOperationException("The payment provider could not start the checkout. Please retry.");
         escrow.PaymentReference = payment.Reference;
 
-        await _escrowRepository.AddAsync(escrow);
+        if (isNew)
+            await _escrowRepository.AddAsync(escrow);
+        else
+            await _escrowRepository.UpdateAsync(escrow);
         await _escrowRepository.SaveChangesAsync();
 
         _logger.LogInformation("Escrow initiated for booking {BookingId}, escrow {EscrowId}, amount {Amount}, ref {Reference}",
@@ -88,6 +146,49 @@ public class EscrowService : IEscrowService
             return;
         }
 
+        // Same idempotency for a payment that lost the double-booking race: it was captured and
+        // auto-refunded (or parked in Disputed for manual resolution). Ack the provider's retry
+        // as a no-op instead of erroring, so the webhook isn't re-sent forever.
+        if (escrow.Status is EscrowStatus.Refunded or EscrowStatus.Disputed && escrow.PaymentReference == reference)
+        {
+            _logger.LogInformation(
+                "Escrow {EscrowId} already resolved as {Status} for reference {Reference} — ignoring duplicate webhook",
+                escrow.Id, escrow.Status, reference);
+            return;
+        }
+
+        // Already held under a DIFFERENT reference: the tenant paid twice for the same booking
+        // (re-initiating a Pending escrow mints a fresh checkout; both can be completed). The
+        // money for this second charge is real and sitting at the provider — refund it there
+        // rather than throwing, which would leave the duplicate charge captured but unrecorded.
+        // The webhook then gets a 200 so the provider stops retrying.
+        if (escrow.Status == EscrowStatus.HeldInEscrow)
+        {
+            _logger.LogWarning(
+                "Duplicate payment for booking {BookingId}: escrow {EscrowId} already held under {HeldReference}, " +
+                "new charge {Reference} for {Amount} — auto-refunding the duplicate",
+                bookingId, escrow.Id, escrow.PaymentReference, reference, paidAmount);
+
+            var refunded = paidAmount > 0 && await _paymentGateway.RefundAsync(reference, paidAmount);
+            if (!refunded)
+                throw new InvalidOperationException(
+                    $"Duplicate payment '{reference}' could not be auto-refunded — manual reconciliation required.");
+
+            // Not a status transition (the escrow stays held), but it IS money movement — record
+            // it on the audit trail directly so dispute forensics can see the duplicate refund.
+            await _escrowEventRepository.AddAsync(new EscrowEvent
+            {
+                EscrowId = escrow.Id,
+                BookingId = escrow.BookingId,
+                FromStatus = escrow.Status,
+                ToStatus = escrow.Status,
+                Actor = "payment-provider",
+                Reason = $"Duplicate charge {reference} ({paidAmount:0.00}) auto-refunded — escrow already held under {escrow.PaymentReference}"
+            });
+            await _escrowEventRepository.SaveChangesAsync();
+            return;
+        }
+
         // Funds can only move into escrow from the Pending state.
         if (escrow.Status != EscrowStatus.Pending)
             throw new InvalidOperationException($"Escrow cannot be held from status '{escrow.Status}'");
@@ -104,15 +205,77 @@ public class EscrowService : IEscrowService
                 $"Paid amount ({paidAmount:0.00}) does not match the amount due ({escrow.Amount:0.00})");
         }
 
-        escrow.Status = EscrowStatus.HeldInEscrow;
+        await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+            escrow, EscrowStatus.HeldInEscrow, actor: "payment-provider", reason: $"Payment verified (ref {reference})"));
         escrow.PaymentReference = reference;
         escrow.HeldAt = DateTime.UtcNow;
 
+        // A paid booking is a confirmed booking. Only Confirmed bookings block availability
+        // (and arm the Postgres no-overlap exclusion constraint) and only Confirmed bookings
+        // can get an agreement — so this transition must land in the same save as the hold.
+        var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId);
+        if (booking is { Status: BookingStatus.Pending })
+            booking.Status = BookingStatus.Confirmed;
+
         await _escrowRepository.UpdateAsync(escrow);
+        try
+        {
+            await _escrowRepository.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ExclusionViolation })
+        {
+            // Lost the double-booking race: another booking for these dates was confirmed between
+            // the availability pre-check and this save, so the no-overlap exclusion constraint
+            // rejected the Confirmed flip — but the charge was already captured at the provider.
+            // Refund it and void the booking instead of surfacing an opaque 500 (which would also
+            // make the provider retry the webhook indefinitely).
+            await ResolveLostDoubleBookingRaceAsync(escrow, booking, reference, paidAmount);
+            throw new ConflictException(
+                "These dates were just booked by someone else. Your payment has been refunded in full.");
+        }
+
+        _logger.LogInformation("Escrow {EscrowId} held for booking {BookingId} (reference: {Reference}); booking confirmed",
+            escrow.Id, bookingId, reference);
+    }
+
+    /// <summary>
+    /// Cleanup after a captured payment loses the double-booking race. The failed SaveChanges left
+    /// the in-memory escrow at HeldInEscrow (accurate — the money WAS captured), so transition it
+    /// on to Refunded (or Disputed if the refund fails), cancel the booking, and persist. The
+    /// Pending→HeldInEscrow audit event saves alongside, keeping the trail truthful.
+    /// </summary>
+    private async Task ResolveLostDoubleBookingRaceAsync(Escrow escrow, Booking? booking, string reference, decimal paidAmount)
+    {
+        var refunded = false;
+        try
+        {
+            refunded = await _paymentGateway.RefundAsync(reference, paidAmount);
+        }
+        catch (Exception refundEx)
+        {
+            _logger.LogError(refundEx, "Refund call failed for reference {Reference} (booking {BookingId})",
+                reference, escrow.BookingId);
+        }
+
+        var reason = refunded
+            ? "Double-booking race lost after capture — payment auto-refunded in full"
+            : "Double-booking race lost after capture — automatic refund FAILED; resolve manually";
+        await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+            escrow, refunded ? EscrowStatus.Refunded : EscrowStatus.Disputed, actor: "system", reason: reason));
+        escrow.ReleaseReason = reason;
+
+        if (booking is not null)
+        {
+            booking.Status = BookingStatus.Cancelled;
+            booking.CancelledAt = DateTime.UtcNow;
+        }
+
         await _escrowRepository.SaveChangesAsync();
 
-        _logger.LogInformation("Escrow {EscrowId} held for booking {BookingId} (reference: {Reference})",
-            escrow.Id, bookingId, reference);
+        if (!refunded)
+            _logger.LogError(
+                "Escrow {EscrowId} marked Disputed: captured payment {Reference} lost the double-booking race and could not be auto-refunded",
+                escrow.Id, reference);
     }
 
     public async Task<EscrowResponse> VerifyPaymentByBookingAsync(string bookingId, string userId)
@@ -141,25 +304,28 @@ public class EscrowService : IEscrowService
 
         // Reuse the exact same guarded transition the webhook uses: it re-checks the amount and is
         // idempotent, so a verify racing the webhook can't double-hold or hold the wrong amount.
-        await VerifyAndHoldPaymentAsync(bookingId, escrow.PaymentReference, result.Amount);
+        // A simulated verify (unconfigured gateway, dev only) can't know the real amount — use the
+        // escrow's expected amount so the guard doesn't reject the simulated success as underpaid.
+        await VerifyAndHoldPaymentAsync(bookingId, escrow.PaymentReference,
+            result.Simulated ? escrow.Amount : result.Amount);
 
         var updated = await _escrowRepository.GetByBookingIdAsync(bookingId);
         return MapToResponse(updated!);
     }
 
-    public async Task<List<EscrowResponse>> GetMyEscrowsAsync(string userId)
+    public async Task<PagedResult<EscrowResponse>> GetMyEscrowsAsync(string userId, int page, int pageSize)
     {
         // The caller's bookings as a tenant, then the escrows attached to them.
         var bookings = await _bookingRepository.FindAsync(b => b.TenantId == userId);
         var bookingIds = bookings.Select(b => b.Id).ToList();
         if (bookingIds.Count == 0)
-            return new List<EscrowResponse>();
+            return Paging.Page(new List<EscrowResponse>(), page, pageSize);
 
         var escrows = await _escrowRepository.FindAsync(e => bookingIds.Contains(e.BookingId));
-        return escrows
+        return Paging.Page(escrows
             .OrderByDescending(e => e.CreatedAt)
             .Select(e => MapToResponse(e))
-            .ToList();
+            .ToList(), page, pageSize);
     }
 
     public async Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId)
@@ -213,7 +379,8 @@ public class EscrowService : IEscrowService
         if (escrow.Status != EscrowStatus.HeldInEscrow)
             throw new InvalidOperationException($"Escrow cannot be released from status '{escrow.Status}'");
 
-        escrow.Status = EscrowStatus.Released;
+        await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+            escrow, EscrowStatus.Released, actor: userId, reason: "Released by landlord"));
         escrow.ReleasedAt = DateTime.UtcNow;
 
         // Parity with the auto-release job: a released stay is a completed stay.
@@ -250,7 +417,8 @@ public class EscrowService : IEscrowService
         if (escrow.Status != EscrowStatus.HeldInEscrow)
             throw new InvalidOperationException($"A dispute can only be raised while funds are held in escrow (current status: '{escrow.Status}')");
 
-        escrow.Status = EscrowStatus.Disputed;
+        await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+            escrow, EscrowStatus.Disputed, actor: userId, reason: reason));
         escrow.ReleaseReason = reason;
 
         await _escrowRepository.UpdateAsync(escrow);
@@ -271,7 +439,8 @@ public class EscrowService : IEscrowService
 
         if (approved)
         {
-            escrow.Status = EscrowStatus.Released;
+            await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+                escrow, EscrowStatus.Released, actor: "admin", reason: "Dispute resolved in landlord's favour"));
             escrow.ReleasedAt = DateTime.UtcNow;
 
             // Parity with the release paths: a released stay is a completed stay.
@@ -296,7 +465,8 @@ public class EscrowService : IEscrowService
             // Resolving in the tenant's favour means money actually moves back — go through the
             // provider exactly like an admin refund, and only record Refunded if it accepted.
             await ExecuteProviderRefundAsync(escrow);
-            escrow.Status = EscrowStatus.Refunded;
+            await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+                escrow, EscrowStatus.Refunded, actor: "admin", reason: "Dispute resolved in tenant's favour"));
             escrow.ReleaseReason = $"Dispute resolved in tenant's favour. {escrow.ReleaseReason}".Trim();
         }
 
@@ -319,7 +489,8 @@ public class EscrowService : IEscrowService
 
         await ExecuteProviderRefundAsync(escrow);
 
-        escrow.Status = EscrowStatus.Refunded;
+        await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
+            escrow, EscrowStatus.Refunded, actor: "admin", reason: reason));
         escrow.ReleaseReason = reason;
 
         await _escrowRepository.UpdateAsync(escrow);

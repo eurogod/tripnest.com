@@ -9,5 +9,6 @@ public enum NotificationType
     ServiceRequestUpdate,
     SafetyAlert,
     VerificationStatusChanged,
-    General
+    General,
+    ViewingRequestUpdate
 }

@@ -15,15 +15,18 @@ public class BookingsController : ControllerBase
 {
     private readonly IBookingService _bookingService;
     private readonly ICancellationPolicyService _cancellationPolicyService;
+    private readonly ISplitBillingService _splitBillingService;
     private readonly ILogger<BookingsController> _logger;
 
     public BookingsController(
         IBookingService bookingService,
         ICancellationPolicyService cancellationPolicyService,
+        ISplitBillingService splitBillingService,
         ILogger<BookingsController> logger)
     {
         _bookingService = bookingService;
         _cancellationPolicyService = cancellationPolicyService;
+        _splitBillingService = splitBillingService;
         _logger = logger;
     }
 
@@ -37,7 +40,7 @@ public class BookingsController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        var preview = await _cancellationPolicyService.PreviewAsync(bookingId);
+        var preview = await _cancellationPolicyService.PreviewAsync(bookingId, userId);
         return Ok(ApiResponse<RefundPreview>.Ok("Cancellation preview", preview));
     }
 
@@ -100,5 +103,51 @@ public class BookingsController : ControllerBase
 
         var response = await _bookingService.CancelBookingAsync(bookingId, userId);
         return Ok(ApiResponse<BookingResponse>.Ok("Booking cancelled successfully", response));
+    }
+
+    /// <summary>The group booking's shares — who owes what and who has paid (members + landlord).</summary>
+    [HttpGet("{bookingId}/shares")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<List<BookingShareResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<List<BookingShareResponse>>>> GetShares(string bookingId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var shares = await _splitBillingService.GetSharesAsync(bookingId, userId);
+        return Ok(ApiResponse<List<BookingShareResponse>>.Ok("Booking shares retrieved", shares));
+    }
+
+    /// <summary>Starts the caller's own checkout for their share of a group booking.</summary>
+    [HttpPost("shares/{shareId}/pay")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<BookingShareResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<BookingShareResponse>>> PayShare(string shareId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var share = await _splitBillingService.InitiateSharePaymentAsync(shareId, userId);
+        return Ok(ApiResponse<BookingShareResponse>.Ok("Share checkout started", share));
+    }
+
+    /// <summary>Actively confirms the caller's share payment with the provider (webhook fallback).
+    /// When the last share confirms, the booking confirms and the escrow holds.</summary>
+    [HttpPost("shares/{shareId}/verify")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<BookingShareResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<BookingShareResponse>>> VerifyShare(string shareId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var share = await _splitBillingService.VerifySharePaymentAsync(shareId, userId);
+        return Ok(ApiResponse<BookingShareResponse>.Ok("Share payment verified", share));
     }
 }

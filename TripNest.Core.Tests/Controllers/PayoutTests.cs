@@ -93,7 +93,7 @@ public class PayoutTests : TestBase
         Assert.Equal(900m, transfer.Amount);
 
         var mine = await _httpClient.GetAsync("/api/payouts/mine");
-        var data = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var data = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("items");
         Assert.Equal(1, data.GetArrayLength());
         Assert.Equal(1000m, data[0].GetProperty("grossAmount").GetDecimal());
         Assert.Equal(100m, data[0].GetProperty("feeAmount").GetDecimal());
@@ -114,7 +114,7 @@ public class PayoutTests : TestBase
         Assert.Empty(Gateway.Transfers);
 
         var mine = await _httpClient.GetAsync("/api/payouts/mine");
-        var data = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        var data = JsonDocument.Parse(await mine.Content.ReadAsStringAsync()).RootElement.GetProperty("data").GetProperty("items");
         Assert.Equal((int)PayoutStatus.Pending, data[0].GetProperty("status").GetInt32());
         var payoutId = data[0].GetProperty("payoutId").GetString()!;
 

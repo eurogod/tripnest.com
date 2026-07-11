@@ -10,5 +10,6 @@ public interface IWalkthroughService
     Task<IEnumerable<WalkthroughResponse>> GetPropertyWalkthroughsAsync(string propertyId);
     Task<PropertyWalkthroughStatusResponse> ReviewWalkthroughAsync(string propertyId, string reviewerId, bool approved, string? rejectionReason);
     Task<IEnumerable<PropertyWalkthroughStatusResponse>> GetPendingWalkthroughsAsync();
-    Task DeleteWalkthroughAsync(string walkthroughId);
+    /// <summary>Owner/admin only. The walkthrough must belong to <paramref name="propertyId"/>.</summary>
+    Task DeleteWalkthroughAsync(string propertyId, string walkthroughId, string userId, bool isAdmin);
 }

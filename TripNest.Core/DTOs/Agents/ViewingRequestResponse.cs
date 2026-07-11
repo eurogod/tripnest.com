@@ -9,5 +9,7 @@ public class ViewingRequestResponse
     public DateTime ScheduledAt { get; set; }
     public string? Notes { get; set; }
     public required string Status { get; set; }
+    public int? Rating { get; set; }
+    public string? ReviewComment { get; set; }
     public DateTime CreatedAt { get; set; }
 }

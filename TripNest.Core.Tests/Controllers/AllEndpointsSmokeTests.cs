@@ -47,6 +47,7 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("PATCH", "/api/properties/x/walkthrough/review")]
     [InlineData("GET", "/api/properties/pending-walkthroughs")]
     [InlineData("DELETE", "/api/properties/x/walkthroughs/y")]
+    [InlineData("POST", "/api/properties/x/generate-copy")]
     // Bookings
     [InlineData("POST", "/api/bookings")]
     [InlineData("GET", "/api/bookings/x")]
@@ -75,16 +76,31 @@ public class AllEndpointsSmokeTests : TestBase
     [InlineData("PATCH", "/api/chat/messages/x/read")]
     [InlineData("PATCH", "/api/chat/conversations/x/mark-read")]
     [InlineData("DELETE", "/api/chat/conversations/x")]
+    [InlineData("POST", "/api/chat/conversations/x/suggest-reply")]
+    // Assistant (AI)
+    [InlineData("POST", "/api/assistant/ask")]
+    [InlineData("GET", "/api/assistant/history")]
+    // Admin — support tickets (assistant escalations)
+    [InlineData("GET", "/api/admin/support-tickets")]
+    [InlineData("POST", "/api/admin/support-tickets/x/resolve")]
     // Caretakers
+    [InlineData("GET", "/api/caretakers/me")]
+    [InlineData("PUT", "/api/caretakers/me")]
     [InlineData("POST", "/api/caretakers/assign")]
+    [InlineData("POST", "/api/caretakers/unassign")]
+    [InlineData("GET", "/api/caretakers/assignments/mine")]
     [InlineData("POST", "/api/caretakers/service-requests")]
     [InlineData("GET", "/api/caretakers/service-requests/mine")]
     [InlineData("PATCH", "/api/caretakers/service-requests/x/accept")]
+    [InlineData("PATCH", "/api/caretakers/service-requests/x/decline")]
     [InlineData("PATCH", "/api/caretakers/service-requests/x/status")]
     [InlineData("POST", "/api/caretakers/service-requests/x/review")]
     // Agents
     [InlineData("POST", "/api/agents/x/viewing-requests")]
+    [InlineData("GET", "/api/agents/viewing-requests/mine")]
     [InlineData("PATCH", "/api/agents/viewing-requests/x/status")]
+    [InlineData("PATCH", "/api/agents/viewing-requests/x/decline")]
+    [InlineData("POST", "/api/agents/viewing-requests/x/review")]
     // Maintenance
     [InlineData("POST", "/api/maintenance")]
     [InlineData("GET", "/api/maintenance/property/x")]
@@ -204,6 +220,25 @@ public class AllEndpointsSmokeTests : TestBase
         // A tenant hitting an Admin-only route must be forbidden (authenticated, wrong role).
         await RegisterAndLoginAsync(UserRole.Tenant);
         var response = await _httpClient.GetAsync("/api/admin/stats");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminSupportTickets_WrongRole_ShouldReturnForbidden()
+    {
+        // Assistant-escalation support tickets are Admin-only (DashboardController [Authorize(Admin)]).
+        await RegisterAndLoginAsync(UserRole.Tenant);
+        var response = await _httpClient.GetAsync("/api/admin/support-tickets");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GenerateListingCopy_UnverifiedCaller_ShouldReturnForbidden()
+    {
+        // AI listing-copy generation is verification-gated ([RequireVerified]).
+        await RegisterAndLoginAsync(UserRole.Landlord);
+        var response = await _httpClient.PostAsync("/api/properties/x/generate-copy",
+            new StringContent("{}", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 

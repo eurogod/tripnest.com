@@ -32,25 +32,17 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> CreateProperty([FromBody] CreatePropertyRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
+        var userId = User.GetUserId();
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (!ModelState.IsValid)
-                return BadRequest(ApiResponse<object>.BadRequest("Invalid request data"));
+        if (!ModelState.IsValid)
+            return BadRequest(ApiResponse<object>.BadRequest("Invalid request data"));
 
-            var response = await _propertyService.CreatePropertyAsync(userId, request);
+        var response = await _propertyService.CreatePropertyAsync(userId, request);
 
-            return Created($"api/properties/{response.PropertyId}", ApiResponse<PropertyResponse>.Created("Property", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating property");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Created($"api/properties/{response.PropertyId}", ApiResponse<PropertyResponse>.Created("Property", response));
     }
 
     [HttpPut("{propertyId}")]
@@ -61,29 +53,17 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> UpdateProperty(string propertyId, [FromBody] CreatePropertyRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
+        var userId = User.GetUserId();
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            if (!ModelState.IsValid)
-                return BadRequest(ApiResponse<object>.BadRequest("Invalid request data"));
+        if (!ModelState.IsValid)
+            return BadRequest(ApiResponse<object>.BadRequest("Invalid request data"));
 
-            var response = await _propertyService.UpdatePropertyAsync(propertyId, request);
+        var response = await _propertyService.UpdatePropertyAsync(propertyId, userId, User.IsInRole("Admin"), request);
 
-            return Ok(ApiResponse<PropertyResponse>.Ok("Property updated successfully", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating property");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        return Ok(ApiResponse<PropertyResponse>.Ok("Property updated successfully", response));
     }
 
     [HttpGet("{propertyId}")]
@@ -92,20 +72,8 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<PropertyResponse>>> GetProperty(string propertyId)
     {
-        try
-        {
-            var response = await _propertyService.GetPropertyAsync(propertyId);
-            return Ok(ApiResponse<PropertyResponse>.Ok("Property retrieved successfully", response));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving property");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _propertyService.GetPropertyAsync(propertyId);
+        return Ok(ApiResponse<PropertyResponse>.Ok("Property retrieved successfully", response));
     }
 
     [HttpGet("user/my-properties")]
@@ -114,21 +82,13 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> GetUserProperties()
     {
-        try
-        {
-            var userId = User.GetUserId();
+        var userId = User.GetUserId();
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var response = await _propertyService.GetUserPropertiesAsync(userId);
-            return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("User properties retrieved", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving user properties");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _propertyService.GetUserPropertiesAsync(userId);
+        return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("User properties retrieved", response));
     }
 
     [HttpGet]
@@ -136,16 +96,8 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> GetAllActiveProperties()
     {
-        try
-        {
-            var response = await _propertyService.GetAllActivePropertiesAsync();
-            return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Active properties retrieved", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving active properties");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var response = await _propertyService.GetAllActivePropertiesAsync();
+        return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Active properties retrieved", response));
     }
 
     /// <summary>Featured listings for the home page (most recent active properties).</summary>
@@ -154,34 +106,81 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> GetFeaturedProperties([FromQuery] int limit = 8)
     {
-        try
-        {
-            var active = await _propertyService.GetAllActivePropertiesAsync();
-            var featured = active.Take(limit < 1 ? 8 : limit);
-            return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Featured properties retrieved", featured));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving featured properties");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var active = await _propertyService.GetAllActivePropertiesAsync();
+        var featured = active.Take(limit < 1 ? 8 : limit);
+        return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Featured properties retrieved", featured));
     }
 
+    /// <summary>
+    /// Property search with the full filter set: text location, bedrooms, stay type, property
+    /// type, amenities (CSV, all required), nightly-price range, a map viewport (the client's
+    /// visible bounds as it pans/zooms), and stay dates. Dates restrict results to available
+    /// listings and attach a per-result <c>quote</c> — the exact all-in total for that stay.
+    /// </summary>
     [HttpGet("search")]
     [OutputCache(PolicyName = "listings")]
     [ProducesResponseType(typeof(ApiResponse<IEnumerable<PropertyResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> SearchProperties([FromQuery] string location, [FromQuery] int minBedrooms = 1, [FromQuery] int maxBedrooms = 10)
+    public async Task<ActionResult<ApiResponse<IEnumerable<PropertyResponse>>>> SearchProperties(
+        [FromQuery] string? location = null,
+        [FromQuery] int minBedrooms = 1,
+        [FromQuery] int maxBedrooms = 10,
+        [FromQuery] Enums.StayType? stayType = null,
+        [FromQuery] string? propertyType = null,
+        [FromQuery] string? amenities = null,
+        [FromQuery] decimal? minPrice = null,
+        [FromQuery] decimal? maxPrice = null,
+        [FromQuery] double? minLat = null,
+        [FromQuery] double? maxLat = null,
+        [FromQuery] double? minLng = null,
+        [FromQuery] double? maxLng = null,
+        [FromQuery] DateTime? checkIn = null,
+        [FromQuery] DateTime? checkOut = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 100)
     {
-        try
+        var criteria = new DTOs.Search.PropertySearchCriteria
         {
-            var response = await _propertyService.SearchPropertiesAsync(location, minBedrooms, maxBedrooms);
-            return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Properties found", response));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error searching properties");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+            Location = location,
+            MinBedrooms = minBedrooms,
+            MaxBedrooms = maxBedrooms,
+            StayType = stayType,
+            PropertyType = propertyType,
+            Amenities = amenities,
+            MinPrice = minPrice,
+            MaxPrice = maxPrice,
+            MinLat = minLat,
+            MaxLat = maxLat,
+            MinLng = minLng,
+            MaxLng = maxLng,
+            CheckIn = checkIn,
+            CheckOut = checkOut
+        };
+
+        // The query pages in the database, but the body keeps the original array shape existing
+        // clients iterate — pagination metadata travels in headers instead of a wrapper object.
+        // Default pageSize is the clamp maximum so legacy callers see as much as one page allows.
+        var result = await _propertyService.SearchPropertiesAsync(criteria, page, pageSize);
+        Response.Headers["X-Total-Count"] = result.TotalCount.ToString();
+        Response.Headers["X-Page"] = result.Page.ToString();
+        Response.Headers["X-Page-Size"] = result.PageSize.ToString();
+        Response.Headers["X-Total-Pages"] = result.TotalPages.ToString();
+        return Ok(ApiResponse<IEnumerable<PropertyResponse>>.Ok("Properties found", result.Items));
+    }
+
+    /// <summary>
+    /// True-total price breakdown for a stay: nightly subtotal (weekend rates included), cleaning
+    /// fee, length-of-stay discount, and — when the caller is signed in — their loyalty discount.
+    /// This is the exact amount booking will charge; no fee is added later.
+    /// </summary>
+    [HttpGet("{propertyId}/quote")]
+    [ProducesResponseType(typeof(ApiResponse<StayQuote>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<StayQuote>>> GetStayQuote(
+        string propertyId, [FromQuery] DateTime checkIn, [FromQuery] DateTime checkOut)
+    {
+        var quote = await _propertyService.GetStayQuoteAsync(propertyId, checkIn, checkOut, User.GetUserId());
+        return Ok(ApiResponse<StayQuote>.Ok("Stay quote calculated", quote));
     }
 
     [HttpDelete("{propertyId}")]
@@ -191,21 +190,38 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteProperty(string propertyId)
     {
-        try
-        {
-            var userId = User.GetUserId();
+        var userId = User.GetUserId();
 
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            await _propertyService.DeletePropertyAsync(propertyId);
-            return Ok(ApiResponse<object>.Ok("Property deleted successfully", new { }));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting property");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var hardDeleted = await _propertyService.DeletePropertyAsync(propertyId, userId, User.IsInRole("Admin"));
+        return Ok(ApiResponse<object>.Ok(
+            hardDeleted
+                ? "Property deleted successfully"
+                : "Property archived — it has booking history, so records are retained but it is no longer listed",
+            new { }));
+    }
+
+    /// <summary>
+    /// Drafts AI listing copy (title, description, highlights) from the property's facts and
+    /// photos, for the owner to review and apply — never auto-applied. Returns 400 with a clear
+    /// message when AI is not configured on this server.
+    /// </summary>
+    [HttpPost("{propertyId}/generate-copy")]
+    [Authorize]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>>> GenerateListingCopy(string propertyId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var suggestion = await _propertyService.GenerateListingCopyAsync(propertyId, userId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>.Ok("Listing copy generated", suggestion));
     }
 
     /// <summary>Uploads one or more photos for a property (owner only, multipart/form-data).</summary>
@@ -217,23 +233,11 @@ public class PropertiesController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<List<string>>>> UploadPhotos(string propertyId)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var paths = await _propertyService.AddPhotosAsync(propertyId, userId, Request.Form.Files);
-            return Ok(ApiResponse<List<string>>.Ok("Photos uploaded", paths));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error uploading property photos");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        var paths = await _propertyService.AddPhotosAsync(propertyId, userId, Request.Form.Files);
+        return Ok(ApiResponse<List<string>>.Ok("Photos uploaded", paths));
     }
 }

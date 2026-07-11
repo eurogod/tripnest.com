@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using System.Security.Claims;
 using TripNest.Core.DTOs.Agents;
+using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
@@ -25,23 +26,16 @@ public class AgentsController : ControllerBase
     }
 
     /// <summary>
-    /// Get list of verified agents, optionally filtered by service area
+    /// Get list of verified agents, optionally filtered by service area (paged)
     /// </summary>
     [HttpGet]
     [OutputCache(PolicyName = "listings")]
-    [ProducesResponseType(typeof(ApiResponse<List<AgentResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<AgentResponse>>>> GetAgents([FromQuery] string? serviceArea)
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<AgentResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<AgentResponse>>>> GetAgents(
+        [FromQuery] string? serviceArea, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea);
-            return Ok(ApiResponse<List<AgentResponse>>.Ok("Agents retrieved", agents));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agents");
-            return StatusCode(500, ApiResponse<List<AgentResponse>>.InternalServerError());
-        }
+        var agents = await _agentService.GetVerifiedAgentsAsync(serviceArea, page, pageSize);
+        return Ok(ApiResponse<PagedResult<AgentResponse>>.Ok("Agents retrieved", agents));
     }
 
     /// <summary>
@@ -75,24 +69,12 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<AgentResponse>>> UpsertMyProfile([FromBody] UpsertAgentProfileRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<AgentResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<AgentResponse>.UnAuthorized());
 
-            var profile = await _agentService.UpsertMyProfileAsync(userId, request);
-            return Ok(ApiResponse<AgentResponse>.Ok("Agent profile saved", profile));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<AgentResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error saving agent profile");
-            return StatusCode(500, ApiResponse<AgentResponse>.InternalServerError());
-        }
+        var profile = await _agentService.UpsertMyProfileAsync(userId, request);
+        return Ok(ApiResponse<AgentResponse>.Ok("Agent profile saved", profile));
     }
 
     /// <summary>
@@ -104,19 +86,11 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<AgentResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<AgentResponse>>> GetAgent(string id)
     {
-        try
-        {
-            var agent = await _agentService.GetAgentProfileAsync(id);
-            if (agent == null)
-                return NotFound(ApiResponse<AgentResponse>.NotFound("Agent"));
+        var agent = await _agentService.GetAgentProfileAsync(id);
+        if (agent == null)
+            return NotFound(ApiResponse<AgentResponse>.NotFound("Agent"));
 
-            return Ok(ApiResponse<AgentResponse>.Ok("Agent retrieved", agent));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving agent");
-            return StatusCode(500, ApiResponse<AgentResponse>.InternalServerError());
-        }
+        return Ok(ApiResponse<AgentResponse>.Ok("Agent retrieved", agent));
     }
 
     /// <summary>
@@ -128,24 +102,12 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> CreateViewingRequest(string id, [FromBody] CreateViewingRequestRequest request)
     {
-        try
-        {
-            var tenantId = User.GetUserId();
-            if (string.IsNullOrEmpty(tenantId))
-                return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
+        var tenantId = User.GetUserId();
+        if (string.IsNullOrEmpty(tenantId))
+            return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
 
-            var viewingRequest = await _agentService.CreateViewingRequestAsync(id, request.PropertyId, request.ScheduledAt, tenantId, request.Notes);
-            return Created($"api/viewing-requests/{viewingRequest.ViewingRequestId}", ApiResponse<ViewingRequestResponse>.Created("Viewing Request", viewingRequest));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<ViewingRequestResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error creating viewing request");
-            return StatusCode(500, ApiResponse<ViewingRequestResponse>.InternalServerError());
-        }
+        var viewingRequest = await _agentService.CreateViewingRequestAsync(id, request.PropertyId, request.ScheduledAt, tenantId, request.Notes);
+        return Created($"api/viewing-requests/{viewingRequest.ViewingRequestId}", ApiResponse<ViewingRequestResponse>.Created("Viewing Request", viewingRequest));
     }
 
     /// <summary>
@@ -158,20 +120,47 @@ public class AgentsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> UpdateViewingRequestStatus(string id, [FromBody] UpdateViewingRequestStatusRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
 
-            await _agentService.UpdateViewingRequestStatusAsync(id, request.Status, userId);
-            return Ok(ApiResponse<ViewingRequestResponse>.Ok("Status updated", null));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating status");
-            return StatusCode(500, ApiResponse<ViewingRequestResponse>.InternalServerError());
-        }
+        await _agentService.UpdateViewingRequestStatusAsync(id, request.Status, userId);
+        return Ok(ApiResponse<ViewingRequestResponse>.Ok("Status updated", null));
+    }
+
+    /// <summary>
+    /// Decline a pending viewing request (assigned agent only)
+    /// </summary>
+    [HttpPatch("viewing-requests/{id}/decline")]
+    [Authorize(Roles = "Agent")]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> DeclineViewingRequest(string id)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
+
+        await _agentService.DeclineViewingRequestAsync(id, userId);
+        return Ok(ApiResponse<ViewingRequestResponse>.Ok("Viewing request declined", null));
+    }
+
+    /// <summary>
+    /// Submit review for a completed viewing (requesting tenant only)
+    /// </summary>
+    [HttpPost("viewing-requests/{id}/review")]
+    [Authorize(Roles = "Tenant")]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<ViewingRequestResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<ViewingRequestResponse>>> ReviewViewing(string id, [FromBody] SubmitViewingReviewRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ViewingRequestResponse>.UnAuthorized());
+
+        await _agentService.SubmitViewingReviewAsync(id, userId, request.Rating, request.Comment);
+        return StatusCode(201, ApiResponse<ViewingRequestResponse>.Ok("Review submitted successfully"));
     }
 
     /// <summary>
@@ -179,22 +168,14 @@ public class AgentsController : ControllerBase
     /// </summary>
     [HttpGet("viewing-requests/mine")]
     [Authorize]
-    [ProducesResponseType(typeof(ApiResponse<List<ViewingRequestResponse>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<List<ViewingRequestResponse>>>> GetMyViewingRequests()
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<ViewingRequestResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedResult<ViewingRequestResponse>>>> GetMyViewingRequests([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<List<ViewingRequestResponse>>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<PagedResult<ViewingRequestResponse>>.UnAuthorized());
 
-            var requests = await _agentService.GetMyViewingRequestsAsync(userId);
-            return Ok(ApiResponse<List<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving viewing requests");
-            return StatusCode(500, ApiResponse<List<ViewingRequestResponse>>.InternalServerError());
-        }
+        var requests = await _agentService.GetMyViewingRequestsAsync(userId, page, pageSize);
+        return Ok(ApiResponse<PagedResult<ViewingRequestResponse>>.Ok("Viewing requests retrieved", requests));
     }
 }
