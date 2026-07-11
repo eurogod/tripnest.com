@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TripNest.Core.DTOs.Verification;
 using TripNest.Core.Enums;
+using TripNest.Core.Exceptions;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
 using TripNest.Core.Models;
@@ -49,7 +50,7 @@ public class VerificationService : IVerificationService
         // Guard: an already-verified user should not re-run verification.
         var latest = await _verificationRepository.GetLatestByUserIdAsync(userId);
         if (latest?.Status == VerificationStatus.Verified)
-            throw new InvalidOperationException("This account is already verified");
+            throw new ValidationException("This account is already verified");
 
         // Guard: a submission is already in flight — don't queue duplicates.
         if (latest?.Status == VerificationStatus.Pending)
@@ -59,7 +60,7 @@ public class VerificationService : IVerificationService
         var maxAttemptsPerHour = _configuration.GetValue<int>("Verification:MaxAttemptsPerHour", 5);
         var attemptsLastHour = await _verificationRepository.CountAttemptsSinceAsync(userId, DateTime.UtcNow.AddHours(-1));
         if (attemptsLastHour >= maxAttemptsPerHour)
-            throw new InvalidOperationException("Too many verification attempts. Please try again later.");
+            throw new TooManyRequestsException("Too many verification attempts. Please try again later.");
 
         var verification = new VerificationRequest
         {
@@ -230,7 +231,7 @@ public class VerificationService : IVerificationService
     public async Task<VerificationStatusResponse> GetVerificationStatusAsync(string userId)
     {
         var verification = await _verificationRepository.GetLatestByUserIdAsync(userId)
-            ?? throw new InvalidOperationException("No verification request found for this user");
+            ?? throw new NotFoundException("Verification request");
 
         return MapToResponse(verification);
     }
