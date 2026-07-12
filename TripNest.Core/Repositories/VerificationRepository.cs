@@ -26,6 +26,12 @@ public class VerificationRepository : Repository<VerificationRequest>, IVerifica
             .FirstOrDefaultAsync();
     }
 
+    public async Task<VerificationRequest?> GetByGhanaCardNumberAsync(string ghanaCardNumber)
+    {
+        return await _context.Set<VerificationRequest>()
+            .FirstOrDefaultAsync(v => v.GhanaCardNumber == ghanaCardNumber);
+    }
+
     public async Task<int> CountAttemptsSinceAsync(string userId, DateTime since)
     {
         return await _context.Set<VerificationRequest>()

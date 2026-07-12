@@ -40,7 +40,8 @@ public class PayoutAccountResponse
 public class PayoutResponse
 {
     public required string PayoutId { get; set; }
-    public required string EscrowId { get; set; }
+    /// <summary>Null for payouts sourced from a rent invoice or damage claim instead of an escrow.</summary>
+    public string? EscrowId { get; set; }
     public required string BookingId { get; set; }
     public decimal GrossAmount { get; set; }
     public decimal FeeAmount { get; set; }
