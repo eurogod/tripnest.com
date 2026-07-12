@@ -119,33 +119,18 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<MessageResponse>>> SendMessage(string id, [FromBody] SendMessageRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
 
-            var message = await _chatService.SendMessageAsync(id, userId, request.Body);
+        // Domain failures (NotFound/Forbidden/Validation) map via the middleware.
+        var message = await _chatService.SendMessageAsync(id, userId, request.Body);
 
-            // Push to any connected SignalR clients so REST-sent messages appear in real time,
-            // matching the payload the hub broadcasts on the same event.
-            await _hubContext.Clients.Group(id).SendAsync("ReceiveMessage", message);
+        // Push to any connected SignalR clients so REST-sent messages appear in real time,
+        // matching the payload the hub broadcasts on the same event.
+        await _hubContext.Clients.Group(id).SendAsync("ReceiveMessage", message);
 
-            return Created($"api/messages/{message.MessageId}", ApiResponse<MessageResponse>.Created("Message", message));
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return StatusCode(403, ApiResponse<MessageResponse>.Forbidden("You are not a participant in this conversation"));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<MessageResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending message");
-            return StatusCode(500, ApiResponse<MessageResponse>.InternalServerError());
-        }
+        return Created($"api/messages/{message.MessageId}", ApiResponse<MessageResponse>.Created("Message", message));
     }
 
     /// <summary>
@@ -155,28 +140,12 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<MessageResponse>>> MarkMessageAsRead(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
 
-            await _chatService.MarkMessageAsReadAsync(id, userId);
-            return Ok(ApiResponse<MessageResponse>.Ok("Message marked as read", null));
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return StatusCode(403, ApiResponse<MessageResponse>.Forbidden("You are not a participant in this conversation"));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ApiResponse<MessageResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error marking message as read");
-            return StatusCode(500, ApiResponse<MessageResponse>.InternalServerError());
-        }
+        await _chatService.MarkMessageAsReadAsync(id, userId);
+        return Ok(ApiResponse<MessageResponse>.Ok("Message marked as read", null));
     }
 
     /// <summary>

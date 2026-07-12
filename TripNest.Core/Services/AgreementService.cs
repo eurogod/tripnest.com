@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Agreements;
+using TripNest.Core.Exceptions;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -40,14 +41,14 @@ public class AgreementService : IAgreementService
         {
             var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId);
             if (booking == null)
-                throw new InvalidOperationException("Booking not found");
+                throw new NotFoundException("Booking");
 
             if (booking.Status != BookingStatus.Confirmed)
-                throw new InvalidOperationException("Agreement can only be created for confirmed bookings");
+                throw new ValidationException("Agreement can only be created for confirmed bookings");
 
             var existing = await _agreementRepository.GetByBookingIdAsync(bookingId);
             if (existing != null)
-                throw new InvalidOperationException("An agreement already exists for this booking");
+                throw new ConflictException("An agreement already exists for this booking");
 
             var propertyTitle = booking.Property?.Title ?? bookingId;
             var propertyLocation = booking.Property?.Location ?? string.Empty;
@@ -72,7 +73,9 @@ public class AgreementService : IAgreementService
             {
                 BookingId = bookingId,
                 TermsContent = termsContent,
-                Status = AgreementStatus.Draft
+                Status = AgreementStatus.Draft,
+                // The agreement covers the stay; past checkout it is spent paper.
+                ExpiryDate = booking.CheckOutDate
             };
 
             await _agreementRepository.AddAsync(agreement);
@@ -143,7 +146,7 @@ public class AgreementService : IAgreementService
         if (booking.TenantId != userId && landlordId != userId)
             return null;
 
-        return MapToResponse(agreement);
+        return MapToResponse(await WithLazyExpiryAsync(agreement));
     }
 
     public async Task SignAgreementAsync(string agreementId, string userId)
@@ -152,16 +155,16 @@ public class AgreementService : IAgreementService
         {
             var agreement = await _agreementRepository.GetByIdAsync(agreementId);
             if (agreement == null)
-                throw new InvalidOperationException("Agreement not found");
+                throw new NotFoundException("Agreement");
 
             if (agreement.Status != AgreementStatus.Draft && agreement.Status != AgreementStatus.Pending)
-                throw new InvalidOperationException("Agreement cannot be signed in its current status");
+                throw new ValidationException("Agreement cannot be signed in its current status");
 
             var booking = agreement.Booking
                 ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId);
 
             if (booking == null)
-                throw new InvalidOperationException("Booking associated with agreement not found");
+                throw new NotFoundException("Booking associated with agreement");
 
             var landlordId = booking.Property?.UserId;
 
@@ -172,7 +175,7 @@ public class AgreementService : IAgreementService
             if (agreement.TermsHash is null)
                 agreement.TermsHash = termsHash;
             else if (agreement.TermsHash != termsHash)
-                throw new InvalidOperationException(
+                throw new ConflictException(
                     "The agreement terms changed after the first signature — signing is blocked. Contact support.");
 
             var signature = $"SIGNED:{userId}:{DateTime.UtcNow:O}";
@@ -193,7 +196,7 @@ public class AgreementService : IAgreementService
             }
             else
             {
-                throw new UnauthorizedAccessException("User is not authorised to sign this agreement");
+                throw new ForbiddenException("You are not authorised to sign this agreement");
             }
 
             if (!string.IsNullOrEmpty(agreement.TenantSignature) &&
@@ -223,17 +226,17 @@ public class AgreementService : IAgreementService
     {
         var agreement = await _agreementRepository.GetByIdAsync(agreementId);
         if (agreement == null)
-            throw new InvalidOperationException("Agreement not found");
+            throw new NotFoundException("Agreement");
 
         var booking = agreement.Booking
             ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId)
             // Authorisation is derived from the booking's parties — without it we cannot prove the
             // caller's right to the document, so deny rather than serve it to anyone.
-            ?? throw new InvalidOperationException("Booking associated with agreement not found");
+            ?? throw new NotFoundException("Booking associated with agreement");
 
         var landlordId = booking.Property?.UserId;
         if (booking.TenantId != userId && landlordId != userId)
-            throw new UnauthorizedAccessException("User is not authorised to download this agreement");
+            throw new ForbiddenException("You are not authorised to download this agreement");
 
         var bytes = Pdf.AgreementPdf.Render(agreement, booking,
             await TryReadImageAsync(agreement.TenantSignatureImagePath),
@@ -265,6 +268,48 @@ public class AgreementService : IAgreementService
             _logger.LogWarning(ex, "Could not load signature image {Path} for agreement PDF", path);
             return null;
         }
+    }
+
+    /// <summary>Either party may terminate a signed agreement (a record-keeping action —
+    /// refunds/cancellation money flows live in the booking/escrow modules).</summary>
+    public async Task<AgreementResponse> TerminateAgreementAsync(string agreementId, string userId, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ValidationException("A termination reason is required");
+
+        var agreement = await _agreementRepository.GetByIdAsync(agreementId)
+            ?? throw new NotFoundException("Agreement");
+        var booking = agreement.Booking
+            ?? await _bookingRepository.GetByIdWithDetailsAsync(agreement.BookingId)
+            ?? throw new NotFoundException("Booking associated with agreement");
+
+        var landlordId = booking.Property?.UserId;
+        if (booking.TenantId != userId && landlordId != userId)
+            throw new ForbiddenException("You are not a party to this agreement");
+        if (agreement.Status != AgreementStatus.Signed)
+            throw new ValidationException("Only a signed agreement can be terminated");
+
+        agreement.Status = AgreementStatus.Terminated;
+        agreement.TermsContent += $"\n\nTERMINATED by {userId} on {DateTime.UtcNow:yyyy-MM-dd}: {reason.Trim()}";
+        await _agreementRepository.UpdateAsync(agreement);
+        await _agreementRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Agreement {AgreementId} terminated by {UserId}", agreementId, userId);
+        return MapToResponse(agreement);
+    }
+
+    /// <summary>Lazily retires a signed agreement whose stay ended — no worker needed; the next
+    /// read persists the transition.</summary>
+    private async Task<Agreement> WithLazyExpiryAsync(Agreement agreement)
+    {
+        if (agreement.Status == AgreementStatus.Signed &&
+            agreement.ExpiryDate is { } expiry && expiry < DateTime.UtcNow)
+        {
+            agreement.Status = AgreementStatus.Expired;
+            await _agreementRepository.UpdateAsync(agreement);
+            await _agreementRepository.SaveChangesAsync();
+        }
+        return agreement;
     }
 
     private static AgreementResponse MapToResponse(Agreement a) =>

@@ -197,15 +197,18 @@ public class StatementService : IStatementService
 {
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
+    private readonly IRepository<RentInvoice> _rentInvoiceRepository;
     private readonly PlatformOptions _platform;
 
     public StatementService(
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
+        IRepository<RentInvoice> rentInvoiceRepository,
         IOptions<PlatformOptions> platformOptions)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
+        _rentInvoiceRepository = rentInvoiceRepository;
         _platform = platformOptions.Value;
     }
 
@@ -224,18 +227,31 @@ public class StatementService : IStatementService
             .Where(b => b.Status != BookingStatus.Cancelled);
         var now = DateTime.UtcNow;
 
-        return Paging.Page(bookings
+        // A long-term booking's TotalAmount covers only its first period — the rest of the
+        // tenancy arrives as monthly rent invoices, so paid rent must count in the month it
+        // was paid or the landlord's statement understates the tenancy to one month.
+        var paidRentByMonth = (await _rentInvoiceRepository.FindAsync(i =>
+                i.LandlordId == landlordId && i.Status == RentInvoiceStatus.Paid))
+            .GroupBy(i => new { i.PaidAt!.Value.Year, i.PaidAt.Value.Month })
+            .ToDictionary(g => (g.Key.Year, g.Key.Month), g => g.Sum(i => i.Amount));
+
+        var bookingByMonth = bookings
             .GroupBy(b => new { b.CheckInDate.Year, b.CheckInDate.Month })
-            .OrderByDescending(g => g.Key.Year).ThenByDescending(g => g.Key.Month)
-            .Select(g =>
+            .ToDictionary(g => (g.Key.Year, g.Key.Month), g => g.Sum(b => b.TotalAmount));
+
+        var months = bookingByMonth.Keys.Union(paidRentByMonth.Keys)
+            .OrderByDescending(m => m.Item1).ThenByDescending(m => m.Item2);
+
+        return Paging.Page(months
+            .Select(m =>
             {
-                var gross = g.Sum(b => b.TotalAmount);
+                var gross = bookingByMonth.GetValueOrDefault(m) + paidRentByMonth.GetValueOrDefault(m);
                 var fee = Math.Round(gross * ManagementFeeRate, 2);
-                var monthStart = new DateTime(g.Key.Year, g.Key.Month, 1);
-                var isPast = g.Key.Year < now.Year || (g.Key.Year == now.Year && g.Key.Month < now.Month);
+                var monthStart = new DateTime(m.Item1, m.Item2, 1);
+                var isPast = m.Item1 < now.Year || (m.Item1 == now.Year && m.Item2 < now.Month);
                 return new StatementResponse
                 {
-                    Id = $"{g.Key.Year:D4}-{g.Key.Month:D2}",
+                    Id = $"{m.Item1:D4}-{m.Item2:D2}",
                     Month = monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
                     Period = $"{monthStart:dd MMM} – {monthStart.AddMonths(1).AddDays(-1):dd MMM yyyy}",
                     GrossRevenue = gross,

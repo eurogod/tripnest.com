@@ -36,9 +36,9 @@ public class EmailVerificationService : IEmailVerificationService
     public async Task SendOtpAsync(string userId)
     {
         var user = await _userRepository.GetByIdAsync(userId)
-            ?? throw new InvalidOperationException("User not found");
+            ?? throw new NotFoundException("User");
         if (user.EmailVerified)
-            throw new InvalidOperationException("Email address is already verified");
+            throw new ValidationException("Email address is already verified");
 
         // Resend cooldown: lastSentAt is derived from the stored expiry (= lastSentAt + Ttl),
         // so no extra column is needed to make the user wait between sends.
@@ -69,14 +69,14 @@ public class EmailVerificationService : IEmailVerificationService
     public async Task<bool> VerifyOtpAsync(string userId, string code)
     {
         var user = await _userRepository.GetByIdAsync(userId)
-            ?? throw new InvalidOperationException("User not found");
+            ?? throw new NotFoundException("User");
         if (user.EmailVerified)
             return true;
 
         if (user.EmailOtpHash == null || user.EmailOtpExpiry == null || user.EmailOtpExpiry < DateTime.UtcNow)
-            throw new InvalidOperationException("No active code. Please request a new one.");
+            throw new ValidationException("No active code. Please request a new one.");
         if (user.EmailOtpAttempts >= MaxAttempts)
-            throw new InvalidOperationException("Too many attempts. Please request a new code.");
+            throw new TooManyRequestsException("Too many attempts. Please request a new code.");
 
         var matches = CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(Hash(code ?? string.Empty)),

@@ -38,6 +38,8 @@ public interface IAgreementService
     Task<PagedResult<AgreementResponse>> GetUserAgreementsAsync(string userId, int page, int pageSize);
     Task<AgreementResponse?> GetAgreementAsync(string agreementId, string userId);
     Task SignAgreementAsync(string agreementId, string userId);
+    /// <summary>Marks a signed agreement Terminated (either party; record-keeping only).</summary>
+    Task<AgreementResponse> TerminateAgreementAsync(string agreementId, string userId, string reason);
     Task<(byte[], string)> DownloadAgreementPdfAsync(string agreementId, string userId);
 }
 

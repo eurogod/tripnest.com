@@ -126,10 +126,11 @@ public class SignatureAndAgreementIntegrityTests : TestBase
             await db.SaveChangesAsync();
         }
 
-        // The landlord's signature refuses to bind to altered terms.
+        // The landlord's signature refuses to bind to altered terms (409 — the document
+        // conflicts with what the first party signed).
         UseToken(landlordToken);
         var sign = await _httpClient.PostAsync($"/api/agreements/{agreementId}/sign", null);
-        Assert.Equal(HttpStatusCode.BadRequest, sign.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, sign.StatusCode);
     }
 
     [Fact]
@@ -152,6 +153,37 @@ public class SignatureAndAgreementIntegrityTests : TestBase
         Assert.Equal(HttpStatusCode.OK, pdf.StatusCode);
         Assert.Equal("application/pdf", pdf.Content.Headers.ContentType!.MediaType);
         Assert.True((await pdf.Content.ReadAsByteArrayAsync()).Length > 1000);
+    }
+
+    [Fact]
+    public async Task Agreement_TerminateAndLazyExpiry_Lifecycle()
+    {
+        var (agreementId, landlordToken) = await CreateAgreementWithSignedTenantAsync();
+
+        // Draft/Pending agreements can't be terminated.
+        var early = await _httpClient.PostAsJsonAsync($"/api/agreements/{agreementId}/terminate", new { reason = "changed my mind" });
+        Assert.Equal(HttpStatusCode.BadRequest, early.StatusCode);
+
+        // Landlord co-signs -> Signed; now the tenant terminates with a reason.
+        UseToken(landlordToken);
+        Assert.Equal(HttpStatusCode.OK, (await _httpClient.PostAsync($"/api/agreements/{agreementId}/sign", null)).StatusCode);
+        var terminated = await DataOf(await _httpClient.PostAsJsonAsync(
+            $"/api/agreements/{agreementId}/terminate", new { reason = "Tenancy ended early by mutual consent" }));
+        Assert.Equal((int)AgreementStatus.Terminated, terminated.GetProperty("status").GetInt32());
+
+        // Lazy expiry: a signed agreement whose stay ended flips to Expired on the next read.
+        var (agreement2, landlord2) = await CreateAgreementWithSignedTenantAsync();
+        UseToken(landlord2);
+        Assert.Equal(HttpStatusCode.OK, (await _httpClient.PostAsync($"/api/agreements/{agreement2}/sign", null)).StatusCode);
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var a = await db.Agreements.FindAsync(agreement2);
+            a!.ExpiryDate = DateTime.UtcNow.AddDays(-1);
+            await db.SaveChangesAsync();
+        }
+        var read = await DataOf(await _httpClient.GetAsync($"/api/agreements/{agreement2}"));
+        Assert.Equal((int)AgreementStatus.Expired, read.GetProperty("status").GetInt32());
     }
 
     // ------------------------------------------------------------------ helpers
