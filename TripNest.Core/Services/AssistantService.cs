@@ -116,7 +116,8 @@ public class AssistantService : IAssistantService
     public async Task<PagedResult<SupportTicketResponse>> GetOpenTicketsAsync(int page, int pageSize)
     {
         var all = (await _ticketRepository.FindAsync(t => t.Status == SupportTicketStatus.Open))
-            .OrderBy(t => t.CreatedAt)
+            .OrderByDescending(t => t.IsUrgent) // urgent tickets jump the queue
+            .ThenBy(t => t.CreatedAt)
             .ToList();
 
         // Page before enriching so the user lookup only covers the requested slice.
@@ -140,6 +141,8 @@ public class AssistantService : IAssistantService
                 ConversationId = t.ConversationId,
                 CreatedAt = t.CreatedAt,
                 ResolvedAt = t.ResolvedAt,
+                IsUrgent = t.IsUrgent,
+                FirstRespondedAt = t.FirstRespondedAt,
             }).ToList(),
             TotalCount = paged.TotalCount,
             Page = paged.Page,

@@ -20,6 +20,10 @@ public class Payout
     public string? RentInvoiceId { get; set; }
     public RentInvoice? RentInvoice { get; set; }
 
+    /// <summary>Set when this payout disburses an approved damage-protection claim.</summary>
+    public string? DamageClaimId { get; set; }
+    public DamageClaim? DamageClaim { get; set; }
+
     public required string BookingId { get; set; }
 
     /// <summary>The host (property owner) receiving the money.</summary>

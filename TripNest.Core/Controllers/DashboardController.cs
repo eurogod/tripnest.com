@@ -71,4 +71,85 @@ public class DashboardController : ControllerBase
 
         return Ok(ApiResponse<IEnumerable<object>>.Ok("Audit logs retrieved", logs));
     }
+
+    /// <summary>Stamps the admin's first response on a ticket — the urgent-SLA clock's stop line.
+    /// Idempotent: only the first acknowledgement counts.</summary>
+    [HttpPost("support-tickets/{ticketId}/ack")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> AcknowledgeTicket(string ticketId)
+    {
+        var tickets = HttpContext.RequestServices.GetRequiredService<IRepository<Models.SupportTicket>>();
+        var ticket = await tickets.GetByIdAsync(ticketId);
+        if (ticket is null)
+            return NotFound(ApiResponse<object>.NotFound("Support ticket"));
+
+        if (ticket.FirstRespondedAt is null)
+        {
+            ticket.FirstRespondedAt = DateTime.UtcNow;
+            await tickets.UpdateAsync(ticket);
+            await tickets.SaveChangesAsync();
+        }
+
+        return Ok(ApiResponse<object>.Ok("Ticket acknowledged", new
+        {
+            firstRespondedAt = ticket.FirstRespondedAt,
+            responseSeconds = (int)(ticket.FirstRespondedAt.Value - ticket.CreatedAt).TotalSeconds
+        }));
+    }
+
+    // ------------------------------------------------- dynamic-pricing demand events
+
+    public record UpsertDemandEventRequest(string Name, string Location, DateTime StartDate, DateTime EndDate, decimal UpliftPercent);
+
+    /// <summary>Demand events feeding dynamic pricing (festivals, conferences, holiday peaks).</summary>
+    [HttpGet("demand-events")]
+    [ProducesResponseType(typeof(ApiResponse<List<Models.DemandEvent>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<List<Models.DemandEvent>>>> GetDemandEvents()
+    {
+        var repository = HttpContext.RequestServices.GetRequiredService<IRepository<Models.DemandEvent>>();
+        var events = (await repository.GetAllAsync()).OrderBy(e => e.StartDate).ToList();
+        return Ok(ApiResponse<List<Models.DemandEvent>>.Ok("Demand events retrieved", events));
+    }
+
+    /// <summary>Creates a demand event: dynamically priced listings whose location matches get the
+    /// uplift for the event's dates.</summary>
+    [HttpPost("demand-events")]
+    [ProducesResponseType(typeof(ApiResponse<Models.DemandEvent>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<Models.DemandEvent>>> CreateDemandEvent([FromBody] UpsertDemandEventRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Location))
+            return BadRequest(ApiResponse<object>.BadRequest("Name and location are required"));
+        if (request.EndDate <= request.StartDate)
+            return BadRequest(ApiResponse<object>.BadRequest("End date must be after the start date"));
+        if (request.UpliftPercent is < 0 or > 200)
+            return BadRequest(ApiResponse<object>.BadRequest("Uplift must be between 0 and 200 percent"));
+
+        var repository = HttpContext.RequestServices.GetRequiredService<IRepository<Models.DemandEvent>>();
+        var demandEvent = new Models.DemandEvent
+        {
+            Name = request.Name.Trim(),
+            Location = request.Location.Trim(),
+            StartDate = DateTime.SpecifyKind(request.StartDate.Date, DateTimeKind.Utc),
+            EndDate = DateTime.SpecifyKind(request.EndDate.Date, DateTimeKind.Utc),
+            UpliftPercent = request.UpliftPercent
+        };
+        await repository.AddAsync(demandEvent);
+        await repository.SaveChangesAsync();
+        return StatusCode(201, ApiResponse<Models.DemandEvent>.Created("Demand event", demandEvent));
+    }
+
+    /// <summary>Removes a demand event (rates fall back to organic demand immediately).</summary>
+    [HttpDelete("demand-events/{id}")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteDemandEvent(string id)
+    {
+        var repository = HttpContext.RequestServices.GetRequiredService<IRepository<Models.DemandEvent>>();
+        var demandEvent = await repository.GetByIdAsync(id);
+        if (demandEvent is null)
+            return NotFound(ApiResponse<object>.NotFound("Demand event"));
+        await repository.DeleteAsync(demandEvent);
+        await repository.SaveChangesAsync();
+        return Ok(ApiResponse<object>.Ok("Demand event removed", new { }));
+    }
 }

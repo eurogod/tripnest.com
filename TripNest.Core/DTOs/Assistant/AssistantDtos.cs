@@ -40,4 +40,6 @@ public class SupportTicketResponse
     public string? ConversationId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ResolvedAt { get; set; }
+    public bool IsUrgent { get; set; }
+    public DateTime? FirstRespondedAt { get; set; }
 }

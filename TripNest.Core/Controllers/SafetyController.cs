@@ -232,4 +232,54 @@ public class SafetyController : ControllerBase
 
         return Ok(ApiResponse<object>.Ok("Emergency alert sent", new { }));
     }
+
+    public record UrgentHelpRequest(string Message);
+
+    /// <summary>
+    /// The urgent-support entry point: a guest is locked out or feels unsafe RIGHT NOW. Creates a
+    /// queue-jumping urgent ticket, pages every admin through the emergency channel (SMS + email,
+    /// opt-outs bypassed), and returns the 24/7 hotline number for immediate human contact. The
+    /// admin ack endpoint stamps first response for SLA tracking (Support:UrgentResponseMinutes).
+    /// </summary>
+    [HttpPost("urgent")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<object>>> RequestUrgentHelp([FromBody] UrgentHelpRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+        if (string.IsNullOrWhiteSpace(request.Message))
+            return BadRequest(ApiResponse<object>.BadRequest("Tell us what's happening so we can help"));
+
+        var user = await _userRepository.GetByIdAsync(userId);
+        var configuration = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+        var hotline = configuration["Support:UrgentHotline"];
+
+        var tickets = HttpContext.RequestServices.GetRequiredService<Interfaces.Repositories.IRepository<Models.SupportTicket>>();
+        var ticket = new Models.SupportTicket
+        {
+            UserId = userId,
+            Subject = "URGENT: guest needs immediate help",
+            Summary = request.Message.Trim(),
+            IsUrgent = true
+        };
+        await tickets.AddAsync(ticket);
+        await tickets.SaveChangesAsync();
+
+        // Page every admin through the emergency channel — opt-outs are bypassed by design.
+        var admins = await _userRepository.FindAsync(u => u.Role == Enums.UserRole.Admin && u.IsActive);
+        foreach (var admin in admins)
+            await _notificationService.NotifyAsync(admin.Id, Enums.NotificationType.SafetyAlert,
+                "URGENT support request",
+                $"{user?.FullName ?? userId} needs immediate help: {ticket.Summary}",
+                isEmergency: true);
+
+        return Ok(ApiResponse<object>.Ok("Help is on the way — an admin has been paged", new
+        {
+            ticketId = ticket.Id,
+            hotline,
+            promisedResponseMinutes = configuration.GetValue("Support:UrgentResponseMinutes", 15)
+        }));
+    }
 }
