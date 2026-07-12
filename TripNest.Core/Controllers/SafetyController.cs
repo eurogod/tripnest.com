@@ -23,6 +23,8 @@ public class SafetyController : ControllerBase
     private readonly ISmsSender _smsSender;
     private readonly IEmailSender _emailSender;
     private readonly INotificationService _notificationService;
+    private readonly Interfaces.Repositories.IRepository<Models.SupportTicket> _ticketRepository;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<SafetyController> _logger;
 
     public SafetyController(
@@ -33,6 +35,8 @@ public class SafetyController : ControllerBase
         ISmsSender smsSender,
         IEmailSender emailSender,
         INotificationService notificationService,
+        Interfaces.Repositories.IRepository<Models.SupportTicket> ticketRepository,
+        IConfiguration configuration,
         ILogger<SafetyController> logger)
     {
         _checkInRepository = checkInRepository;
@@ -42,6 +46,8 @@ public class SafetyController : ControllerBase
         _smsSender = smsSender;
         _emailSender = emailSender;
         _notificationService = notificationService;
+        _ticketRepository = ticketRepository;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -253,10 +259,8 @@ public class SafetyController : ControllerBase
             return BadRequest(ApiResponse<object>.BadRequest("Tell us what's happening so we can help"));
 
         var user = await _userRepository.GetByIdAsync(userId);
-        var configuration = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-        var hotline = configuration["Support:UrgentHotline"];
+        var hotline = _configuration["Support:UrgentHotline"];
 
-        var tickets = HttpContext.RequestServices.GetRequiredService<Interfaces.Repositories.IRepository<Models.SupportTicket>>();
         var ticket = new Models.SupportTicket
         {
             UserId = userId,
@@ -264,8 +268,8 @@ public class SafetyController : ControllerBase
             Summary = request.Message.Trim(),
             IsUrgent = true
         };
-        await tickets.AddAsync(ticket);
-        await tickets.SaveChangesAsync();
+        await _ticketRepository.AddAsync(ticket);
+        await _ticketRepository.SaveChangesAsync();
 
         // Page every admin through the emergency channel — opt-outs are bypassed by design.
         var admins = await _userRepository.FindAsync(u => u.Role == Enums.UserRole.Admin && u.IsActive);
@@ -279,7 +283,7 @@ public class SafetyController : ControllerBase
         {
             ticketId = ticket.Id,
             hotline,
-            promisedResponseMinutes = configuration.GetValue("Support:UrgentResponseMinutes", 15)
+            promisedResponseMinutes = _configuration.GetValue("Support:UrgentResponseMinutes", 15)
         }));
     }
 }

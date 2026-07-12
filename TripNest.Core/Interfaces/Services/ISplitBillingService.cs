@@ -5,6 +5,9 @@ namespace TripNest.Core.Interfaces.Services;
 
 public interface ISplitBillingService
 {
+    /// <summary>Prefix marking a provider metadata bookingId as a share charge.</summary>
+    const string ReferencePrefix = "share:";
+
     /// <summary>
     /// Creates the shares for a just-created group booking (called from booking creation, saved in
     /// the same transaction): the total split equally, booker absorbs rounding, every co-traveller

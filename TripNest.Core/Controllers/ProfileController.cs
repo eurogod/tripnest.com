@@ -18,13 +18,26 @@ public class ProfileController : ControllerBase
     private readonly IUserRepository _userRepository;
     private readonly IFileStorage _fileStorage;
     private readonly IPhoneNumberValidator _phoneValidator;
+    private readonly IVerificationRepository _verificationRepository;
+    private readonly IRepository<Models.Agreement> _agreementRepository;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<ProfileController> _logger;
 
-    public ProfileController(IUserRepository userRepository, IFileStorage fileStorage, IPhoneNumberValidator phoneValidator, ILogger<ProfileController> logger)
+    public ProfileController(
+        IUserRepository userRepository,
+        IFileStorage fileStorage,
+        IPhoneNumberValidator phoneValidator,
+        IVerificationRepository verificationRepository,
+        IRepository<Models.Agreement> agreementRepository,
+        IConfiguration configuration,
+        ILogger<ProfileController> logger)
     {
         _userRepository = userRepository;
         _fileStorage = fileStorage;
         _phoneValidator = phoneValidator;
+        _verificationRepository = verificationRepository;
+        _agreementRepository = agreementRepository;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -288,8 +301,7 @@ public class ProfileController : ControllerBase
     }
 
     private int SignatureEditCooldownDays =>
-        HttpContext.RequestServices.GetRequiredService<IConfiguration>()
-            .GetValue("Profile:SignatureEditCooldownDays", 30);
+        _configuration.GetValue("Profile:SignatureEditCooldownDays", 30);
 
     /// <summary>Re-auth for signature changes: the account password always; the Ghana Card number
     /// too when the account is identity-verified and a card is on file. Returns the refusal
@@ -302,8 +314,7 @@ public class ProfileController : ControllerBase
         if (!user.IsVerified)
             return null;
 
-        var verificationRepository = HttpContext.RequestServices.GetRequiredService<IVerificationRepository>();
-        var cardOnFile = (await verificationRepository.FindAsync(v =>
+        var cardOnFile = (await _verificationRepository.FindAsync(v =>
                 v.UserId == user.Id && v.Status == Enums.VerificationStatus.Verified))
             .OrderByDescending(v => v.SubmittedAt)
             .FirstOrDefault()?.GhanaCardNumber;
@@ -317,10 +328,7 @@ public class ProfileController : ControllerBase
         return null;
     }
 
-    private async Task<bool> AnyAgreementReferencesAsync(string path)
-    {
-        var agreements = HttpContext.RequestServices.GetRequiredService<IRepository<Models.Agreement>>();
-        return (await agreements.FindAsync(a =>
+    private async Task<bool> AnyAgreementReferencesAsync(string path) =>
+        (await _agreementRepository.FindAsync(a =>
             a.TenantSignatureImagePath == path || a.LandlordSignatureImagePath == path)).Any();
-    }
 }

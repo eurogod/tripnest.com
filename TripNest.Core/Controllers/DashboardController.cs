@@ -18,17 +18,23 @@ public class DashboardController : ControllerBase
     private readonly IDashboardStatsService _statsService;
     private readonly IAssistantService _assistantService;
     private readonly IAuditLogRepository _auditRepository;
+    private readonly IRepository<Models.SupportTicket> _ticketRepository;
+    private readonly IRepository<Models.DemandEvent> _demandEventRepository;
     private readonly ILogger<DashboardController> _logger;
 
     public DashboardController(
         IDashboardStatsService statsService,
         IAssistantService assistantService,
         IAuditLogRepository auditRepository,
+        IRepository<Models.SupportTicket> ticketRepository,
+        IRepository<Models.DemandEvent> demandEventRepository,
         ILogger<DashboardController> logger)
     {
         _statsService = statsService;
         _assistantService = assistantService;
         _auditRepository = auditRepository;
+        _ticketRepository = ticketRepository;
+        _demandEventRepository = demandEventRepository;
         _logger = logger;
     }
 
@@ -78,16 +84,15 @@ public class DashboardController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> AcknowledgeTicket(string ticketId)
     {
-        var tickets = HttpContext.RequestServices.GetRequiredService<IRepository<Models.SupportTicket>>();
-        var ticket = await tickets.GetByIdAsync(ticketId);
+        var ticket = await _ticketRepository.GetByIdAsync(ticketId);
         if (ticket is null)
             return NotFound(ApiResponse<object>.NotFound("Support ticket"));
 
         if (ticket.FirstRespondedAt is null)
         {
             ticket.FirstRespondedAt = DateTime.UtcNow;
-            await tickets.UpdateAsync(ticket);
-            await tickets.SaveChangesAsync();
+            await _ticketRepository.UpdateAsync(ticket);
+            await _ticketRepository.SaveChangesAsync();
         }
 
         return Ok(ApiResponse<object>.Ok("Ticket acknowledged", new
@@ -106,8 +111,7 @@ public class DashboardController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<List<Models.DemandEvent>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<Models.DemandEvent>>>> GetDemandEvents()
     {
-        var repository = HttpContext.RequestServices.GetRequiredService<IRepository<Models.DemandEvent>>();
-        var events = (await repository.GetAllAsync()).OrderBy(e => e.StartDate).ToList();
+        var events = (await _demandEventRepository.GetAllAsync()).OrderBy(e => e.StartDate).ToList();
         return Ok(ApiResponse<List<Models.DemandEvent>>.Ok("Demand events retrieved", events));
     }
 
@@ -125,7 +129,6 @@ public class DashboardController : ControllerBase
         if (request.UpliftPercent is < 0 or > 200)
             return BadRequest(ApiResponse<object>.BadRequest("Uplift must be between 0 and 200 percent"));
 
-        var repository = HttpContext.RequestServices.GetRequiredService<IRepository<Models.DemandEvent>>();
         var demandEvent = new Models.DemandEvent
         {
             Name = request.Name.Trim(),
@@ -134,8 +137,8 @@ public class DashboardController : ControllerBase
             EndDate = DateTime.SpecifyKind(request.EndDate.Date, DateTimeKind.Utc),
             UpliftPercent = request.UpliftPercent
         };
-        await repository.AddAsync(demandEvent);
-        await repository.SaveChangesAsync();
+        await _demandEventRepository.AddAsync(demandEvent);
+        await _demandEventRepository.SaveChangesAsync();
         return StatusCode(201, ApiResponse<Models.DemandEvent>.Created("Demand event", demandEvent));
     }
 
@@ -144,12 +147,11 @@ public class DashboardController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteDemandEvent(string id)
     {
-        var repository = HttpContext.RequestServices.GetRequiredService<IRepository<Models.DemandEvent>>();
-        var demandEvent = await repository.GetByIdAsync(id);
+        var demandEvent = await _demandEventRepository.GetByIdAsync(id);
         if (demandEvent is null)
             return NotFound(ApiResponse<object>.NotFound("Demand event"));
-        await repository.DeleteAsync(demandEvent);
-        await repository.SaveChangesAsync();
+        await _demandEventRepository.DeleteAsync(demandEvent);
+        await _demandEventRepository.SaveChangesAsync();
         return Ok(ApiResponse<object>.Ok("Demand event removed", new { }));
     }
 }

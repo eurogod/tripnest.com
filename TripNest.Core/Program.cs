@@ -316,6 +316,7 @@ builder.Services.AddScoped<IRentService, RentService>();
 builder.Services.AddScoped<IStudentVerificationService, StudentVerificationService>();
 builder.Services.AddScoped<IDynamicPricingService, DynamicPricingService>();
 builder.Services.AddScoped<IDamageClaimService, DamageClaimService>();
+builder.Services.AddScoped<IStayDiscountService, StayDiscountService>();
 builder.Services.AddScoped<IAgreementService, AgreementService>();
 builder.Services.AddScoped<ICaretakerService, CaretakerService>();
 builder.Services.AddScoped<IMaintenanceService, MaintenanceService>();

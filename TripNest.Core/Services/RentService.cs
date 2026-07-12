@@ -18,11 +18,6 @@ namespace TripNest.Core.Services;
 /// </summary>
 public class RentService : IRentService
 {
-    /// <summary>Prefix marking a provider metadata bookingId as a rent-invoice charge.</summary>
-    public const string ReferencePrefix = "rent:";
-    /// <summary>Rent periods are fixed 30-day blocks, matching the pro-rata convention used everywhere else.</summary>
-    public const int DaysPerPeriod = 30;
-
     private readonly IRepository<RentInvoice> _invoiceRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IUserRepository _userRepository;
@@ -60,17 +55,17 @@ public class RentService : IRentService
     public async Task<List<RentInvoice>> BuildScheduleAsync(Booking booking, string landlordId, decimal monthlyRent)
     {
         var invoices = new List<RentInvoice>();
-        var periodStart = booking.CheckInDate.Date.AddDays(DaysPerPeriod); // period 1 is the escrow
+        var periodStart = booking.CheckInDate.Date.AddDays(IRentService.RentPeriodDays); // period 1 is the escrow
         while (periodStart < booking.CheckOutDate.Date)
         {
-            var periodEnd = periodStart.AddDays(DaysPerPeriod);
+            var periodEnd = periodStart.AddDays(IRentService.RentPeriodDays);
             if (periodEnd > booking.CheckOutDate.Date)
                 periodEnd = booking.CheckOutDate.Date;
 
             var days = (periodEnd - periodStart).Days;
-            var amount = days == DaysPerPeriod
+            var amount = days == IRentService.RentPeriodDays
                 ? monthlyRent
-                : Math.Round(monthlyRent / DaysPerPeriod * days, 2); // pro-rated final partial month
+                : Math.Round(monthlyRent / IRentService.RentPeriodDays * days, 2); // pro-rated final partial month
 
             invoices.Add(new RentInvoice
             {
@@ -82,7 +77,7 @@ public class RentService : IRentService
                 Amount = amount,
                 DueDate = DateTime.SpecifyKind(periodStart, DateTimeKind.Utc)
             });
-            periodStart = periodStart.AddDays(DaysPerPeriod);
+            periodStart = periodStart.AddDays(IRentService.RentPeriodDays);
         }
 
         foreach (var invoice in invoices)
@@ -139,7 +134,7 @@ public class RentService : IRentService
         var tenant = await _userRepository.GetByIdAsync(userId)
             ?? throw new NotFoundException("User");
         var payment = await _paymentGateway.InitiatePaymentAsync(
-            invoice.Amount, _platform.Currency, tenant.Email, $"{ReferencePrefix}{invoice.Id}");
+            invoice.Amount, _platform.Currency, tenant.Email, $"{IRentService.ReferencePrefix}{invoice.Id}");
         if (!payment.Success)
             throw new ValidationException("The payment provider could not start the checkout. Please retry.");
 

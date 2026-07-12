@@ -129,18 +129,18 @@ public class EscrowController : ControllerBase
 
             // Split-billing charges carry "share:{shareId}" instead of a booking id — they pay
             // one member's slice, and the escrow holds only when the whole group has paid.
-            if (bookingId.StartsWith(SplitBillingService.ReferencePrefix, StringComparison.Ordinal))
+            if (bookingId.StartsWith(ISplitBillingService.ReferencePrefix, StringComparison.Ordinal))
             {
-                var shareId = bookingId[SplitBillingService.ReferencePrefix.Length..];
+                var shareId = bookingId[ISplitBillingService.ReferencePrefix.Length..];
                 await _splitBillingService.ApplySharePaymentAsync(shareId, reference, paidAmount);
                 return Ok(ApiResponse<object>.Ok("Share payment recorded", null));
             }
 
             // Monthly-rent charges carry "rent:{invoiceId}" — they pay one period of a long-term
             // stay and disburse to the landlord immediately (no escrow hold).
-            if (bookingId.StartsWith(RentService.ReferencePrefix, StringComparison.Ordinal))
+            if (bookingId.StartsWith(IRentService.ReferencePrefix, StringComparison.Ordinal))
             {
-                var invoiceId = bookingId[RentService.ReferencePrefix.Length..];
+                var invoiceId = bookingId[IRentService.ReferencePrefix.Length..];
                 await _rentService.ApplyRentPaymentAsync(invoiceId, reference, paidAmount);
                 return Ok(ApiResponse<object>.Ok("Rent payment recorded", null));
             }
