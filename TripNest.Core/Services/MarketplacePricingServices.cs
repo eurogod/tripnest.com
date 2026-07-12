@@ -26,6 +26,7 @@ public class PricingService : IPricingService
         return settings is null ? DefaultFor(property) : Map(settings);
     }
 
+    // NOTE: Apply/Map below carry the dynamic-pricing opt-in and rate bounds too.
     public async Task<PricingSettingsResponse> UpdateAsync(string propertyId, UpdatePricingSettingsRequest request, string landlordId)
     {
         await LoadOwnedPropertyAsync(propertyId, landlordId);
@@ -64,6 +65,9 @@ public class PricingService : IPricingService
         s.MonthlyDiscountPercent = r.MonthlyDiscountPercent;
         s.MinNights = r.MinNights < 1 ? 1 : r.MinNights;
         s.CleaningFee = r.CleaningFee;
+        s.DynamicPricingEnabled = r.DynamicPricingEnabled;
+        s.MinNightlyRate = r.MinNightlyRate;
+        s.MaxNightlyRate = r.MaxNightlyRate;
         s.UpdatedAt = DateTime.UtcNow;
     }
 
@@ -75,7 +79,10 @@ public class PricingService : IPricingService
         WeeklyDiscountPercent = s.WeeklyDiscountPercent,
         MonthlyDiscountPercent = s.MonthlyDiscountPercent,
         MinNights = s.MinNights,
-        CleaningFee = s.CleaningFee
+        CleaningFee = s.CleaningFee,
+        DynamicPricingEnabled = s.DynamicPricingEnabled,
+        MinNightlyRate = s.MinNightlyRate,
+        MaxNightlyRate = s.MaxNightlyRate
     };
 
     // A sensible starting point derived from the listing itself when no rules are saved yet.

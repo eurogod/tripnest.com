@@ -21,6 +21,7 @@ public class BookingService : IBookingService
     private readonly ILoyaltyService _loyaltyService;
     private readonly ISplitBillingService _splitBillingService;
     private readonly IRentService _rentService;
+    private readonly IDynamicPricingService _dynamicPricingService;
     private readonly IStudentVerificationService _studentVerificationService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<BookingService> _logger;
@@ -38,6 +39,7 @@ public class BookingService : IBookingService
         ILoyaltyService loyaltyService,
         ISplitBillingService splitBillingService,
         IRentService rentService,
+        IDynamicPricingService dynamicPricingService,
         IStudentVerificationService studentVerificationService,
         IConfiguration configuration,
         ILogger<BookingService> logger)
@@ -54,6 +56,7 @@ public class BookingService : IBookingService
         _loyaltyService = loyaltyService;
         _splitBillingService = splitBillingService;
         _rentService = rentService;
+        _dynamicPricingService = dynamicPricingService;
         _studentVerificationService = studentVerificationService;
         _configuration = configuration;
         _logger = logger;
@@ -89,6 +92,7 @@ public class BookingService : IBookingService
         var pricing = (await _pricingRepository.FindAsync(s => s.PropertyId == request.PropertyId)).FirstOrDefault();
         if (pricing is { MinNights: > 1 } && (checkOut - checkIn).Days < pricing.MinNights)
             throw new ValidationException($"This listing requires a minimum stay of {pricing.MinNights} nights");
+        pricing = await _dynamicPricingService.AdjustAsync(property, pricing, checkIn, checkOut);
 
         // Same discount rule as the quote endpoint (loyalty tier, or the student rate on
         // Student-stayType listings — whichever is larger) so quote and charge always agree.

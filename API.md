@@ -283,12 +283,28 @@ SMS/email opt-out (default on). Emergency safety alerts are **always** sent rega
 | GET | `/{id}/download` | 🔒 (PDF) |
 | GET | `/booking/{bookingId}` | 🔒 |
 
+### Urgent support — `api/safety`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/api/safety/urgent` | 🔒 `{message}` — locked out / unsafe NOW: creates a queue-jumping urgent ticket, pages every admin via the emergency channel (opt-outs bypassed), and returns `Support:UrgentHotline` + the promised `Support:UrgentResponseMinutes` (15). Urgent tickets sort first in the admin queue; the ack endpoint stamps first response for SLA tracking. |
+
 ### Wishlist — `api/wishlist`
 | Method | Path | Access |
 |---|---|---|
 | GET | `/mine` | 🔒 |
 | POST | `/{propertyId}` | 🔒 |
 | DELETE | `/{propertyId}` | 🔒 |
+
+### Damage-protection claims — `api/claims`
+| Method | Path | Access |
+|---|---|---|
+| POST | `/` | 🔒 `[Landlord,Agent,Admin]` multipart `{bookingId, amount ≤ Claims:MaxAmount, description, photos[]}` — one claim per booking, within `Claims:FilingWindowDays` (14) of checkout; tenant notified |
+| GET | `/mine?page=&pageSize=` | 🔒 (paged) the caller's filed claims |
+| GET | `/booking/{bookingId}` | 🔒 the claim on a booking (its landlord/tenant/admin) |
+| POST | `/{id}/respond` | 🔒 (tenant, once) `{response}` — the tenant's side before review |
+| GET | `/review?page=&pageSize=` | 🔒 `[Admin]` claims awaiting a decision, oldest first |
+| POST | `/{id}/approve` | 🔒 `[Admin]` `{approvedAmount?, note?}` — pays the host **immediately and fee-free** through the standard transfer machinery |
+| POST | `/{id}/reject` | 🔒 `[Admin]` `{reason}` |
 
 ### Monthly rent — `api/rent` (long-term stays)
 | Method | Path | Access |
@@ -375,12 +391,16 @@ From a match: start a chat (`POST api/chat/conversations`) and later book togeth
 | GET | `/api/admin/audit-logs?userId=&limit=` | 🔒 `[Admin]` |
 | GET | `/api/admin/support-tickets?page=&pageSize=` | 🔒 `[Admin]` (paged; open assistant escalations, oldest first) |
 | POST | `/api/admin/support-tickets/{ticketId}/resolve` | 🔒 `[Admin]` (marks resolved, notifies the user; idempotent) |
+| POST | `/api/admin/support-tickets/{ticketId}/ack` | 🔒 `[Admin]` stamps first response (urgent-SLA clock; idempotent) |
+| GET | `/api/admin/demand-events` | 🔒 `[Admin]` demand events feeding dynamic pricing |
+| POST | `/api/admin/demand-events` | 🔒 `[Admin]` `{name, location, startDate, endDate, upliftPercent ≤200}` — matching dynamically priced listings get the uplift for those dates |
+| DELETE | `/api/admin/demand-events/{id}` | 🔒 `[Admin]` |
 
 ### Pricing & calendar — `api/pricing`, `api/calendar`
 | Method | Path | Access |
 |---|---|---|
 | GET | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` (defaults derived from listing if unset) |
-| PUT | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` |
+| PUT | `/api/pricing/{propertyId}` | 🔒 `[Landlord,Admin]` (incl. `dynamicPricingEnabled` + `minNightlyRate`/`maxNightlyRate` bounds — opt-in demand pricing: nightly rates flex with same-city occupancy (0.9×–1.3×), a last-minute fill discount inside 7 days (0.9×), and admin demand events, always clamped to the host's floor/ceiling, defaults 70%/150% of base; applied identically in search quotes, the quote endpoint, and booking charges) |
 | GET | `/api/calendar?propertyId=&year=&month=` | 🔒 `[Landlord,Admin]` priced month w/ weekend/blocked/maintenance/booked flags |
 | GET | `/api/calendar/{propertyId}/feed-url` | 🔒 `[Landlord,Admin]` (owner only) tokenized public iCal URL — paste into Airbnb/VRBO/Booking.com "import calendar" to prevent double-bookings |
 | GET | `/api/calendar/{propertyId}.ics?token=` | 🌐 (token-authorized) RFC 5545 feed of confirmed stays + blocked ranges |

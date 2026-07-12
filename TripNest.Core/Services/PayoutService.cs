@@ -170,6 +170,39 @@ public class PayoutService : IPayoutService
         }
     }
 
+    public async Task CreateForApprovedClaimAsync(DamageClaim claim)
+    {
+        try
+        {
+            // Idempotent: at most one payout per claim (backed by a unique index).
+            var existing = (await _payoutRepository.FindAsync(p => p.DamageClaimId == claim.Id)).FirstOrDefault();
+            if (existing is not null)
+                return;
+
+            // Fee-free: damage protection makes the host whole; the platform takes no cut.
+            var amount = claim.ApprovedAmount ?? claim.Amount;
+            var payout = new Payout
+            {
+                DamageClaimId = claim.Id,
+                BookingId = claim.BookingId,
+                LandlordId = claim.LandlordId,
+                GrossAmount = amount,
+                FeeAmount = 0m,
+                Amount = amount,
+                Status = PayoutStatus.Pending
+            };
+            await _payoutRepository.AddAsync(payout);
+            await _payoutRepository.SaveChangesAsync();
+
+            await AttemptTransferAsync(payout);
+        }
+        catch (Exception ex)
+        {
+            // The claim's approval stands; the payout row (or its absence in logs) is the recovery point.
+            _logger.LogError(ex, "Failed to create payout for damage claim {ClaimId}", claim.Id);
+        }
+    }
+
     public async Task<PayoutResponse> RetryAsync(string payoutId, string userId)
     {
         var payout = await _payoutRepository.GetByIdAsync(payoutId)

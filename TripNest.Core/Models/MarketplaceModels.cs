@@ -14,7 +14,32 @@ public class PricingSettings
     public decimal MonthlyDiscountPercent { get; set; }
     public int MinNights { get; set; } = 1;
     public decimal CleaningFee { get; set; }
+
+    // Smart dynamic pricing (opt-in): nightly rates flex with area demand, lead time and demand
+    // events, always clamped to the host's floor/ceiling (0 = auto: 70%/150% of the base rate).
+    public bool DynamicPricingEnabled { get; set; }
+    public decimal MinNightlyRate { get; set; }
+    public decimal MaxNightlyRate { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// An admin-curated demand event (festival, conference, holiday weekend) that lifts dynamically
+/// priced rates for listings in a matching location while it runs.
+/// </summary>
+public class DemandEvent
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public required string Name { get; set; }
+    /// <summary>Matched case-insensitively against listing locations (contains).</summary>
+    public required string Location { get; set; }
+    public DateTime StartDate { get; set; }
+    /// <summary>Exclusive.</summary>
+    public DateTime EndDate { get; set; }
+    /// <summary>Rate uplift while the event runs, e.g. 20 = +20%.</summary>
+    public decimal UpliftPercent { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>A pre-booking question a guest sends a landlord about a listing.</summary>

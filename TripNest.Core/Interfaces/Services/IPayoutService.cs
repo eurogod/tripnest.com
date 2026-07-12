@@ -37,6 +37,10 @@ public interface IPayoutService
     /// </summary>
     Task CreateForPaidRentAsync(RentInvoice invoice);
 
+    /// <summary>Creates the fee-free payout for an approved damage claim (idempotent — one per
+    /// claim) and attempts the transfer immediately. Same never-throws contract as the others.</summary>
+    Task CreateForApprovedClaimAsync(DamageClaim claim);
+
     /// <summary>Re-attempts a Pending or Failed payout (e.g. after the host fixes their account).</summary>
     Task<PayoutResponse> RetryAsync(string payoutId, string userId);
 

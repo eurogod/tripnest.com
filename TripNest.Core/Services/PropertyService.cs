@@ -16,6 +16,7 @@ public class PropertyService : IPropertyService
     private readonly IBookingRepository _bookingRepository;
     private readonly IRepository<PricingSettings> _pricingRepository;
     private readonly ILoyaltyService _loyaltyService;
+    private readonly IDynamicPricingService _dynamicPricingService;
     private readonly IStudentVerificationService _studentVerificationService;
     private readonly IConfiguration _configuration;
     private readonly IFileStorage _fileStorage;
@@ -29,6 +30,7 @@ public class PropertyService : IPropertyService
         IBookingRepository bookingRepository,
         IRepository<PricingSettings> pricingRepository,
         ILoyaltyService loyaltyService,
+        IDynamicPricingService dynamicPricingService,
         IStudentVerificationService studentVerificationService,
         IConfiguration configuration,
         IFileStorage fileStorage,
@@ -41,6 +43,7 @@ public class PropertyService : IPropertyService
         _bookingRepository = bookingRepository;
         _pricingRepository = pricingRepository;
         _loyaltyService = loyaltyService;
+        _dynamicPricingService = dynamicPricingService;
         _studentVerificationService = studentVerificationService;
         _configuration = configuration;
         _fileStorage = fileStorage;
@@ -288,9 +291,13 @@ public class PropertyService : IPropertyService
             var pricingById = (await _pricingRepository.FindAsync(s => ids.Contains(s.PropertyId)))
                 .ToDictionary(s => s.PropertyId);
             foreach (var (property, response) in items.Zip(responses))
-                response.Quote = StayPricingCalculator.Quote(
+            {
+                var adjusted = await _dynamicPricingService.AdjustAsync(
                     property, pricingById.GetValueOrDefault(property.Id),
                     criteria.CheckIn!.Value, criteria.CheckOut!.Value);
+                response.Quote = StayPricingCalculator.Quote(
+                    property, adjusted, criteria.CheckIn!.Value, criteria.CheckOut!.Value);
+            }
         }
 
         return Paging.Result(responses, totalCount, pageNum, size);
@@ -309,6 +316,7 @@ public class PropertyService : IPropertyService
             ?? throw new NotFoundException("Property");
 
         var pricing = (await _pricingRepository.FindAsync(s => s.PropertyId == propertyId)).FirstOrDefault();
+        pricing = await _dynamicPricingService.AdjustAsync(property, pricing, checkIn, checkOut);
         var memberPercent = string.IsNullOrEmpty(userId)
             ? 0m
             : await MemberDiscountPercentAsync(userId, property);

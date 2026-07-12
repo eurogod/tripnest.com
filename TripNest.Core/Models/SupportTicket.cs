@@ -18,6 +18,11 @@ public class SupportTicket
     public SupportTicketStatus Status { get; set; } = SupportTicketStatus.Open;
     /// <summary>The live chat opened between the user and an admin for this ticket (if an admin exists).</summary>
     public string? ConversationId { get; set; }
+    /// <summary>Urgent tickets (lockout / unsafe guest) jump the queue and page every admin
+    /// through the emergency channel (opt-outs bypassed). The 15-minute human-response promise.</summary>
+    public bool IsUrgent { get; set; }
+    /// <summary>When an admin first acknowledged the ticket — the SLA clock's stop line.</summary>
+    public DateTime? FirstRespondedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ResolvedAt { get; set; }
     public string? ResolvedById { get; set; }

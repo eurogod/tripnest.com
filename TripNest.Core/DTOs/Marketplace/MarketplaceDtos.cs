@@ -14,6 +14,9 @@ public class PricingSettingsResponse
     public decimal MonthlyDiscountPercent { get; set; }
     public int MinNights { get; set; }
     public decimal CleaningFee { get; set; }
+    public bool DynamicPricingEnabled { get; set; }
+    public decimal MinNightlyRate { get; set; }
+    public decimal MaxNightlyRate { get; set; }
 }
 
 public class UpdatePricingSettingsRequest
@@ -24,6 +27,10 @@ public class UpdatePricingSettingsRequest
     public decimal MonthlyDiscountPercent { get; set; }
     public int MinNights { get; set; } = 1;
     public decimal CleaningFee { get; set; }
+    /// <summary>Opt in to demand-based nightly rates, bounded below/above (0 = auto bounds).</summary>
+    public bool DynamicPricingEnabled { get; set; }
+    public decimal MinNightlyRate { get; set; }
+    public decimal MaxNightlyRate { get; set; }
 }
 
 // ---------------------------------------------------------------------------
