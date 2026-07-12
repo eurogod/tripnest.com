@@ -91,12 +91,10 @@ public class RentService : IRentService
             .OrderBy(i => i.DueDate)
             .ToList();
         var paged = Paging.Page(invoices, page, pageSize);
-        var responses = new List<RentInvoiceResponse>();
-        foreach (var invoice in paged.Items)
-            responses.Add(await MapAsync(invoice));
+        var propertyIds = await PropertyIdsForAsync(paged.Items);
         return new PagedResult<RentInvoiceResponse>
         {
-            Items = responses,
+            Items = paged.Items.Select(i => Map(i, propertyIds.GetValueOrDefault(i.BookingId, string.Empty))).ToList(),
             TotalCount = paged.TotalCount,
             Page = paged.Page,
             PageSize = paged.PageSize
@@ -114,10 +112,8 @@ public class RentService : IRentService
         if (invoices[0].TenantId != userId && invoices[0].LandlordId != userId)
             throw new ForbiddenException("You are not part of this booking");
 
-        var responses = new List<RentInvoiceResponse>();
-        foreach (var invoice in invoices)
-            responses.Add(await MapAsync(invoice));
-        return responses;
+        var propertyIds = await PropertyIdsForAsync(invoices);
+        return invoices.Select(i => Map(i, propertyIds.GetValueOrDefault(i.BookingId, string.Empty))).ToList();
     }
 
     public async Task<RentInvoiceResponse> InitiatePaymentAsync(string invoiceId, string userId)
@@ -127,7 +123,7 @@ public class RentService : IRentService
         if (invoice.TenantId != userId)
             throw new ForbiddenException("This invoice is not yours");
         if (invoice.Status == RentInvoiceStatus.Paid)
-            return await MapAsync(invoice);
+            return Map(invoice, (await PropertyIdsForAsync(new[] { invoice })).GetValueOrDefault(invoice.BookingId, string.Empty));
         if (invoice.Status == RentInvoiceStatus.Cancelled)
             throw new ValidationException("This invoice was voided when the booking was cancelled");
 
@@ -142,7 +138,7 @@ public class RentService : IRentService
         await _invoiceRepository.UpdateAsync(invoice);
         await _invoiceRepository.SaveChangesAsync();
 
-        var response = await MapAsync(invoice);
+        var response = Map(invoice, (await PropertyIdsForAsync(new[] { invoice })).GetValueOrDefault(invoice.BookingId, string.Empty));
         response.CheckoutUrl = payment.CheckoutUrl;
         return response;
     }
@@ -154,7 +150,7 @@ public class RentService : IRentService
         if (invoice.TenantId != userId)
             throw new ForbiddenException("This invoice is not yours");
         if (invoice.Status == RentInvoiceStatus.Paid)
-            return await MapAsync(invoice);
+            return Map(invoice, (await PropertyIdsForAsync(new[] { invoice })).GetValueOrDefault(invoice.BookingId, string.Empty));
         if (string.IsNullOrEmpty(invoice.PaymentReference))
             throw new ValidationException("No payment has been started for this invoice yet");
 
@@ -164,7 +160,8 @@ public class RentService : IRentService
 
         // Simulated verifies (dev-only gateway) can't know the amount — substitute the expected one.
         await ApplyRentPaymentAsync(invoice.Id, invoice.PaymentReference, result.Simulated ? invoice.Amount : result.Amount);
-        return await MapAsync((await _invoiceRepository.GetByIdAsync(invoice.Id))!);
+        var refreshed = (await _invoiceRepository.GetByIdAsync(invoice.Id))!;
+        return Map(refreshed, (await PropertyIdsForAsync(new[] { refreshed })).GetValueOrDefault(refreshed.BookingId, string.Empty));
     }
 
     public async Task ApplyRentPaymentAsync(string invoiceId, string reference, decimal paidAmount)
@@ -272,20 +269,26 @@ public class RentService : IRentService
         }
     }
 
-    private async Task<RentInvoiceResponse> MapAsync(RentInvoice invoice)
+    /// <summary>One batched query for the bookings behind a set of invoices (bookingId → propertyId).</summary>
+    private async Task<Dictionary<string, string>> PropertyIdsForAsync(IEnumerable<RentInvoice> invoices)
     {
-        var booking = await _bookingRepository.GetByIdAsync(invoice.BookingId);
-        return new RentInvoiceResponse
-        {
-            InvoiceId = invoice.Id,
-            BookingId = invoice.BookingId,
-            PropertyId = booking?.PropertyId ?? string.Empty,
-            PeriodStart = invoice.PeriodStart,
-            PeriodEnd = invoice.PeriodEnd,
-            Amount = invoice.Amount,
-            DueDate = invoice.DueDate,
-            Status = invoice.Status,
-            PaidAt = invoice.PaidAt
-        };
+        var bookingIds = invoices.Select(i => i.BookingId).Distinct().ToList();
+        if (bookingIds.Count == 0)
+            return new Dictionary<string, string>();
+        return (await _bookingRepository.FindAsync(b => bookingIds.Contains(b.Id)))
+            .ToDictionary(b => b.Id, b => b.PropertyId);
     }
+
+    private static RentInvoiceResponse Map(RentInvoice invoice, string propertyId) => new()
+    {
+        InvoiceId = invoice.Id,
+        BookingId = invoice.BookingId,
+        PropertyId = propertyId,
+        PeriodStart = invoice.PeriodStart,
+        PeriodEnd = invoice.PeriodEnd,
+        Amount = invoice.Amount,
+        DueDate = invoice.DueDate,
+        Status = invoice.Status,
+        PaidAt = invoice.PaidAt
+    };
 }

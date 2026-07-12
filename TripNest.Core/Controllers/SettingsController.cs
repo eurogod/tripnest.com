@@ -62,29 +62,17 @@ public class SettingsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<object>>> UpdatePassword([FromBody] ChangePasswordRequest request)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<object>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-            var user = await _userRepository.GetByIdAsync(userId);
-            if (user == null)
-                return NotFound(ApiResponse<object>.NotFound("User"));
+        var user = await _userRepository.GetByIdAsync(userId);
+        if (user == null)
+            return NotFound(ApiResponse<object>.NotFound("User"));
 
-            await _authService.ChangePasswordAsync(userId, request);
-            return Ok(ApiResponse<object>.Ok("Password updated successfully", new { }));
-        }
-        catch (InvalidOperationException ex)
-        {
-            _logger.LogError(ex, "Error updating password");
-            return BadRequest(ApiResponse<object>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating password");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        // Failures flow to ExceptionHandlingMiddleware (InvalidOperationException → 400).
+        await _authService.ChangePasswordAsync(userId, request);
+        return Ok(ApiResponse<object>.Ok("Password updated successfully", new { }));
     }
 
     [HttpDelete("account")]

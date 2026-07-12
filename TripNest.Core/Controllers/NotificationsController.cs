@@ -47,24 +47,13 @@ public class NotificationsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<NotificationResponse>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<NotificationResponse>>> MarkAsRead(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<NotificationResponse>.UnAuthorized());
 
-            await _notificationService.MarkAsReadAsync(id, userId);
-            return Ok(ApiResponse<NotificationResponse>.Ok("Notification marked as read"));
-        }
-        catch (InvalidOperationException)
-        {
-            return NotFound(ApiResponse<NotificationResponse>.NotFound("Notification"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error marking notification as read");
-            return StatusCode(500, ApiResponse<NotificationResponse>.InternalServerError());
-        }
+        // NotFoundException/ForbiddenException from the service map via the middleware.
+        await _notificationService.MarkAsReadAsync(id, userId);
+        return Ok(ApiResponse<NotificationResponse>.Ok("Notification marked as read"));
     }
 
     /// <summary>

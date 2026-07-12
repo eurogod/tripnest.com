@@ -171,34 +171,26 @@ public class PersonalDashboardController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
     public Task<ActionResult<ApiResponse<object>>> GetCaretakerDashboard()
     {
-        try
-        {
-            var userId = User.GetUserId()
-                ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrEmpty(userId))
-                return Task.FromResult<ActionResult<ApiResponse<object>>>(Unauthorized(ApiResponse<object>.UnAuthorized()));
+        var userId = User.GetUserId()
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+            return Task.FromResult<ActionResult<ApiResponse<object>>>(Unauthorized(ApiResponse<object>.UnAuthorized()));
 
-            var dashboard = new
+        var dashboard = new
+        {
+            TotalServiceRequests = 0,
+            ActiveServiceRequests = 0,
+            CompletedServiceRequests = 0,
+            PendingRequests = 0,
+            AverageRating = 0m,
+            TotalReviews = 0,
+            EarningsThisMonth = 0m,
+            RecentActivity = new
             {
-                TotalServiceRequests = 0,
-                ActiveServiceRequests = 0,
-                CompletedServiceRequests = 0,
-                PendingRequests = 0,
-                AverageRating = 0m,
-                TotalReviews = 0,
-                EarningsThisMonth = 0m,
-                RecentActivity = new
-                {
-                    Message = "Track your service requests and earnings here"
-                }
-            };
+                Message = "Track your service requests and earnings here"
+            }
+        };
 
-            return Task.FromResult<ActionResult<ApiResponse<object>>>(Ok(ApiResponse<object>.Ok("Caretaker dashboard retrieved", dashboard)));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving caretaker dashboard");
-            return Task.FromResult<ActionResult<ApiResponse<object>>>(StatusCode(500, ApiResponse<object>.InternalServerError()));
-        }
+        return Task.FromResult<ActionResult<ApiResponse<object>>>(Ok(ApiResponse<object>.Ok("Caretaker dashboard retrieved", dashboard)));
     }
 }

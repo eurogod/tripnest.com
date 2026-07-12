@@ -93,23 +93,13 @@ public class ReviewsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<ReviewResponse>), StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<ApiResponse<ReviewResponse>>> DeleteReview(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized(ApiResponse<ReviewResponse>.UnAuthorized());
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<ReviewResponse>.UnAuthorized());
 
-            await _reviewService.DeleteReviewAsync(id, userId);
-            return Ok(ApiResponse<ReviewResponse>.Ok("Review deleted", null));
-        }
-        catch (InvalidOperationException ex)
-        {
-            return StatusCode(403, ApiResponse<ReviewResponse>.BadRequest(ex.Message));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error deleting review");
-            return StatusCode(500, ApiResponse<ReviewResponse>.InternalServerError());
-        }
+        // NotFoundException → 404 and ForbiddenException → 403 via the middleware (the old catch
+        // reported a missing review as 403).
+        await _reviewService.DeleteReviewAsync(id, userId);
+        return Ok(ApiResponse<ReviewResponse>.Ok("Review deleted", null));
     }
 }

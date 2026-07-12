@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Notifications;
+using TripNest.Core.Exceptions;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -190,7 +191,7 @@ public class NotificationService : INotificationService
         {
             var notification = await _notificationRepository.GetByIdAsync(notificationId);
             if (notification == null || notification.UserId != userId)
-                throw new InvalidOperationException("Notification not found");
+                throw new NotFoundException("Notification");
 
             notification.IsRead = true;
             notification.ReadAt = DateTime.UtcNow;
@@ -256,10 +257,10 @@ public class NotificationService : INotificationService
         {
             var notification = await _notificationRepository.GetByIdAsync(notificationId);
             if (notification == null)
-                throw new InvalidOperationException("Notification not found");
+                throw new NotFoundException("Notification");
 
             if (notification.UserId != userId)
-                throw new UnauthorizedAccessException("You are not authorized to delete this notification");
+                throw new ForbiddenException("You are not authorized to delete this notification");
 
             await _notificationRepository.DeleteAsync(notification);
             await _notificationRepository.SaveChangesAsync();

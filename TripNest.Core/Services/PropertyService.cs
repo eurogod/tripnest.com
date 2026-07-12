@@ -17,6 +17,7 @@ public class PropertyService : IPropertyService
     private readonly IRepository<PricingSettings> _pricingRepository;
     private readonly IStayDiscountService _stayDiscountService;
     private readonly IDynamicPricingService _dynamicPricingService;
+    private readonly IConfiguration _configuration;
     private readonly IFileStorage _fileStorage;
     private readonly IAiClient _aiClient;
     private readonly IUserRepository _userRepository;
@@ -29,6 +30,7 @@ public class PropertyService : IPropertyService
         IRepository<PricingSettings> pricingRepository,
         IStayDiscountService stayDiscountService,
         IDynamicPricingService dynamicPricingService,
+        IConfiguration configuration,
         IFileStorage fileStorage,
         IAiClient aiClient,
         IUserRepository userRepository,
@@ -40,6 +42,7 @@ public class PropertyService : IPropertyService
         _pricingRepository = pricingRepository;
         _stayDiscountService = stayDiscountService;
         _dynamicPricingService = dynamicPricingService;
+        _configuration = configuration;
         _fileStorage = fileStorage;
         _aiClient = aiClient;
         _userRepository = userRepository;
@@ -370,7 +373,11 @@ public class PropertyService : IPropertyService
             PhotoPaths = property.PhotoPaths,
             Status = property.Status,
             CreatedAt = property.CreatedAt,
-            UpdatedAt = property.UpdatedAt
+            UpdatedAt = property.UpdatedAt,
+            WalkthroughVerifiedAt = property.WalkthroughReviewedAt,
+            WalkthroughBadgeFresh = property.WalkthroughStatus == Enums.WalkthroughStatus.Approved &&
+                                    property.WalkthroughReviewedAt is { } reviewed &&
+                                    reviewed > DateTime.UtcNow.AddDays(-_configuration.GetValue("Walkthrough:BadgeValidityDays", 365))
         };
     }
 }

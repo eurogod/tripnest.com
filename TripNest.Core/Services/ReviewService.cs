@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Reviews;
+using TripNest.Core.Exceptions;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -34,28 +35,28 @@ public class ReviewService : IReviewService
         {
             var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId);
             if (booking == null)
-                throw new InvalidOperationException("Booking not found");
+                throw new NotFoundException("Booking");
 
             // Review integrity: only the tenant who actually stayed may review, and only the
             // property that booking was for — otherwise anyone holding a completed booking id
             // could plant reviews on arbitrary listings or on someone else's stay.
             if (booking.TenantId != reviewerId)
-                throw new InvalidOperationException("Only the booking's tenant can review this stay");
+                throw new ForbiddenException("Only the booking's tenant can review this stay");
 
             if (booking.PropertyId != propertyId)
-                throw new InvalidOperationException("The booking does not belong to this property");
+                throw new NotFoundException("A booking for this property");
 
             if (booking.Status != BookingStatus.Completed)
-                throw new InvalidOperationException("Reviews can only be submitted for completed bookings");
+                throw new ValidationException("Reviews can only be submitted for completed bookings");
 
             var existing = await _reviewRepository.GetByPropertyIdAsync(propertyId);
             var duplicate = existing.Any(r => r.ReviewerId == reviewerId);
             if (duplicate)
-                throw new InvalidOperationException("You have already reviewed this property");
+                throw new ConflictException("You have already reviewed this property");
 
             // Derive landlord id from the booking's property navigation property
             var landlordId = booking.Property?.UserId
-                ?? throw new InvalidOperationException("Booking property details could not be loaded");
+                ?? throw new NotFoundException("Booking property details");
 
             var review = new Review
             {
@@ -111,10 +112,10 @@ public class ReviewService : IReviewService
         {
             var review = await _reviewRepository.GetByIdAsync(reviewId);
             if (review == null)
-                throw new InvalidOperationException("Review not found");
+                throw new NotFoundException("Review");
 
             if (review.ReviewerId != userId)
-                throw new InvalidOperationException("You are not authorised to delete this review");
+                throw new ForbiddenException("You are not authorised to delete this review");
 
             await _reviewRepository.DeleteAsync(review);
             await _reviewRepository.SaveChangesAsync();

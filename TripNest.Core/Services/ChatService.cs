@@ -1,4 +1,5 @@
 using TripNest.Core.DTOs.Chat;
+using TripNest.Core.Exceptions;
 using TripNest.Core.DTOs.Shared;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
@@ -202,10 +203,10 @@ public class ChatService : IChatService
         {
             var conversation = await _conversationRepository.GetByIdAsync(conversationId);
             if (conversation == null)
-                throw new InvalidOperationException("Conversation not found");
+                throw new NotFoundException("Conversation");
 
             if (conversation.User1Id != userId && conversation.User2Id != userId)
-                throw new UnauthorizedAccessException("User is not a participant in this conversation");
+                throw new ForbiddenException("You are not a participant in this conversation");
 
             var message = new Message
             {
@@ -244,13 +245,13 @@ public class ChatService : IChatService
         {
             var message = await _messageRepository.GetByIdAsync(messageId);
             if (message == null)
-                throw new InvalidOperationException("Message not found");
+                throw new NotFoundException("Message");
 
             // Only a participant of the conversation may mark its messages read — without this,
             // any authenticated user holding a message id could tamper with read receipts.
             var conversation = await _conversationRepository.GetByIdAsync(message.ConversationId);
             if (conversation == null || (conversation.User1Id != userId && conversation.User2Id != userId))
-                throw new UnauthorizedAccessException("User is not a participant in this conversation");
+                throw new ForbiddenException("You are not a participant in this conversation");
 
             if (message.SenderId == userId || message.IsRead)
                 return;
@@ -304,10 +305,10 @@ public class ChatService : IChatService
         {
             var conversation = await _conversationRepository.GetByIdAsync(conversationId);
             if (conversation == null)
-                throw new InvalidOperationException("Conversation not found");
+                throw new NotFoundException("Conversation");
 
             if (conversation.User1Id != userId && conversation.User2Id != userId)
-                throw new UnauthorizedAccessException("User is not a participant in this conversation");
+                throw new ForbiddenException("You are not a participant in this conversation");
 
             var messages = await _messageRepository.GetByConversationIdAsync(conversationId);
             foreach (var message in messages)
@@ -360,12 +361,12 @@ public class ChatService : IChatService
     {
         var conversation = await _conversationRepository.GetByIdAsync(conversationId);
         if (conversation == null)
-            throw new InvalidOperationException("Conversation not found");
+            throw new NotFoundException("Conversation");
         if (conversation.User1Id != userId && conversation.User2Id != userId)
-            throw new UnauthorizedAccessException("User is not a participant in this conversation");
+            throw new ForbiddenException("You are not a participant in this conversation");
 
         if (!_aiClient.IsConfigured)
-            throw new InvalidOperationException("AI suggestions are not configured on this server.");
+            throw new ValidationException("AI suggestions are not configured on this server.");
 
         var messages = (await _messageRepository.GetByConversationIdAsync(conversationId))
             .OrderByDescending(m => m.CreatedAt)
@@ -373,7 +374,7 @@ public class ChatService : IChatService
             .OrderBy(m => m.CreatedAt)
             .ToList();
         if (messages.Count == 0)
-            throw new InvalidOperationException("There are no messages to reply to yet.");
+            throw new ValidationException("There are no messages to reply to yet.");
 
         var property = conversation.PropertyId is not null
             ? await _propertyRepository.GetByIdAsync(conversation.PropertyId)
@@ -404,7 +405,7 @@ public class ChatService : IChatService
 
         var suggestion = AiJson.TryParse<SuggestedReply>(raw);
         if (suggestion is null || string.IsNullOrWhiteSpace(suggestion.Reply))
-            throw new InvalidOperationException("Suggestions are unavailable right now. Please try again.");
+            throw new ValidationException("Suggestions are unavailable right now. Please try again.");
         return suggestion.Reply;
     }
 

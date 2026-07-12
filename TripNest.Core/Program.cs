@@ -498,6 +498,12 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
+// The urgent-support endpoint returns this number to guests in distress; an empty value means
+// they get a ticket but no phone number. Loud warning rather than a boot failure — dev/test
+// environments legitimately run without a hotline.
+if (string.IsNullOrWhiteSpace(app.Configuration["Support:UrgentHotline"]))
+    app.Logger.LogWarning("Support:UrgentHotline is not configured — POST /api/safety/urgent will return no phone number");
+
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();

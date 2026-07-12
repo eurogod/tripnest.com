@@ -90,6 +90,23 @@ public class AgreementsController : ControllerBase
         return Ok(ApiResponse<object>.Ok("Agreement signed", null));
     }
 
+    public record TerminateAgreementRequest(string Reason);
+
+    /// <summary>Terminates a signed agreement (either party; record-keeping — money flows are
+    /// handled by booking cancellation / escrow, not here).</summary>
+    [HttpPost("{id}/terminate")]
+    [ProducesResponseType(typeof(ApiResponse<AgreementResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<AgreementResponse>>> TerminateAgreement(string id, [FromBody] TerminateAgreementRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var agreement = await _agreementService.TerminateAgreementAsync(id, userId, request.Reason);
+        return Ok(ApiResponse<AgreementResponse>.Ok("Agreement terminated", agreement));
+    }
+
     /// <summary>
     /// Download agreement PDF
     /// </summary>
@@ -98,27 +115,16 @@ public class AgreementsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadAgreement(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized();
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
 
-            var (pdf, filename) = await _agreementService.DownloadAgreementPdfAsync(id, userId);
-            if (pdf == null)
-                return NotFound();
-
-            return File(pdf, "application/pdf", filename);
-        }
-        catch (InvalidOperationException)
-        {
-            // Service throws this when the agreement doesn't exist / isn't the user's — that's a 404, not a 500.
+        // NotFoundException → 404 and ForbiddenException → 403 via the middleware (a non-party
+        // caller now gets 403 instead of the old catch-all's 500).
+        var (pdf, filename) = await _agreementService.DownloadAgreementPdfAsync(id, userId);
+        if (pdf == null)
             return NotFound();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error downloading agreement");
-            return StatusCode(500);
-        }
+
+        return File(pdf, "application/pdf", filename);
     }
 }

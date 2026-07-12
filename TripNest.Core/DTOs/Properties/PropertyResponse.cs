@@ -26,4 +26,9 @@ public class PropertyResponse
     public DateTime UpdatedAt { get; set; }
     /// <summary>All-in cost for the searched dates (null when the search carried no dates).</summary>
     public StayQuote? Quote { get; set; }
+    /// <summary>When the walkthrough video was approved (the anti-catfishing badge's timestamp).</summary>
+    public DateTime? WalkthroughVerifiedAt { get; set; }
+    /// <summary>True while the approval is within Walkthrough:BadgeValidityDays (365) — clients
+    /// should show the "Verified" badge only while fresh and prompt hosts to re-verify after.</summary>
+    public bool WalkthroughBadgeFresh { get; set; }
 }

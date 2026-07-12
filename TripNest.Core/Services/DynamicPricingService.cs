@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
 using TripNest.Core.Interfaces.Services;
@@ -29,15 +30,22 @@ public class DynamicPricingService : IDynamicPricingService
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IRepository<DemandEvent> _eventRepository;
+    private readonly IMemoryCache _cache;
+
+    /// <summary>City rosters change slowly; caching them keeps a dated search page from
+    /// re-deriving the same city's listing set per result.</summary>
+    private static readonly TimeSpan CityCacheTtl = TimeSpan.FromMinutes(5);
 
     public DynamicPricingService(
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
-        IRepository<DemandEvent> eventRepository)
+        IRepository<DemandEvent> eventRepository,
+        IMemoryCache cache)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
         _eventRepository = eventRepository;
+        _cache = cache;
     }
 
     public async Task<PricingSettings?> AdjustAsync(Property property, PricingSettings? pricing, DateTime checkIn, DateTime checkOut)
@@ -54,12 +62,18 @@ public class DynamicPricingService : IDynamicPricingService
         var ceiling = pricing.MaxNightlyRate > 0 ? pricing.MaxNightlyRate : Math.Round(baseRate * AutoCeilingFraction, 2);
 
         // City = the first comma-separated segment of the location ("Accra, Ghana" → "accra");
-        // demand is measured against other active listings in the same city.
+        // demand is measured against other active listings in the same city. The roster is
+        // DB-filtered (never a platform-wide load) and cached briefly — occupancy is a slow
+        // signal, and a dated search page asks for the same city dozens of times.
         var city = CityOf(property.Location);
-        var cityProperties = (await _propertyRepository.GetAllActiveAsync())
-            .Where(p => CityOf(p.Location) == city)
-            .Select(p => p.Id)
-            .ToList();
+        var cityProperties = (await _cache.GetOrCreateAsync($"dynamic-pricing:city:{city}", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CityCacheTtl;
+            return (await _propertyRepository.FindAsync(p =>
+                    p.Status == PropertyStatus.Active && p.Location.ToLower().StartsWith(city)))
+                .Select(p => p.Id)
+                .ToList();
+        }))!;
         var cityBookings = cityProperties.Count == 0
             ? new List<Booking>()
             : (await _bookingRepository.FindAsync(b =>

@@ -107,20 +107,9 @@ public class WalkthroughsController : ControllerBase
     [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ApiResponse<WalkthroughResponse>>> GetWalkthrough(string propertyId, string walkthroughId)
     {
-        try
-        {
-            var response = await _walkthroughService.GetWalkthroughAsync(walkthroughId);
-            return Ok(ApiResponse<WalkthroughResponse>.Ok("Walkthrough retrieved", response));
-        }
-        catch (InvalidOperationException)
-        {
-            return NotFound(ApiResponse<object>.NotFound("Walkthrough"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving walkthrough");
-            return StatusCode(500, ApiResponse<object>.InternalServerError());
-        }
+        // The service throws NotFoundException; the middleware maps it to 404.
+        var response = await _walkthroughService.GetWalkthroughAsync(walkthroughId);
+        return Ok(ApiResponse<WalkthroughResponse>.Ok("Walkthrough retrieved", response));
     }
 
     /// <summary>Delete a walkthrough video (Landlord or Admin only).</summary>

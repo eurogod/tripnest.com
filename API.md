@@ -125,6 +125,8 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | POST | `/{propertyId}/photos` | 🔒 🛡️ (multipart/form-data, owner only) |
 | POST | `/{propertyId}/generate-copy` | 🔒 🛡️ (owner only; AI-drafted `{title, description, highlights}` from facts + photos, for review — never auto-applied; 400 with a clear message when no AI provider key is configured; `Ai:Provider` selects claude or gemini) |
 
+Property responses carry `walkthroughVerifiedAt` + `walkthroughBadgeFresh` (approval within `Walkthrough:BadgeValidityDays`, 365) — clients show the "Verified" badge only while fresh and prompt hosts to re-submit after.
+
 ### Availability — `api/properties/{propertyId}`
 | Method | Path | Access |
 |---|---|---|
@@ -175,6 +177,9 @@ Notification opt-out covers SMS and email independently; emergency safety alerts
 | GET | `/{id}` | 🔒 |
 | POST | `/{id}/sign` | 🔒 (each party signs from their own account; the first signature captures a SHA-256 hash of the terms and the second refuses to bind if the text changed — tamper evidence; the signer's profile signature image is snapshotted onto the agreement at that moment) |
 | GET | `/{id}/download` | 🔒 (PDF — drawn signature images in each party's block when on file, plus a document-integrity footer with the terms hash) |
+| POST | `/{id}/terminate` | 🔒 (either party) `{reason}` — Signed → Terminated, reason appended to the terms (record-keeping; money flows stay in booking/escrow) |
+
+Agreements expire with the stay: `ExpiryDate` = the booking's checkout, and a Signed agreement past it flips to **Expired** lazily on the next read.
 
 ### Chat — `api/chat` (REST companion to SignalR hub `/hubs/chat`)
 | Method | Path | Access |
@@ -450,7 +455,7 @@ From a match: start a chat (`POST api/chat/conversations`) and later book togeth
 ### Statements — `api/statements`
 | Method | Path | Access |
 |---|---|---|
-| GET | `/api/statements?page=&pageSize=` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed, paged) |
+| GET | `/api/statements?page=&pageSize=` | 🔒 `[Landlord,Admin]` monthly gross/fee/net payout (computed, paged; bookings by check-in month **plus paid monthly-rent invoices by payment month**, so long-term tenancies aren't understated to their first month) |
 
 ### Owner Exchange — `api/exchange`
 | Method | Path | Access |

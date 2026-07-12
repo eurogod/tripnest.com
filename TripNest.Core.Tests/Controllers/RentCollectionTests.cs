@@ -90,14 +90,38 @@ public class RentCollectionTests : TestBase
         var verified = await DataOf(await _httpClient.PostAsync($"/api/rent/invoices/{invoiceId}/verify", null));
         Assert.Equal((int)RentInvoiceStatus.Paid, verified.GetProperty("status").GetInt32());
 
-        using var scope = _fixture.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var payout = db.Payouts.Single(p => p.RentInvoiceId == invoiceId);
-        Assert.Equal(landlordId, payout.LandlordId);
-        Assert.Equal(1000m, payout.GrossAmount);
-        Assert.Equal(100m, payout.FeeAmount);   // 10% platform fee
-        Assert.Equal(900m, payout.Amount);      // net to the landlord
-        Assert.Null(payout.EscrowId);
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var payout = db.Payouts.Single(p => p.RentInvoiceId == invoiceId);
+            Assert.Equal(landlordId, payout.LandlordId);
+            Assert.Equal(1000m, payout.GrossAmount);
+            Assert.Equal(100m, payout.FeeAmount);   // 10% platform fee
+            Assert.Equal(900m, payout.Amount);      // net to the landlord
+            Assert.Null(payout.EscrowId);
+        }
+
+        // The landlord's statement counts the rent in the month it was paid (a long-term
+        // tenancy is no longer understated to its first month).
+        await LoginAsLandlordAsync(landlordId);
+        var statements = await DataOf(await _httpClient.GetAsync("/api/statements"));
+        var thisMonth = statements.GetProperty("items").EnumerateArray()
+            .Single(s => s.GetProperty("id").GetString() == $"{DateTime.UtcNow:yyyy-MM}");
+        Assert.True(thisMonth.GetProperty("grossRevenue").GetDecimal() >= 1000m);
+    }
+
+    private async Task LoginAsLandlordAsync(string landlordId)
+    {
+        string email;
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            email = (await db.Users.FindAsync(landlordId))!.Email;
+        }
+        var res = await _httpClient.PostAsJsonAsync("/api/auth/login", new { email, password = "Password@123" });
+        var data = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        _httpClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", data.GetProperty("accessToken").GetString());
     }
 
     [Fact]
