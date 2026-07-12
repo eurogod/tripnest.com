@@ -6,6 +6,11 @@ namespace TripNest.Core.Interfaces.Services;
 
 public interface IRentService
 {
+    /// <summary>Prefix marking a provider metadata bookingId as a rent-invoice charge.</summary>
+    const string ReferencePrefix = "rent:";
+    /// <summary>Rent periods are fixed 30-day blocks, matching the pro-rata convention.</summary>
+    const int RentPeriodDays = 30;
+
     /// <summary>
     /// Builds the monthly invoice schedule for a long-term booking's periods AFTER the first
     /// (the first is the upfront escrow payment). Rows are added unsaved — the caller commits

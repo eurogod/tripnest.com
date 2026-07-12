@@ -18,12 +18,10 @@ public class BookingService : IBookingService
     private readonly IRepository<EscrowEvent> _escrowEventRepository;
     private readonly IPayoutService _payoutService;
     private readonly IRepository<PricingSettings> _pricingRepository;
-    private readonly ILoyaltyService _loyaltyService;
+    private readonly IStayDiscountService _stayDiscountService;
     private readonly ISplitBillingService _splitBillingService;
     private readonly IRentService _rentService;
     private readonly IDynamicPricingService _dynamicPricingService;
-    private readonly IStudentVerificationService _studentVerificationService;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<BookingService> _logger;
 
     public BookingService(
@@ -36,12 +34,10 @@ public class BookingService : IBookingService
         IRepository<EscrowEvent> escrowEventRepository,
         IPayoutService payoutService,
         IRepository<PricingSettings> pricingRepository,
-        ILoyaltyService loyaltyService,
+        IStayDiscountService stayDiscountService,
         ISplitBillingService splitBillingService,
         IRentService rentService,
         IDynamicPricingService dynamicPricingService,
-        IStudentVerificationService studentVerificationService,
-        IConfiguration configuration,
         ILogger<BookingService> logger)
     {
         _bookingRepository = bookingRepository;
@@ -53,12 +49,10 @@ public class BookingService : IBookingService
         _escrowEventRepository = escrowEventRepository;
         _payoutService = payoutService;
         _pricingRepository = pricingRepository;
-        _loyaltyService = loyaltyService;
+        _stayDiscountService = stayDiscountService;
         _splitBillingService = splitBillingService;
         _rentService = rentService;
         _dynamicPricingService = dynamicPricingService;
-        _studentVerificationService = studentVerificationService;
-        _configuration = configuration;
         _logger = logger;
     }
 
@@ -94,11 +88,8 @@ public class BookingService : IBookingService
             throw new ValidationException($"This listing requires a minimum stay of {pricing.MinNights} nights");
         pricing = await _dynamicPricingService.AdjustAsync(property, pricing, checkIn, checkOut);
 
-        // Same discount rule as the quote endpoint (loyalty tier, or the student rate on
-        // Student-stayType listings — whichever is larger) so quote and charge always agree.
-        var memberPercent = await _loyaltyService.GetDiscountPercentAsync(tenantId);
-        if (property.StayType == StayType.Student && await _studentVerificationService.IsActiveStudentAsync(tenantId))
-            memberPercent = Math.Max(memberPercent, _configuration.GetValue("Student:DiscountPercent", 5m));
+        // The shared discount service owns the rule, so quote and charge can never disagree.
+        var memberPercent = await _stayDiscountService.GetPercentAsync(tenantId, property);
         var totalAmount = StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, memberPercent).Total;
 
         // Long-term stays (2+ rent periods on a LongTerm/Student listing) pay monthly instead of
@@ -107,7 +98,7 @@ public class BookingService : IBookingService
         // schedule the tenant pays month by month. Loyalty discounts apply to short stays only.
         var nights = (checkOut - checkIn).Days;
         var monthlyBilling = property.StayType is StayType.LongTerm or StayType.Student &&
-                             nights >= 2 * RentService.DaysPerPeriod;
+                             nights >= 2 * IRentService.RentPeriodDays;
         if (monthlyBilling)
             totalAmount = property.MonthlyRent;
 

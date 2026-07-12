@@ -15,10 +15,8 @@ public class PropertyService : IPropertyService
     private readonly IRepository<PropertyPhoto> _photoRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IRepository<PricingSettings> _pricingRepository;
-    private readonly ILoyaltyService _loyaltyService;
+    private readonly IStayDiscountService _stayDiscountService;
     private readonly IDynamicPricingService _dynamicPricingService;
-    private readonly IStudentVerificationService _studentVerificationService;
-    private readonly IConfiguration _configuration;
     private readonly IFileStorage _fileStorage;
     private readonly IAiClient _aiClient;
     private readonly IUserRepository _userRepository;
@@ -29,10 +27,8 @@ public class PropertyService : IPropertyService
         IRepository<PropertyPhoto> photoRepository,
         IBookingRepository bookingRepository,
         IRepository<PricingSettings> pricingRepository,
-        ILoyaltyService loyaltyService,
+        IStayDiscountService stayDiscountService,
         IDynamicPricingService dynamicPricingService,
-        IStudentVerificationService studentVerificationService,
-        IConfiguration configuration,
         IFileStorage fileStorage,
         IAiClient aiClient,
         IUserRepository userRepository,
@@ -42,10 +38,8 @@ public class PropertyService : IPropertyService
         _photoRepository = photoRepository;
         _bookingRepository = bookingRepository;
         _pricingRepository = pricingRepository;
-        _loyaltyService = loyaltyService;
+        _stayDiscountService = stayDiscountService;
         _dynamicPricingService = dynamicPricingService;
-        _studentVerificationService = studentVerificationService;
-        _configuration = configuration;
         _fileStorage = fileStorage;
         _aiClient = aiClient;
         _userRepository = userRepository;
@@ -319,22 +313,8 @@ public class PropertyService : IPropertyService
         pricing = await _dynamicPricingService.AdjustAsync(property, pricing, checkIn, checkOut);
         var memberPercent = string.IsNullOrEmpty(userId)
             ? 0m
-            : await MemberDiscountPercentAsync(userId, property);
+            : await _stayDiscountService.GetPercentAsync(userId, property);
         return StayPricingCalculator.Quote(property, pricing, checkIn, checkOut, memberPercent);
-    }
-
-    /// <summary>The caller's stay discount: their loyalty tier, or — on Student-stayType listings
-    /// when they hold an active student verification — the student rate, whichever is larger
-    /// (never stacked, so the discount stays predictable for hosts).</summary>
-    private async Task<decimal> MemberDiscountPercentAsync(string userId, Property property)
-    {
-        var loyalty = await _loyaltyService.GetDiscountPercentAsync(userId);
-        if (property.StayType != Enums.StayType.Student)
-            return loyalty;
-        var student = await _studentVerificationService.IsActiveStudentAsync(userId)
-            ? _configuration.GetValue("Student:DiscountPercent", 5m)
-            : 0m;
-        return Math.Max(loyalty, student);
     }
 
     /// <summary>Deletes a never-booked listing outright; archives one with booking history.

@@ -22,9 +22,6 @@ namespace TripNest.Core.Services;
 /// </summary>
 public class SplitBillingService : ISplitBillingService
 {
-    /// <summary>Prefix marking a provider metadata bookingId as a share charge.</summary>
-    public const string ReferencePrefix = "share:";
-
     private readonly IRepository<BookingShare> _shareRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IEscrowRepository _escrowRepository;
@@ -161,7 +158,7 @@ public class SplitBillingService : ISplitBillingService
 
         // "share:{id}" in the provider metadata routes the success webhook to the share path.
         var payment = await _paymentGateway.InitiatePaymentAsync(
-            share.Amount, _platform.Currency, participant.Email, $"{ReferencePrefix}{share.Id}");
+            share.Amount, _platform.Currency, participant.Email, $"{ISplitBillingService.ReferencePrefix}{share.Id}");
         if (!payment.Success)
             throw new ValidationException("The payment provider could not start the checkout. Please retry.");
 
@@ -270,7 +267,7 @@ public class SplitBillingService : ISplitBillingService
         if (escrow.Status != EscrowStatus.Pending)
             throw new InvalidOperationException($"Escrow cannot be held from status '{escrow.Status}'");
 
-        var groupReference = $"{ReferencePrefix}{booking.Id}";
+        var groupReference = $"{ISplitBillingService.ReferencePrefix}{booking.Id}";
         await _escrowEventRepository.AddAsync(EscrowStateMachine.Transition(
             escrow, EscrowStatus.HeldInEscrow, actor: "payment-provider",
             reason: $"All {allShares.Count} split shares paid (group ref {groupReference})"));
