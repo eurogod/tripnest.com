@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using TripNest.Core.DTOs.Verification;
 using TripNest.Core.Enums;
 using TripNest.Core.Exceptions;
@@ -52,15 +53,61 @@ public class VerificationService : IVerificationService
         if (latest?.Status == VerificationStatus.Verified)
             throw new ValidationException("This account is already verified");
 
-        // Guard: a submission is already in flight — don't queue duplicates.
-        if (latest?.Status == VerificationStatus.Pending)
-            return MapToResponse(latest);
-
         // Rate limit: cap attempts per user per hour to protect the paid NIA / face-match calls from abuse.
         var maxAttemptsPerHour = _configuration.GetValue<int>("Verification:MaxAttemptsPerHour", 5);
         var attemptsLastHour = await _verificationRepository.CountAttemptsSinceAsync(userId, DateTime.UtcNow.AddHours(-1));
         if (attemptsLastHour >= maxAttemptsPerHour)
             throw new TooManyRequestsException("Too many verification attempts. Please try again later.");
+
+        // The DB enforces one row per Ghana card number. Reuse the existing row for this user to
+        // restart a rejected verification, and block cards already tied to another account.
+        var cardRecord = await _verificationRepository.GetByGhanaCardNumberAsync(request.GhanaCardNumber);
+        if (cardRecord != null)
+        {
+            if (cardRecord.UserId != userId)
+                throw new ValidationException("This Ghana card number is already linked to another account.");
+
+            if (cardRecord.Status == VerificationStatus.Verified)
+                throw new ValidationException("This account is already verified");
+
+            if (cardRecord.Status == VerificationStatus.Pending)
+                return MapToResponse(cardRecord);
+
+            // Retrying reuses this row, so the per-hour row-count rate limit above can't see
+            // repeat attempts — this cooldown is what protects the paid NIA/face-match calls
+            // from a retry loop while still letting a user try again after a rejection.
+            var retryCooldownMinutes = _configuration.GetValue("Verification:RetryCooldownMinutes", 5);
+            if (cardRecord.SubmittedAt > DateTime.UtcNow.AddMinutes(-retryCooldownMinutes))
+                throw new TooManyRequestsException(
+                    $"Please wait {retryCooldownMinutes} minutes between verification attempts.");
+
+            cardRecord.SelfiePhotoPath = request.SelfiePhotoPath;
+            cardRecord.NiaPhotoUrl = string.Empty;
+            cardRecord.ClaimedFirstName = request.FirstName;
+            cardRecord.ClaimedLastName = request.LastName;
+            cardRecord.ClaimedDateOfBirth = request.DateOfBirth;
+            cardRecord.FaceMatchScore = null;
+            cardRecord.LivenessScore = null;
+            cardRecord.FailureReason = null;
+            cardRecord.Status = VerificationStatus.Pending;
+            cardRecord.SubmittedAt = DateTime.UtcNow;
+            cardRecord.ReviewedAt = null;
+
+            await _verificationRepository.UpdateAsync(cardRecord);
+
+            try
+            {
+                await _verificationRepository.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsGhanaCardUniqueViolation(ex))
+            {
+                throw new ValidationException("This Ghana card number is already linked to another account.");
+            }
+
+            _verificationQueue.Enqueue(cardRecord.Id);
+            _logger.LogInformation("Verification {VerificationId} re-queued for user {UserId}", cardRecord.Id, userId);
+            return MapToResponse(cardRecord);
+        }
 
         var verification = new VerificationRequest
         {
@@ -75,13 +122,28 @@ public class VerificationService : IVerificationService
         };
 
         await _verificationRepository.AddAsync(verification);
-        await _verificationRepository.SaveChangesAsync();
+        try
+        {
+            await _verificationRepository.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsGhanaCardUniqueViolation(ex))
+        {
+            throw new ValidationException("This Ghana card number is already linked to another account.");
+        }
 
         _verificationQueue.Enqueue(verification.Id);
 
         _logger.LogInformation("Verification {VerificationId} queued for user {UserId}", verification.Id, userId);
 
         return MapToResponse(verification);
+    }
+
+    private static bool IsGhanaCardUniqueViolation(DbUpdateException ex)
+    {
+        if (ex.InnerException is not PostgresException postgres || postgres.SqlState != PostgresErrorCodes.UniqueViolation)
+            return false;
+
+        return postgres.ConstraintName?.Contains("GhanaCardNumber", StringComparison.OrdinalIgnoreCase) == true;
     }
 
     /// <summary>
