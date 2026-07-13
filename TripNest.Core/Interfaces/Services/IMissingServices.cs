@@ -65,6 +65,11 @@ public interface ICaretakerService
     Task DeclineServiceRequestAsync(string requestId, string caretakerId);
     Task UpdateServiceRequestStatusAsync(string requestId, string status, string userId);
     Task SubmitServiceReviewAsync(string requestId, string userId, int rating, string? comment);
+    /// <summary>Real dashboard metrics for the signed-in caretaker across all their engagements.</summary>
+    Task<CaretakerDashboardResponse> GetMyDashboardAsync(string userId);
+    /// <summary>Caretaker self-toggles availability (Active/Inactive) across their engagements;
+    /// Suspended is admin-only and rejected. Returns the caretaker's profiles.</summary>
+    Task<List<CaretakerResponse>> UpdateMyAvailabilityAsync(string userId, CaretakerStatus status);
 }
 
 public interface IMaintenanceService

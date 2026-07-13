@@ -1,3 +1,4 @@
+using TripNest.Core.Enums;
 namespace TripNest.Core.DTOs.Caretakers;
 
 public class AssignCaretakerRequest
@@ -43,4 +44,11 @@ public class SubmitServiceReviewRequest
 {
     public int Rating { get; set; }
     public string? Comment { get; set; }
+}
+
+/// <summary>A caretaker toggling their own availability. Only Active and Inactive are
+/// self-serviceable; Suspended is an admin-imposed state and is rejected.</summary>
+public class UpdateCaretakerAvailabilityRequest
+{
+    public required CaretakerStatus Status { get; set; }
 }

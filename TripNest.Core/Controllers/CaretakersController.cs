@@ -59,6 +59,23 @@ public class CaretakersController : ControllerBase
         return Ok(ApiResponse<CaretakerResponse>.Ok("Caretaker profile retrieved", profile));
     }
 
+    /// <summary>Toggle the signed-in caretaker's availability (Active/Inactive) across their
+    /// engagements. Suspended is admin-only and rejected.</summary>
+    [HttpPatch("me/availability")]
+    [Authorize(Roles = "Caretaker")]
+    [ProducesResponseType(typeof(ApiResponse<List<CaretakerResponse>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<List<CaretakerResponse>>>> UpdateMyAvailability(
+        [FromBody] UpdateCaretakerAvailabilityRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var profiles = await _caretakerService.UpdateMyAvailabilityAsync(userId, request.Status);
+        return Ok(ApiResponse<List<CaretakerResponse>>.Ok("Availability updated", profiles));
+    }
+
     /// <summary>
     /// Create or update the caller's public directory profile — without it a Caretaker-role account
     /// never appears in the caretakers list and cannot be assigned or hired. Requires identity

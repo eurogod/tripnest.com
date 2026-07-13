@@ -1,3 +1,5 @@
+using TripNest.Core.Interfaces.Services;
+using TripNest.Core.DTOs.Caretakers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -20,6 +22,7 @@ public class PersonalDashboardController : ControllerBase
     private readonly IEscrowRepository _escrowRepository;
     private readonly IWalkthroughRepository _walkthroughRepository;
     private readonly ITrustScoreSnapshotRepository _trustScoreRepository;
+    private readonly ICaretakerService _caretakerService;
     private readonly ILogger<PersonalDashboardController> _logger;
 
     public PersonalDashboardController(
@@ -29,6 +32,7 @@ public class PersonalDashboardController : ControllerBase
         IEscrowRepository escrowRepository,
         IWalkthroughRepository walkthroughRepository,
         ITrustScoreSnapshotRepository trustScoreRepository,
+        ICaretakerService caretakerService,
         ILogger<PersonalDashboardController> logger)
     {
         _userRepository = userRepository;
@@ -37,6 +41,7 @@ public class PersonalDashboardController : ControllerBase
         _escrowRepository = escrowRepository;
         _walkthroughRepository = walkthroughRepository;
         _trustScoreRepository = trustScoreRepository;
+        _caretakerService = caretakerService;
         _logger = logger;
     }
 
@@ -168,29 +173,15 @@ public class PersonalDashboardController : ControllerBase
     /// </summary>
     [HttpGet("caretaker")]
     [Authorize(Roles = "Caretaker")]
-    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
-    public Task<ActionResult<ApiResponse<object>>> GetCaretakerDashboard()
+    [ProducesResponseType(typeof(ApiResponse<CaretakerDashboardResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<CaretakerDashboardResponse>>> GetCaretakerDashboard()
     {
-        var userId = User.GetUserId()
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var userId = User.GetUserId();
         if (string.IsNullOrEmpty(userId))
-            return Task.FromResult<ActionResult<ApiResponse<object>>>(Unauthorized(ApiResponse<object>.UnAuthorized()));
+            return Unauthorized(ApiResponse<CaretakerDashboardResponse>.UnAuthorized());
 
-        var dashboard = new
-        {
-            TotalServiceRequests = 0,
-            ActiveServiceRequests = 0,
-            CompletedServiceRequests = 0,
-            PendingRequests = 0,
-            AverageRating = 0m,
-            TotalReviews = 0,
-            EarningsThisMonth = 0m,
-            RecentActivity = new
-            {
-                Message = "Track your service requests and earnings here"
-            }
-        };
-
-        return Task.FromResult<ActionResult<ApiResponse<object>>>(Ok(ApiResponse<object>.Ok("Caretaker dashboard retrieved", dashboard)));
+        // Real metrics aggregated across the caller's caretaker engagements (was hardcoded zeros).
+        var dashboard = await _caretakerService.GetMyDashboardAsync(userId);
+        return Ok(ApiResponse<CaretakerDashboardResponse>.Ok("Caretaker dashboard retrieved", dashboard));
     }
 }
