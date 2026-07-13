@@ -335,11 +335,15 @@ is auto-refunded.
 | GET | `/api/roommates/matches/{otherUserId}/explanation` | 🔒 why a pairing fits + what to discuss (cached per pair) |
 | GET | `/api/claims/{id}/brief` | 🔒 `[Admin]` neutral reading brief: both sides + photo evidence described (vision); never recommends an amount |
 | GET | `/api/escrow/{id}/dispute-brief` | 🔒 `[Admin]` neutral brief from the dispute note + audit trail |
-| GET | `/api/properties/{propertyId}/walkthrough/ai-check` | 🔒 `[Agent,Admin]` vision consistency check of listing photos vs facts (reviewer assist; photo-based v1) |
+| GET | `/api/properties/{propertyId}/walkthrough/ai-check` | 🔒 `[Agent,Admin]` vision consistency check: samples frames from the walkthrough VIDEO (ffmpeg; falls back to listing photos when ffmpeg is absent — `videoFramesAnalysed` reports which) vs the listing facts |
 
 Maintenance reports are auto-triaged at creation (`triageUrgency` Low/Medium/High/Emergency +
 `triageCategory` trade label, whitelisted — hallucinated labels are dropped; null when AI is off).
 All AI output is **advisory**: it never drives money movement, verification outcomes, or approvals.
+
+**Notifications** are stored in English (write path never calls AI) and translated into the reader's
+`PreferredLanguage` at read time on `GET /api/notifications/mine` — cached ~30 days per text+language,
+falling back to English when AI is off or a translation fails.
 
 ### Roommate matching — `api/roommates`
 | Method | Path | Access |

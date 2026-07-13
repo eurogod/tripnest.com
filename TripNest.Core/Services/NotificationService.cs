@@ -16,6 +16,7 @@ public class NotificationService : INotificationService
     private readonly ISmsSender _smsSender;
     private readonly IEmailSender _emailSender;
     private readonly INotificationDispatchQueue _dispatchQueue;
+    private readonly ITranslationService _translationService;
     private readonly ILogger<NotificationService> _logger;
 
     public NotificationService(
@@ -25,6 +26,7 @@ public class NotificationService : INotificationService
         ISmsSender smsSender,
         IEmailSender emailSender,
         INotificationDispatchQueue dispatchQueue,
+        ITranslationService translationService,
         ILogger<NotificationService> logger)
     {
         _notificationRepository = notificationRepository;
@@ -33,6 +35,7 @@ public class NotificationService : INotificationService
         _smsSender = smsSender;
         _emailSender = emailSender;
         _dispatchQueue = dispatchQueue;
+        _translationService = translationService;
         _logger = logger;
     }
 
@@ -176,7 +179,17 @@ public class NotificationService : INotificationService
                 q => q.OrderByDescending(n => n.CreatedAt),
                 pageNum, size);
 
-            return Paging.Result(items.Select(Map).ToList(), totalCount, pageNum, size);
+            var mapped = items.Select(Map).ToList();
+
+            // Render in the reader's language on the way out (cached; English is a no-op). The
+            // stored notification stays English — translation is a read-time presentation concern,
+            // so nothing on the write path ever waits on the AI provider.
+            var language = (await _userRepository.GetByIdAsync(userId))?.PreferredLanguage ?? Enums.Language.English;
+            if (language != Enums.Language.English)
+                foreach (var n in mapped)
+                    (n.Title, n.Message) = await _translationService.TranslateNotificationAsync(n.Title, n.Message, language);
+
+            return Paging.Result(mapped, totalCount, pageNum, size);
         }
         catch (Exception ex)
         {

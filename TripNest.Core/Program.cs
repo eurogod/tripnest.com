@@ -317,6 +317,9 @@ builder.Services.AddScoped<IStudentVerificationService, StudentVerificationServi
 builder.Services.AddScoped<IDynamicPricingService, DynamicPricingService>();
 builder.Services.AddScoped<IDamageClaimService, DamageClaimService>();
 builder.Services.AddScoped<IStayDiscountService, StayDiscountService>();
+builder.Services.AddScoped<ITranslationService, TranslationService>();
+// ffmpeg presence is probed once — register as a singleton so we don't re-probe per request.
+builder.Services.AddSingleton<IVideoFrameExtractor, FfmpegVideoFrameExtractor>();
 builder.Services.AddScoped<IAiInsightsService, AiInsightsService>();
 builder.Services.AddScoped<IAgreementService, AgreementService>();
 builder.Services.AddScoped<ICaretakerService, CaretakerService>();
