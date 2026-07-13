@@ -11,6 +11,9 @@ namespace TripNest.Core.Interfaces.Services;
 public interface IAssistantService
 {
     Task<AssistantReplyResponse> AskAsync(string userId, string question);
+    /// <summary>Direct customer-care handoff (no AI): files a ticket + opens an admin chat, so
+    /// reaching a human never depends on the assistant being configured or available.</summary>
+    Task<AssistantReplyResponse> ContactSupportAsync(string userId, string? message);
     Task<List<AssistantHistoryItem>> GetHistoryAsync(string userId, int limit = 50);
     Task<PagedResult<SupportTicketResponse>> GetOpenTicketsAsync(int page, int pageSize);
     Task ResolveTicketAsync(string ticketId, string adminId);

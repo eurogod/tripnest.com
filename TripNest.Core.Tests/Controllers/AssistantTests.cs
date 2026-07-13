@@ -177,6 +177,43 @@ public class AssistantTests : TestBase
         }
     }
 
+    [Fact]
+    public async Task ContactSupport_WorksWithAiDisabled_FilesTicketAndOpensChat()
+    {
+        // An admin must exist to receive the handoff and open the chat.
+        var (adminId, _) = await RegisterAndLoginAsync(UserRole.Tenant);
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.Set<User>().FindAsync(adminId))!.Role = UserRole.Admin;
+            await db.SaveChangesAsync();
+        }
+
+        var (userId, _) = await RegisterAndLoginAsync(UserRole.Tenant);
+
+        // The exact failure scenario: AI is OFF. Asking the assistant would 400, but reaching a
+        // human must still work.
+        var stub = _fixture.Services.GetRequiredService<StubAiClient>();
+        stub.Configured = false;
+        var ask = await _httpClient.PostAsJsonAsync("/api/assistant/ask", new { question = "help" });
+        Assert.Equal(HttpStatusCode.BadRequest, ask.StatusCode);
+
+        var res = await _httpClient.PostAsJsonAsync("/api/assistant/contact-support",
+            new { message = "I was double charged and need help" });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var data = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("data");
+        Assert.True(data.GetProperty("escalated").GetBoolean());
+        Assert.False(string.IsNullOrEmpty(data.GetProperty("supportTicketId").GetString()));
+        Assert.False(string.IsNullOrEmpty(data.GetProperty("supportConversationId").GetString())); // live chat opened
+
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.True(db.Set<SupportTicket>().Any(t => t.UserId == userId));
+            Assert.True(db.Set<Notification>().Any(n => n.UserId == adminId)); // admin paged
+        }
+    }
+
     /// <summary>Logs in an existing account and sets the bearer token (for re-login after a role change).</summary>
     private async Task LoginAsync(string email)
     {

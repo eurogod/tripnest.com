@@ -168,12 +168,44 @@ public class AssistantService : IAssistantService
             $"An admin has resolved your support request: {ticket.Subject}");
     }
 
-    private async Task<(string TicketId, string? ConversationId)> EscalateAsync(User user, string question, AssistantModelReply reply)
+    private Task<(string TicketId, string? ConversationId)> EscalateAsync(User user, string question, AssistantModelReply reply)
     {
-        var subject = string.IsNullOrWhiteSpace(reply.EscalationSubject)
-            ? "Assistant escalation"
-            : reply.EscalationSubject!.Trim();
+        var subject = string.IsNullOrWhiteSpace(reply.EscalationSubject) ? "Assistant escalation" : reply.EscalationSubject!.Trim();
+        var summary = $"User asked: {question}\n\nAssistant's summary for admins: {reply.EscalationSummary ?? "(none)"}";
+        return FileSupportTicketAsync(user, subject, summary, question, reply.EscalationSummary ?? question);
+    }
 
+    /// <summary>
+    /// Direct customer-care handoff that does NOT touch the AI — a user asking to reach a human
+    /// must never be blocked by the assistant being unconfigured, rate-limited, or down. Files a
+    /// support ticket, opens a live admin chat, and notifies admins, exactly like an AI escalation.
+    /// </summary>
+    public async Task<AssistantReplyResponse> ContactSupportAsync(string userId, string? message)
+    {
+        var user = await _userRepository.GetByIdAsync(userId) ?? throw new NotFoundException("User");
+        var request = string.IsNullOrWhiteSpace(message) ? "I'd like to contact customer care." : message.Trim();
+
+        var (ticketId, conversationId) = await FileSupportTicketAsync(
+            user, "Customer care request", $"User requested customer care.\n\nMessage: {request}", request, request);
+
+        var acknowledgement = conversationId is not null
+            ? "You're connected to customer care — an admin has been notified and a chat is open in your Messages."
+            : "Your request reached customer care and a support ticket was filed. Someone will get back to you shortly.";
+
+        return new AssistantReplyResponse
+        {
+            Answer = acknowledgement,
+            Escalated = true,
+            SupportTicketId = ticketId,
+            SupportConversationId = conversationId,
+        };
+    }
+
+    /// <summary>Files a support ticket, opens a live admin chat (if any admin exists) seeded with
+    /// the user's message, and notifies admins. Shared by AI escalation and the direct contact path.</summary>
+    private async Task<(string TicketId, string? ConversationId)> FileSupportTicketAsync(
+        User user, string subject, string summary, string openingMessage, string notifyBlurb)
+    {
         var admins = (await _userRepository.FindAsync(u => u.Role == UserRole.Admin && u.IsActive)).ToList();
 
         // Open a real chat with an admin so the user can talk to a human, not just wait on a
@@ -192,7 +224,7 @@ public class AssistantService : IAssistantService
             {
                 ConversationId = conversation.Id,
                 SenderId = user.Id,
-                Content = $"[Support request] {question}",
+                Content = $"[Support request] {openingMessage}",
                 Type = MessageType.Text,
             });
             await _conversationRepository.SaveChangesAsync();
@@ -203,7 +235,7 @@ public class AssistantService : IAssistantService
         {
             UserId = user.Id,
             Subject = subject.Length > 200 ? subject[..200] : subject,
-            Summary = $"User asked: {question}\n\nAssistant's summary for admins: {reply.EscalationSummary ?? "(none)"}",
+            Summary = summary,
             ConversationId = conversationId,
         };
         await _ticketRepository.AddAsync(ticket);
@@ -214,11 +246,11 @@ public class AssistantService : IAssistantService
         {
             await _notificationService.NotifyAsync(a.Id, NotificationType.General,
                 $"Support ticket: {ticket.Subject}",
-                $"{user.FullName} ({user.Email}) needs help. {reply.EscalationSummary ?? question}" +
+                $"{user.FullName} ({user.Email}) needs help. {notifyBlurb}" +
                 (conversationId is not null ? " (Live chat opened — reply in Messages.)" : ""));
         }
 
-        _logger.LogInformation("Assistant escalated ticket {TicketId} for user {UserId} (conversation {ConversationId})",
+        _logger.LogInformation("Support ticket {TicketId} filed for user {UserId} (conversation {ConversationId})",
             ticket.Id, user.Id, conversationId ?? "none");
         return (ticket.Id, conversationId);
     }

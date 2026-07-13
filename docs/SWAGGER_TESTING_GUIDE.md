@@ -258,6 +258,11 @@ Only this phase needs TripNest.Id + face-match running.
 8. **Walkthrough AI check** — `GET /api/properties/{propertyId}/walkthrough/ai-check` (Agent/Admin):
    vision consistency of the walkthrough video (or photos if no ffmpeg) against the listing facts.
 
+> **Reaching a human without AI:** `POST /api/assistant/contact-support` `{ "message": "..." }`
+> files a support ticket and opens a live admin chat **without any AI call** — so "contact
+> customer care" works even when the assistant returns "not configured/unavailable" (no AI key,
+> rate-limited, or provider down). `POST /api/assistant/ask` is the AI Q&A path and needs a key.
+
 ## 9. Phase G — AI assist (needs `Ai:Gemini:ApiKey` or `Ai:ApiKey`)
 
 All advisory — nothing here moves money or decides verifications; each returns a friendly 400
