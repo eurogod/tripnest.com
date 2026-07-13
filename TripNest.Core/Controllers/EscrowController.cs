@@ -169,6 +169,18 @@ public class EscrowController : ControllerBase
         }
     }
 
+    /// <summary>AI reading brief for a disputed escrow (dispute note + audit trail). Advisory only.</summary>
+    [HttpGet("{id}/dispute-brief")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.AdminBriefResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.AdminBriefResponse>>> GetDisputeBrief(
+        string id, [FromServices] IAiInsightsService aiInsights)
+    {
+        var brief = await aiInsights.GetDisputeBriefAsync(id);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.AdminBriefResponse>.Ok("Dispute brief", brief));
+    }
+
     /// <summary>
     /// Verifies Paystack's HMAC-SHA512 signature (hex-encoded) over the raw body, in constant time.
     /// </summary>

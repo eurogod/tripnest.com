@@ -102,4 +102,16 @@ public class ReviewsController : ControllerBase
         await _reviewService.DeleteReviewAsync(id, userId);
         return Ok(ApiResponse<ReviewResponse>.Ok("Review deleted", null));
     }
+
+    /// <summary>AI "what guests say" for a listing — themes from its reviews (cached ~24h; needs 2+ reviews).</summary>
+    [HttpGet("property/{propertyId}/summary")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.ReviewSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.ReviewSummaryResponse>>> GetReviewSummary(
+        string propertyId, [FromServices] IAiInsightsService aiInsights)
+    {
+        var summary = await aiInsights.GetReviewSummaryAsync(propertyId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.ReviewSummaryResponse>.Ok("Review summary", summary));
+    }
 }

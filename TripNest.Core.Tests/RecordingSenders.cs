@@ -69,6 +69,13 @@ public class StubAiClient : IAiClient
         Completions.Add((systemPrompt, userPrompt));
         return Task.FromResult(Configured ? NextCompletion : null);
     }
+
+    public Task<string?> CompleteWithImagesAsync(string systemPrompt, string userPrompt,
+        IReadOnlyList<TripNest.Core.Interfaces.Services.AiImage> images, CancellationToken cancellationToken = default)
+    {
+        Completions.Add((systemPrompt, $"[{images.Count} image(s)] {userPrompt}"));
+        return Task.FromResult(Configured ? NextCompletion : null);
+    }
 }
 
 /// <summary>Test double for the payment gateway with configurable verify behaviour.</summary>

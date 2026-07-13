@@ -171,4 +171,54 @@ public class GeminiAiClient : IAiClient
             return null;
         }
     }
+
+    public async Task<string?> CompleteWithImagesAsync(string systemPrompt, string userPrompt,
+        IReadOnlyList<AiImage> images, CancellationToken cancellationToken = default)
+    {
+        if (!IsConfigured)
+        {
+            _logger.LogInformation("[Gemini not configured] skipping multimodal completion");
+            return null;
+        }
+
+        try
+        {
+            var parts = new List<object>();
+            foreach (var image in images)
+                parts.Add(new { inlineData = new { mimeType = image.MediaType, data = Convert.ToBase64String(image.Data) } });
+            parts.Add(new { text = userPrompt });
+
+            var payload = new
+            {
+                systemInstruction = new { parts = new[] { new { text = systemPrompt } } },
+                contents = new[] { new { role = "user", parts } },
+                generationConfig = new { responseMimeType = "application/json" },
+            };
+
+            using var response = await _httpClient.PostAsync(
+                $"v1beta/models/{Uri.EscapeDataString(_model)}:generateContent",
+                new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"),
+                cancellationToken);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Gemini multimodal completion failed ({Status}): {Body}", response.StatusCode, json);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+                return null;
+
+            return string.Concat(candidates[0]
+                .GetProperty("content").GetProperty("parts").EnumerateArray()
+                .Where(p => p.TryGetProperty("text", out _))
+                .Select(p => p.GetProperty("text").GetString()));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gemini multimodal completion failed");
+            return null;
+        }
+    }
 }

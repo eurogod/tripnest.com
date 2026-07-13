@@ -87,4 +87,20 @@ public class RoommatesController : ControllerBase
         var matches = await _roommateService.GetMatchesAsync(userId, location, maxBudget, university, page, pageSize);
         return Ok(ApiResponse<PagedResult<RoommateMatchResponse>>.Ok("Roommate matches retrieved", matches));
     }
+
+    /// <summary>AI explanation of why the caller and a matched profile fit — sentences on top of
+    /// the numeric score, plus things worth discussing before moving in (cached per pair).</summary>
+    [HttpGet("matches/{otherUserId}/explanation")]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.RoommateExplanationResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.RoommateExplanationResponse>>> ExplainMatch(
+        string otherUserId, [FromServices] IAiInsightsService aiInsights)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var explanation = await aiInsights.ExplainRoommateMatchAsync(userId, otherUserId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.RoommateExplanationResponse>.Ok("Match explanation", explanation));
+    }
 }

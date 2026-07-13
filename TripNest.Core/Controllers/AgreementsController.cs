@@ -90,6 +90,22 @@ public class AgreementsController : ControllerBase
         return Ok(ApiResponse<object>.Ok("Agreement signed", null));
     }
 
+    /// <summary>Plain-language AI explanation of the agreement in the caller's preferred language
+    /// (parties only). Advisory — the signed terms remain the binding text.</summary>
+    [HttpGet("{id}/summary")]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.AgreementSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.AgreementSummaryResponse>>> GetSummary(
+        string id, [FromServices] IAiInsightsService aiInsights)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var summary = await aiInsights.GetAgreementSummaryAsync(id, userId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.AgreementSummaryResponse>.Ok("Agreement summary", summary));
+    }
+
     public record TerminateAgreementRequest(string Reason);
 
     /// <summary>Terminates a signed agreement (either party; record-keeping — money flows are

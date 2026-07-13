@@ -325,6 +325,22 @@ inside `Rent:DueReminderDays` (default 3) and to **Overdue** past the due date, 
 parties. Cancelling the booking voids outstanding invoices; rent charged against a voided invoice
 is auto-refunded.
 
+### AI assist — advisory features on `IAiClient` (Gemini/Claude; friendly 400 when no key)
+| Method | Path | Access |
+|---|---|---|
+| GET | `/api/reviews/property/{id}/summary` | 🌐 "what guests say" themes from the listing's reviews (needs 2+, cached ~24h) |
+| GET | `/api/properties/search/natural?q=` | 🌐 phrase → structured filters → the real search; response echoes the parsed criteria |
+| GET | `/api/properties/{id}/quality-report` | 🔒 (owner) deterministic completeness checks + 0–100 score computed in code, AI suggestions + photo notes (vision) |
+| GET | `/api/agreements/{id}/summary` | 🔒 (parties) plain-language explanation in the caller's `PreferredLanguage` |
+| GET | `/api/roommates/matches/{otherUserId}/explanation` | 🔒 why a pairing fits + what to discuss (cached per pair) |
+| GET | `/api/claims/{id}/brief` | 🔒 `[Admin]` neutral reading brief: both sides + photo evidence described (vision); never recommends an amount |
+| GET | `/api/escrow/{id}/dispute-brief` | 🔒 `[Admin]` neutral brief from the dispute note + audit trail |
+| GET | `/api/properties/{propertyId}/walkthrough/ai-check` | 🔒 `[Agent,Admin]` vision consistency check of listing photos vs facts (reviewer assist; photo-based v1) |
+
+Maintenance reports are auto-triaged at creation (`triageUrgency` Low/Medium/High/Emergency +
+`triageCategory` trade label, whitelisted — hallucinated labels are dropped; null when AI is off).
+All AI output is **advisory**: it never drives money movement, verification outcomes, or approvals.
+
 ### Roommate matching — `api/roommates`
 | Method | Path | Access |
 |---|---|---|

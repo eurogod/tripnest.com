@@ -101,6 +101,26 @@ public class WalkthroughsController : ControllerBase
         return Ok(ApiResponse<IEnumerable<WalkthroughResponse>>.Ok("Walkthroughs retrieved", response));
     }
 
+    /// <summary>
+    /// Vision assist for the human reviewer (photo-based v1): are the listing's photos consistent
+    /// with its stated facts? Red flags (stock-photo look, mismatched rooms) surface here.
+    /// Approval remains a human decision. (Video frame analysis needs ffmpeg — future work.)
+    /// </summary>
+    [HttpGet("{propertyId}/walkthrough/ai-check")]
+    [Authorize(Roles = "Agent,Admin")]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.WalkthroughAiCheckResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.WalkthroughAiCheckResponse>>> GetAiCheck(
+        string propertyId, [FromServices] IAiInsightsService aiInsights)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var check = await aiInsights.GetWalkthroughCheckAsync(propertyId, userId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.WalkthroughAiCheckResponse>.Ok("AI consistency check", check));
+    }
+
     /// <summary>Get a single walkthrough video record.</summary>
     [HttpGet("{propertyId}/walkthroughs/{walkthroughId}")]
     [ProducesResponseType(typeof(ApiResponse<WalkthroughResponse>), StatusCodes.Status200OK)]
