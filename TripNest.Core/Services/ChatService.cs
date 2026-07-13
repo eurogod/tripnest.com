@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Chat;
 using TripNest.Core.Exceptions;
 using TripNest.Core.DTOs.Shared;
@@ -17,6 +18,7 @@ public class ChatService : IChatService
     private readonly IAiClient _aiClient;
     private readonly IScamDetectionService _scamDetection;
     private readonly Hubs.IPresenceTracker _presence;
+    private readonly IFileStorage _fileStorage;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
@@ -27,6 +29,7 @@ public class ChatService : IChatService
         IAiClient aiClient,
         IScamDetectionService scamDetection,
         Hubs.IPresenceTracker presence,
+        IFileStorage fileStorage,
         ILogger<ChatService> logger)
     {
         _conversationRepository = conversationRepository;
@@ -36,6 +39,7 @@ public class ChatService : IChatService
         _aiClient = aiClient;
         _scamDetection = scamDetection;
         _presence = presence;
+        _fileStorage = fileStorage;
         _logger = logger;
     }
 
@@ -239,6 +243,60 @@ public class ChatService : IChatService
         }
     }
 
+    public async Task<MessageResponse> SendAttachmentAsync(
+        string conversationId, string userId, IFormFile file, string? caption)
+    {
+        var conversation = await _conversationRepository.GetByIdAsync(conversationId)
+            ?? throw new NotFoundException("Conversation");
+        if (conversation.User1Id != userId && conversation.User2Id != userId)
+            throw new ForbiddenException("You are not a participant in this conversation");
+        if (file is null || file.Length == 0)
+            throw new ValidationException("No file was provided");
+
+        // Map the file to a message type + storage kind from its extension; storage then enforces
+        // the extension allowlist, size cap and magic-byte check for that kind.
+        var (messageType, kind) = ClassifyAttachment(file.FileName);
+        var mediaPath = await _fileStorage.SaveAsync($"chat/{conversationId}", file, kind);
+
+        var message = new Message
+        {
+            ConversationId = conversationId,
+            SenderId = userId,
+            // Content carries the caption, else the original filename, so the list is readable
+            // even before the media loads.
+            Content = string.IsNullOrWhiteSpace(caption) ? Path.GetFileName(file.FileName) : caption.Trim(),
+            Type = messageType,
+            MediaPath = mediaPath,
+            MediaType = file.ContentType
+        };
+
+        await _messageRepository.AddAsync(message);
+        conversation.LastMessageAt = DateTime.UtcNow;
+        await _conversationRepository.UpdateAsync(conversation);
+        await _messageRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Attachment message {MessageId} ({Type}) sent in conversation {ConversationId} by {UserId}",
+            message.Id, messageType, conversationId, userId);
+
+        // A caption is still free text — run the same off-platform-payment scan as a text message.
+        await _scamDetection.ScanMessageAsync(message, conversation);
+
+        return MapMessage(message);
+    }
+
+    private static (MessageType Type, UploadKind Kind) ClassifyAttachment(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" => (MessageType.Image, UploadKind.Image),
+            ".mp3" or ".m4a" or ".aac" or ".ogg" or ".oga" or ".wav" or ".webm" => (MessageType.Audio, UploadKind.Audio),
+            ".pdf" or ".doc" or ".docx" or ".txt" => (MessageType.Document, UploadKind.Document),
+            _ => throw new ValidationException(
+                "Unsupported attachment. Send an image, a voice note (mp3/m4a/ogg/wav/webm), or a document (pdf/doc/docx/txt)."),
+        };
+    }
+
     public async Task MarkMessageAsReadAsync(string messageId, string userId)
     {
         try
@@ -348,6 +406,8 @@ public class ChatService : IChatService
             SenderId = m.SenderId,
             Content = m.Content,
             Type = m.Type,
+            MediaUrl = m.MediaPath,
+            MediaType = m.MediaType,
             CreatedAt = m.CreatedAt,
             IsRead = m.IsRead,
             ReadAt = m.ReadAt

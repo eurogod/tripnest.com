@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Agents;
 using TripNest.Core.DTOs.Agreements;
 using TripNest.Core.DTOs.Caretakers;
@@ -150,6 +151,8 @@ public interface IChatService
     Task<ConversationResponse?> GetConversationAsync(string conversationId, string userId);
     Task<PagedResult<MessageResponse>> GetConversationMessagesAsync(string conversationId, string userId, int page, int pageSize);
     Task<MessageResponse> SendMessageAsync(string conversationId, string userId, string body);
+    /// <summary>Sends an image, voice note or document attachment (kind inferred from the file).</summary>
+    Task<MessageResponse> SendAttachmentAsync(string conversationId, string userId, IFormFile file, string? caption);
     Task MarkMessageAsReadAsync(string messageId, string userId);
     Task MarkConversationAsReadAsync(string conversationId, string userId);
     Task DeleteConversationAsync(string conversationId, string userId);
