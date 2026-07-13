@@ -19,6 +19,12 @@ in earlier ones.
   charge "succeeds" when you call the verify endpoints. SMS/email log to console when
   TextBee/SMTP aren't configured, and OTP codes are printed in the API console log:
   look for `[Email OTP not delivered — provider unconfigured] code for ...`.
+- **AI-assist features** (Phase G, notification translation, maintenance triage) need
+  `Ai:Gemini:ApiKey` (free tier) or `Ai:ApiKey` (Claude) in user-secrets. Without a key they
+  return a friendly **400** ("AI features are not configured") — that's expected, not a bug.
+- **Walkthrough video-frame analysis** additionally needs `ffmpeg` on the server
+  (`apt install ffmpeg`). Without it, the AI check falls back to listing photos and reports
+  `videoFramesAnalysed: 0`.
 
 ## 1. Start the three services
 
@@ -197,9 +203,18 @@ Only this phase needs TripNest.Id + face-match running.
     **Student**-stayType listings now show 5% off.
 11. **Chat** — `POST /api/chat/conversations` with the landlord's `otherUserId` (from the
     property's `ownerId`) → send/read messages → `GET /api/chat/conversations/mine`.
-12. Notifications (`GET /api/notifications/mine`, mark read, `PUT /api/communication-preferences/mine`),
-    wishlist, safety (`PUT /api/safety/trusted-contact`, `POST /api/safety/check-in`),
-    maintenance (`POST /api/maintenance` → landlord updates status → converts to service request),
+    - **Attachments & voice notes** — `POST /api/chat/conversations/{id}/messages/attachment`
+      (multipart `file` + optional `caption`): send an image, a voice note (mp3/m4a/ogg/wav/webm),
+      or a document (pdf/doc/docx/txt). The response's `type` reflects the kind and `mediaUrl`
+      points at the stored file; it broadcasts over SignalR like a text message. Try an HTML file
+      renamed `.png` → **400** (magic-byte check).
+12. Notifications (`GET /api/notifications/mine`, mark read, `PUT /api/communication-preferences/mine`).
+    - **Multilingual** — set the account's `PreferredLanguage` to Twi/Ga/French (via `PUT /api/profile`
+      or the DB), then re-fetch `/api/notifications/mine`: titles/messages come back translated
+      (needs `Ai:Gemini:ApiKey`; cached, English is untouched). The stored notification stays English.
+13. Wishlist, safety (`PUT /api/safety/trusted-contact`, `POST /api/safety/check-in`),
+    maintenance (`POST /api/maintenance` → note the auto-filled `triageUrgency`/`triageCategory`
+    when AI is configured → landlord updates status → converts to service request),
     inquiries and tours on the property.
 
 ## 7. Phase E — Group, long-term & roommates
@@ -237,8 +252,43 @@ Only this phase needs TripNest.Id + face-match running.
 5. **Escrow arbitration** — `POST /api/escrow/{id}/dispute` (tenant) →
    `PATCH /api/escrow/{id}/resolve-dispute` and `POST /api/escrow/{id}/refund` (admin).
 6. Walkthrough reviews (Phase B step 7) and assistant escalations round out the admin surface.
+7. **AI admin briefs** (needs an AI key) — on a filed damage claim: `GET /api/claims/{id}/brief`
+   (neutral summary of both sides, photos described); on a disputed escrow:
+   `GET /api/escrow/{id}/dispute-brief`. Both are advisory — they never recommend a decision.
+8. **Walkthrough AI check** — `GET /api/properties/{propertyId}/walkthrough/ai-check` (Agent/Admin):
+   vision consistency of the walkthrough video (or photos if no ffmpeg) against the listing facts.
 
-## 9. What to expect when things "fail" correctly
+## 9. Phase G — AI assist (needs `Ai:Gemini:ApiKey` or `Ai:ApiKey`)
+
+All advisory — nothing here moves money or decides verifications; each returns a friendly 400
+when no AI key is configured.
+
+1. **Review summary** (public) — on a listing with 2+ reviews (seed some via Phase D step 8):
+   `GET /api/reviews/property/{propertyId}/summary` → "what guests say" themes (cached ~24h).
+2. **Natural-language search** (public) — `GET /api/properties/search/natural?q=2 bedroom in Accra
+   under 500 for a weekend in September` → parsed `criteria` + matching results.
+3. **Listing quality coach** (owner) — as kwame: `GET /api/properties/{propertyId}/quality-report`
+   → a 0–100 completeness score (computed in code) plus AI suggestions and photo notes.
+4. **Agreement summary** (parties) — on a signed agreement: `GET /api/agreements/{id}/summary` →
+   plain-language explanation in your `PreferredLanguage`.
+5. **Roommate match explanation** — with two roommate profiles (Phase E step 3):
+   `GET /api/roommates/matches/{otherUserId}/explanation` → why you fit + what to discuss.
+6. Admin briefs and the walkthrough check live in Phase F (steps 7–8).
+
+## 10. Phase H — Caretaker (login `ebo@tripnest.local`)
+
+1. **Directory profile** — `GET /api/caretakers/me` (404 until created) →
+   `PUT /api/caretakers/me` to create/update it (makes you visible in `GET /api/caretakers`).
+2. **Availability** — `PATCH /api/caretakers/me/availability` `{ "status": 1 }` (0=Active,
+   1=Inactive; **2=Suspended → 400**, admin-only).
+3. **Assignments & requests** — a landlord assigns you (`POST /api/caretakers/assign`); see
+   `GET /api/caretakers/assignments/mine`. On a service request:
+   `PATCH /api/caretakers/service-requests/{id}/accept` / `.../decline` / `.../status`.
+4. **Real dashboard** — `GET /api/personaldashboard/caretaker` now returns live metrics
+   (service-request counts, average rating, monthly compensation, active engagements, recent
+   requests) — not the old hardcoded zeros.
+
+## 11. What to expect when things "fail" correctly
 
 | You did | Expect |
 |---|---|
@@ -248,6 +298,10 @@ Only this phase needs TripNest.Id + face-match running.
 | Booked dates that are blocked/booked | 409 |
 | Duplicate agreement / review / claim on the same booking | 409 |
 | Signed an agreement whose terms changed after the first signature | 409 (tamper evidence) |
+| Uploaded a chat attachment with a spoofed type (HTML renamed `.png`/`.pdf`) | 400 (magic-byte check) |
+| Caretaker self-setting availability to Suspended | 400 (admin-only) |
+| Any AI endpoint with no `Ai:*` key configured | 400 ("AI features are not configured") |
+| Walkthrough AI check with no ffmpeg installed | 200, but `videoFramesAnalysed: 0` (photo fallback) |
 | Verification `ServiceError` rejection | TripNest.Id or the face-match sidecar isn't running |
 | Everything timing out | Azure firewall — your IP changed |
 
