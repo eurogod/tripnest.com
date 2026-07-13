@@ -13,9 +13,11 @@ public class AiInsightsService : IAiInsightsService
 {
     private static readonly TimeSpan SummaryCacheTtl = TimeSpan.FromHours(24);
     private const int MaxVisionPhotos = 4;
+    private const int MaxVideoFrames = 3;
     private const long MaxVisionPhotoBytes = 4_500_000;
 
     private readonly IAiClient _aiClient;
+    private readonly IVideoFrameExtractor _videoFrameExtractor;
     private readonly IPropertyService _propertyService;
     private readonly IPropertyRepository _propertyRepository;
     private readonly IReviewRepository _reviewRepository;
@@ -34,6 +36,7 @@ public class AiInsightsService : IAiInsightsService
 
     public AiInsightsService(
         IAiClient aiClient,
+        IVideoFrameExtractor videoFrameExtractor,
         IPropertyService propertyService,
         IPropertyRepository propertyRepository,
         IReviewRepository reviewRepository,
@@ -51,6 +54,7 @@ public class AiInsightsService : IAiInsightsService
         ILogger<AiInsightsService> logger)
     {
         _aiClient = aiClient;
+        _videoFrameExtractor = videoFrameExtractor;
         _propertyService = propertyService;
         _propertyRepository = propertyRepository;
         _reviewRepository = reviewRepository;
@@ -374,19 +378,33 @@ public class AiInsightsService : IAiInsightsService
     {
         EnsureConfigured();
         var property = await _propertyRepository.GetByIdAsync(propertyId) ?? throw new NotFoundException("Property");
-        var photos = (await _photoRepository.FindAsync(p => p.PropertyId == propertyId)).Take(MaxVisionPhotos).ToList();
-        if (photos.Count == 0)
-            throw new ValidationException("This listing has no photos to check against yet.");
 
-        var images = await LoadImagesAsync(photos.Select(p => p.PhotoPath));
+        // Prefer the walkthrough VIDEO — it's the thing being verified — sampling a few frames when
+        // ffmpeg is available; then top up with listing photos. When ffmpeg isn't installed this
+        // yields zero frames and the check runs on photos alone, exactly as before.
+        var videoFrames = string.IsNullOrEmpty(property.WalkthroughVideoPath)
+            ? (IReadOnlyList<AiImage>)Array.Empty<AiImage>()
+            : await _videoFrameExtractor.ExtractFramesAsync(property.WalkthroughVideoPath, MaxVideoFrames);
+
+        var photoBudget = Math.Max(0, MaxVisionPhotos - videoFrames.Count);
+        var photos = (await _photoRepository.FindAsync(p => p.PropertyId == propertyId)).Take(photoBudget).ToList();
+        var photoImages = await LoadImagesAsync(photos.Select(p => p.PhotoPath));
+
+        var images = videoFrames.Concat(photoImages).ToList();
         if (images.Count == 0)
-            throw new ValidationException("The listing's photos could not be loaded.");
+            throw new ValidationException("This listing has no walkthrough video or photos to check against yet.");
+
+        var source = videoFrames.Count > 0
+            ? $"{videoFrames.Count} frame(s) sampled from the walkthrough video" +
+              (photoImages.Count > 0 ? $" plus {photoImages.Count} listing photo(s)" : "")
+            : $"{photoImages.Count} listing photo(s) (no video frames — ffmpeg unavailable or no video)";
 
         var raw = await _aiClient.CompleteWithImagesAsync(
             "You assist a human reviewer checking an accommodation listing for authenticity (anti-catfishing). " +
-            "Compare the attached photos against the listing facts. Reply ONLY with JSON: " +
-            "{\"consistent\": bool, \"observations\": string[] (what the photos show), " +
-            "\"redFlags\": string[] (stock-photo look, mismatched property type/rooms, watermarks; empty if none)}.",
+            $"The attached images are: {source}. Compare them against the listing facts. Reply ONLY with JSON: " +
+            "{\"consistent\": bool, \"observations\": string[] (what the images show), " +
+            "\"redFlags\": string[] (stock-photo look, mismatched property type/rooms, watermarks, " +
+            "video that doesn't match the photos; empty if none)}.",
             $"Listing facts: {property.Title} — {property.PropertyType}, {property.Bedrooms} bed / {property.Bathrooms} bath " +
             $"in {property.Location}. Description: {property.Description}",
             images);
@@ -397,7 +415,8 @@ public class AiInsightsService : IAiInsightsService
         {
             PhotosConsistentWithListing = parsed.Consistent ?? false,
             Observations = parsed.Observations ?? new(),
-            RedFlags = parsed.RedFlags ?? new()
+            RedFlags = parsed.RedFlags ?? new(),
+            VideoFramesAnalysed = videoFrames.Count
         };
     }
 

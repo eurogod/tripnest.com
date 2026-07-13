@@ -67,5 +67,8 @@ public class WalkthroughAiCheckResponse
     public bool PhotosConsistentWithListing { get; set; }
     public List<string> Observations { get; set; } = new();
     public List<string> RedFlags { get; set; } = new();
-    public string Disclaimer { get; set; } = "Photo-based assist for the human reviewer — approval remains a human decision.";
+    /// <summary>How many frames were sampled from the walkthrough video (0 = photo-only, e.g.
+    /// ffmpeg not installed or no video uploaded).</summary>
+    public int VideoFramesAnalysed { get; set; }
+    public string Disclaimer { get; set; } = "AI assist for the human reviewer — approval remains a human decision.";
 }

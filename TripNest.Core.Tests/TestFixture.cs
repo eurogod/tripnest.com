@@ -70,6 +70,11 @@ public class TestFixture : WebApplicationFactory<Program>
             services.RemoveAll<IIcalFeedFetcher>();
             services.AddSingleton<StubIcalFeedFetcher>();
             services.AddSingleton<IIcalFeedFetcher>(sp => sp.GetRequiredService<StubIcalFeedFetcher>());
+
+            // Deterministic video frame extraction (real ffmpeg isn't in CI).
+            services.RemoveAll<IVideoFrameExtractor>();
+            services.AddSingleton<StubVideoFrameExtractor>();
+            services.AddSingleton<IVideoFrameExtractor>(sp => sp.GetRequiredService<StubVideoFrameExtractor>());
         });
 
         builder.UseEnvironment("Testing");

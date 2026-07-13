@@ -140,3 +140,27 @@ public class StubIcalFeedFetcher : TripNest.Core.Interfaces.Services.IIcalFeedFe
             ? Task.FromResult(ics)
             : throw new HttpRequestException($"Stub has no feed for {url}");
 }
+
+/// <summary>Test double for video frame extraction — configurable availability + canned frames,
+/// so the walkthrough check can be exercised with and without video deterministically (the real
+/// ffmpeg extractor isn't installed in CI).</summary>
+public class StubVideoFrameExtractor : TripNest.Core.Interfaces.Services.IVideoFrameExtractor
+{
+    public bool Available { get; set; }
+    /// <summary>How many frames a successful extraction returns.</summary>
+    public int FrameCount { get; set; } = 2;
+
+    public bool IsAvailable => Available;
+
+    public Task<IReadOnlyList<TripNest.Core.Interfaces.Services.AiImage>> ExtractFramesAsync(
+        string storedVideoPath, int maxFrames, CancellationToken cancellationToken = default)
+    {
+        if (!Available || string.IsNullOrWhiteSpace(storedVideoPath))
+            return Task.FromResult<IReadOnlyList<TripNest.Core.Interfaces.Services.AiImage>>(System.Array.Empty<TripNest.Core.Interfaces.Services.AiImage>());
+        var frame = new byte[] { 1, 2, 3 };
+        var frames = System.Linq.Enumerable.Range(0, System.Math.Min(FrameCount, maxFrames))
+            .Select(_ => new TripNest.Core.Interfaces.Services.AiImage(frame, "image/jpeg"))
+            .ToList();
+        return Task.FromResult<IReadOnlyList<TripNest.Core.Interfaces.Services.AiImage>>(frames);
+    }
+}
