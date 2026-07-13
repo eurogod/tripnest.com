@@ -66,28 +66,16 @@ public class ReceiptsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadReceipt(string id)
     {
-        try
-        {
-            var userId = User.GetUserId();
-            if (string.IsNullOrEmpty(userId))
-                return Unauthorized();
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
 
-            var (pdf, filename) = await _receiptService.DownloadReceiptPdfAsync(id, userId);
-            if (pdf == null)
-                return NotFound();
-
-            return File(pdf, "application/pdf", filename);
-        }
-        catch (InvalidOperationException)
-        {
-            // Service throws this when the receipt doesn't exist / isn't the user's — that's a 404, not a 500.
+        // NotFoundException (also covers not-yours, deliberately) maps to 404 via the middleware.
+        var (pdf, filename) = await _receiptService.DownloadReceiptPdfAsync(id, userId);
+        if (pdf == null)
             return NotFound();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error downloading receipt");
-            return StatusCode(500);
-        }
+
+        return File(pdf, "application/pdf", filename);
     }
 
     /// <summary>

@@ -14,17 +14,20 @@ public class MaintenanceService : IMaintenanceService
     private readonly IMaintenanceRepository _maintenanceRepository;
     private readonly IPropertyRepository _propertyRepository;
     private readonly IRepository<ServiceRequest> _serviceRequestRepository;
+    private readonly IAiInsightsService _aiInsights;
     private readonly ILogger<MaintenanceService> _logger;
 
     public MaintenanceService(
         IMaintenanceRepository maintenanceRepository,
         IPropertyRepository propertyRepository,
         IRepository<ServiceRequest> serviceRequestRepository,
+        IAiInsightsService aiInsights,
         ILogger<MaintenanceService> logger)
     {
         _maintenanceRepository = maintenanceRepository;
         _propertyRepository = propertyRepository;
         _serviceRequestRepository = serviceRequestRepository;
+        _aiInsights = aiInsights;
         _logger = logger;
     }
 
@@ -34,12 +37,17 @@ public class MaintenanceService : IMaintenanceService
         if (property == null)
             throw new NotFoundException("Property");
 
+        // Best-effort AI triage (urgency + trade) so landlords can prioritise; never blocks the report.
+        var (urgency, category) = await _aiInsights.TriageMaintenanceAsync(request.Description);
+
         var maintenance = new Maintenance
         {
             PropertyId = request.PropertyId,
             ReportedByUserId = tenantId,
             Description = request.Description,
-            Status = MaintenanceStatus.Reported
+            Status = MaintenanceStatus.Reported,
+            TriageUrgency = urgency,
+            TriageCategory = category
         };
 
         await _maintenanceRepository.AddAsync(maintenance);
@@ -154,6 +162,8 @@ public class MaintenanceService : IMaintenanceService
             ReportedByUserId = m.ReportedByUserId,
             Description = m.Description,
             Status = m.Status,
+            TriageUrgency = m.TriageUrgency,
+            TriageCategory = m.TriageCategory,
             PhotoPath = m.PhotoPath,
             CreatedAt = m.CreatedAt,
             CompletedAt = m.CompletedAt,

@@ -229,19 +229,9 @@ public class PropertyService : IPropertyService
 
     public async Task<PropertyResponse> GetPropertyAsync(string propertyId)
     {
-        try
-        {
-            var property = await _propertyRepository.GetByIdAsync(propertyId);
-            if (property == null)
-                throw new InvalidOperationException("Property not found");
-
-            return MapToResponse(property);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving property");
-            throw;
-        }
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        return MapToResponse(property);
     }
 
     public async Task<IEnumerable<PropertyResponse>> GetUserPropertiesAsync(string userId)

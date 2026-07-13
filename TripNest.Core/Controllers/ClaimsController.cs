@@ -111,6 +111,18 @@ public class ClaimsController : ControllerBase
         return Ok(ApiResponse<DamageClaimResponse>.Ok("Claim approved and payout initiated", claim));
     }
 
+    /// <summary>AI reading brief for a claim (both sides + photo evidence described). Advisory only — the admin decides.</summary>
+    [HttpGet("{id}/brief")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.AdminBriefResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.AdminBriefResponse>>> GetBrief(
+        string id, [FromServices] IAiInsightsService aiInsights)
+    {
+        var brief = await aiInsights.GetClaimBriefAsync(id);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.AdminBriefResponse>.Ok("Claim brief", brief));
+    }
+
     /// <summary>Rejects the claim with a reason (admin).</summary>
     [HttpPost("{id}/reject")]
     [Authorize(Roles = "Admin")]

@@ -32,4 +32,12 @@ public interface IAiClient
     /// unparseable output like a provider failure. Returns null when unconfigured or on error.
     /// </summary>
     Task<string?> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Multimodal completion: text prompt plus images (photo screening, claim-evidence
+    /// description, walkthrough consistency checks). Same JSON-reply + null-on-failure contract
+    /// as <see cref="CompleteAsync"/>.
+    /// </summary>
+    Task<string?> CompleteWithImagesAsync(string systemPrompt, string userPrompt,
+        IReadOnlyList<AiImage> images, CancellationToken cancellationToken = default);
 }

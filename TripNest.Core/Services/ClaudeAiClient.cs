@@ -122,6 +122,47 @@ public class ClaudeAiClient : IAiClient
         }
     }
 
+    public async Task<string?> CompleteWithImagesAsync(string systemPrompt, string userPrompt,
+        IReadOnlyList<AiImage> images, CancellationToken cancellationToken = default)
+    {
+        if (_client is null)
+        {
+            _logger.LogInformation("[AI not configured] skipping multimodal completion");
+            return null;
+        }
+
+        try
+        {
+            var content = new List<ContentBlockParam>();
+            foreach (var image in images)
+                content.Add(new ImageBlockParam
+                {
+                    Source = new Base64ImageSource
+                    {
+                        Data = Convert.ToBase64String(image.Data),
+                        MediaType = image.MediaType,
+                    },
+                });
+            content.Add(new TextBlockParam { Text = userPrompt });
+
+            var response = await _client.Messages.Create(new MessageCreateParams
+            {
+                Model = _model,
+                MaxTokens = 2048,
+                Thinking = new ThinkingConfigAdaptive(),
+                System = systemPrompt,
+                Messages = [new() { Role = Role.User, Content = content }],
+            }, cancellationToken: cancellationToken);
+
+            return response.Content.Select(b => b.Value).OfType<TextBlock>().FirstOrDefault()?.Text;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AI multimodal completion failed");
+            return null;
+        }
+    }
+
     private static readonly Dictionary<string, JsonElement> SuggestionSchema = new()
     {
         ["type"] = JsonSerializer.SerializeToElement("object"),

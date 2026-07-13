@@ -168,6 +168,40 @@ public class PropertiesController : ControllerBase
     }
 
     /// <summary>
+    /// Natural-language search: "2 bedroom near UG under 800 for a weekend in September" — the AI
+    /// converts the phrase into the same structured filters as /search and returns matches plus
+    /// what it understood (so the client can show/adjust the parsed filters).
+    /// </summary>
+    [HttpGet("search/natural")]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.NaturalSearchResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.NaturalSearchResponse>>> SearchNatural(
+        [FromQuery] string q, [FromServices] IAiInsightsService aiInsights)
+    {
+        var result = await aiInsights.SearchNaturalAsync(q);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.NaturalSearchResponse>.Ok("Natural search results", result));
+    }
+
+    /// <summary>
+    /// AI listing coach (owner only): deterministic completeness checks + a 0–100 score computed
+    /// in code, with AI suggestions and photo-quality notes (vision) on what to improve.
+    /// </summary>
+    [HttpGet("{propertyId}/quality-report")]
+    [Authorize]
+    [ProducesResponseType(typeof(ApiResponse<TripNest.Core.DTOs.Ai.ListingQualityResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<TripNest.Core.DTOs.Ai.ListingQualityResponse>>> GetQualityReport(
+        string propertyId, [FromServices] IAiInsightsService aiInsights)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var report = await aiInsights.GetQualityReportAsync(propertyId, userId);
+        return Ok(ApiResponse<TripNest.Core.DTOs.Ai.ListingQualityResponse>.Ok("Listing quality report", report));
+    }
+
+    /// <summary>
     /// True-total price breakdown for a stay: nightly subtotal (weekend rates included), cleaning
     /// fee, length-of-stay discount, and — when the caller is signed in — their loyalty discount.
     /// This is the exact amount booking will charge; no fee is added later.
