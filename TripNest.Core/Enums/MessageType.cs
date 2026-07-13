@@ -5,5 +5,7 @@ public enum MessageType
     Text,
     Image,
     File,
-    Document
+    Document,
+    /// <summary>A voice note.</summary>
+    Audio
 }

@@ -14,17 +14,25 @@ internal static class UploadValidation
 {
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
     private static readonly string[] VideoExtensions = { ".mp4", ".mov", ".avi", ".webm", ".mkv" };
+    private static readonly string[] AudioExtensions = { ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".wav", ".webm" };
+    private static readonly string[] DocumentExtensions = { ".pdf", ".doc", ".docx", ".txt" };
     private const long ImageMaxBytes = 10L * 1024 * 1024;   // 10 MB
     private const long VideoMaxBytes = 100L * 1024 * 1024;  // 100 MB (matches the request body limit)
+    private const long AudioMaxBytes = 25L * 1024 * 1024;   // 25 MB — plenty for a chat voice note
+    private const long DocumentMaxBytes = 25L * 1024 * 1024;
 
     public static string Validate(IFormFile file, UploadKind kind)
     {
         if (file is null || file.Length == 0)
             throw new ValidationException("No file was provided");
 
-        var (allowed, max, label) = kind == UploadKind.Image
-            ? (ImageExtensions, ImageMaxBytes, "image")
-            : (VideoExtensions, VideoMaxBytes, "video");
+        var (allowed, max, label) = kind switch
+        {
+            UploadKind.Image => (ImageExtensions, ImageMaxBytes, "image"),
+            UploadKind.Video => (VideoExtensions, VideoMaxBytes, "video"),
+            UploadKind.Audio => (AudioExtensions, AudioMaxBytes, "audio"),
+            _ => (DocumentExtensions, DocumentMaxBytes, "document"),
+        };
 
         if (file.Length > max)
             throw new ValidationException($"The {label} exceeds the {max / (1024 * 1024)} MB limit");
@@ -54,8 +62,20 @@ internal static class UploadValidation
             read = stream.Read(header);
         header = header[..read];
 
-        return kind == UploadKind.Image ? IsKnownImage(header) : IsKnownVideo(header);
+        return kind switch
+        {
+            UploadKind.Image => IsKnownImage(header),
+            UploadKind.Video => IsKnownVideo(header),
+            UploadKind.Audio => IsKnownAudio(header),
+            // Documents: a .pdf must actually be a PDF (the common, spoofable case). Office/text
+            // formats (.doc/.docx/.txt) vary too much to fingerprint reliably, so for those the
+            // extension allowlist + size cap are the guard (none can be a script/executable).
+            _ => !IsPdfExtension(file.FileName) || Ascii(header, 0, "%PDF"),
+        };
     }
+
+    private static bool IsPdfExtension(string fileName) =>
+        Path.GetExtension(fileName).Equals(".pdf", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsKnownImage(ReadOnlySpan<byte> h) =>
         StartsWith(h, 0xFF, 0xD8, 0xFF) ||                               // JPEG
@@ -67,6 +87,14 @@ internal static class UploadValidation
         Ascii(h, 4, "ftyp") ||                                           // MP4 / MOV (ISO base media)
         StartsWith(h, 0x1A, 0x45, 0xDF, 0xA3) ||                         // WEBM / MKV (EBML)
         (Ascii(h, 0, "RIFF") && Ascii(h, 8, "AVI "));                    // AVI
+
+    private static bool IsKnownAudio(ReadOnlySpan<byte> h) =>
+        Ascii(h, 0, "ID3") ||                                            // MP3 with ID3 tag
+        StartsWith(h, 0xFF, 0xFB) || StartsWith(h, 0xFF, 0xF3) || StartsWith(h, 0xFF, 0xF2) || // MP3 frame sync
+        Ascii(h, 4, "ftyp") ||                                           // M4A / AAC (ISO base media)
+        Ascii(h, 0, "OggS") ||                                           // OGG / OGA
+        (Ascii(h, 0, "RIFF") && Ascii(h, 8, "WAVE")) ||                  // WAV
+        StartsWith(h, 0x1A, 0x45, 0xDF, 0xA3);                           // WEBM/Opus (EBML) — browser voice notes
 
     private static bool StartsWith(ReadOnlySpan<byte> h, params byte[] sig)
     {

@@ -189,6 +189,7 @@ Agreements expire with the stay: `ExpiryDate` = the booking's checkout, and a Si
 | GET | `/conversations/{id}` | 🔒 |
 | GET | `/conversations/{id}/messages?page=&pageSize=` | 🔒 |
 | POST | `/conversations/{id}/messages` | 🔒 (scanned for off-platform-payment attempts — warns the recipient in-app, never blocks the message) |
+| POST | `/conversations/{id}/messages/attachment` | 🔒 multipart `{file, caption?}` — image, voice note (mp3/m4a/aac/ogg/wav/webm) or document (pdf/doc/docx/txt); type inferred from the file, validated by extension + magic bytes + size (25 MB audio/doc, 10 MB image); `mediaUrl`/`mediaType` on the message, broadcast over SignalR like a text message |
 | POST | `/conversations/{id}/suggest-reply` | 🔒 (participant only; AI-drafted reply from the linked listing's facts, for the user to edit and send; 400 when AI unconfigured; rate-limited `ai`) |
 | PATCH | `/messages/{id}/read` | 🔒 |
 | PATCH | `/conversations/{id}/mark-read` | 🔒 |

@@ -134,6 +134,28 @@ public class ChatController : ControllerBase
     }
 
     /// <summary>
+    /// Send an attachment — an image, a voice note (mp3/m4a/aac/ogg/wav/webm) or a document
+    /// (pdf/doc/docx/txt). The message type is inferred from the file; an optional caption becomes
+    /// the message text. Broadcast over SignalR like a text message.
+    /// </summary>
+    [HttpPost("conversations/{id}/messages/attachment")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(26_214_400)] // 25 MB, matching the audio/document storage cap
+    [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse<MessageResponse>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ApiResponse<MessageResponse>>> SendAttachment(
+        string id, IFormFile file, [FromForm] string? caption = null)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<MessageResponse>.UnAuthorized());
+
+        var message = await _chatService.SendAttachmentAsync(id, userId, file, caption);
+        await _hubContext.Clients.Group(id).SendAsync("ReceiveMessage", message);
+        return Created($"api/messages/{message.MessageId}", ApiResponse<MessageResponse>.Created("Message", message));
+    }
+
+    /// <summary>
     /// Mark message as read
     /// </summary>
     [HttpPatch("messages/{id}/read")]

@@ -25,6 +25,10 @@ public class Message
     public User? Sender { get; set; }
     public required string Content { get; set; }
     public MessageType Type { get; set; } = MessageType.Text;
+    /// <summary>Stored path of an attached image/voice-note/document (null for text messages).</summary>
+    public string? MediaPath { get; set; }
+    /// <summary>MIME type of the attachment, for the client to render/play/download it.</summary>
+    public string? MediaType { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool IsRead { get; set; } = false;
     public DateTime? ReadAt { get; set; }

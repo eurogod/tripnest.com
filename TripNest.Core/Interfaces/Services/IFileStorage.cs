@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Http;
 namespace TripNest.Core.Interfaces.Services;
 
 /// <summary>The kind of upload, which selects the allowed extensions and size cap.</summary>
-public enum UploadKind { Image, Video }
+public enum UploadKind { Image, Video, Audio, Document }
 
 /// <summary>
 /// Abstraction over where uploaded media is stored. Implementations validate the file (type + size),
