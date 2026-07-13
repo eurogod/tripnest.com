@@ -398,6 +398,60 @@ public class CaretakerService : ICaretakerService
             .ToDictionary(g => g.Key, g => (g.Average(s => (double)s.Rating!.Value), g.Count()));
     }
 
+    public async Task<CaretakerDashboardResponse> GetMyDashboardAsync(string userId)
+    {
+        var myProfiles = (await _caretakerRepository.GetByUserIdAsync(userId)).ToList();
+        var myCaretakerIds = myProfiles.Select(c => c.Id).ToHashSet();
+
+        var requests = myCaretakerIds.Count == 0
+            ? new List<ServiceRequest>()
+            : (await _serviceRequestRepository.FindAsync(s => myCaretakerIds.Contains(s.CaretakerId))).ToList();
+
+        var rated = requests.Where(r => r.Rating.HasValue).ToList();
+        var now = DateTime.UtcNow;
+
+        return new CaretakerDashboardResponse
+        {
+            TotalServiceRequests = requests.Count,
+            PendingRequests = requests.Count(r => r.Status == ServiceRequestStatus.Pending),
+            ActiveServiceRequests = requests.Count(r =>
+                r.Status is ServiceRequestStatus.Accepted or ServiceRequestStatus.InProgress),
+            CompletedServiceRequests = requests.Count(r => r.Status == ServiceRequestStatus.Completed),
+            CompletedThisMonth = requests.Count(r => r.CompletedAt is { } done && done.Year == now.Year && done.Month == now.Month),
+            AverageRating = rated.Count == 0 ? 0m : Math.Round((decimal)rated.Average(r => r.Rating!.Value), 2),
+            TotalReviews = rated.Count,
+            MonthlyCompensation = myProfiles.Where(c => c.Status == CaretakerStatus.Active).Sum(c => c.MonthlyCompensation ?? 0m),
+            ActiveEngagements = myProfiles.Count(c => c.Status == CaretakerStatus.Active),
+            RecentRequests = requests.OrderByDescending(r => r.CreatedAt).Take(5).Select(MapToServiceRequest).ToList()
+        };
+    }
+
+    public async Task<List<CaretakerResponse>> UpdateMyAvailabilityAsync(string userId, CaretakerStatus status)
+    {
+        // Suspended is an admin-imposed sanction — a caretaker can't self-assign or lift it.
+        if (status == CaretakerStatus.Suspended)
+            throw new ValidationException("Caretakers can only set their availability to Active or Inactive");
+
+        var mine = (await _caretakerRepository.GetByUserIdAsync(userId)).ToList();
+        if (mine.Count == 0)
+            throw new NotFoundException("Caretaker profile");
+
+        // A suspended engagement stays suspended until an admin lifts it — skip those.
+        var updatable = mine.Where(c => c.Status != CaretakerStatus.Suspended).ToList();
+        foreach (var caretaker in updatable)
+        {
+            caretaker.Status = status;
+            await _caretakerRepository.UpdateAsync(caretaker);
+        }
+        if (updatable.Count > 0)
+            await _caretakerRepository.SaveChangesAsync();
+
+        _logger.LogInformation("User {UserId} set availability to {Status} on {Count} engagement(s)", userId, status, updatable.Count);
+
+        var ratings = await GetRatingAggregatesAsync(mine.Select(c => c.Id).ToList());
+        return mine.Select(c => MapToCaretaker(c, ratings)).ToList();
+    }
+
     private static CaretakerResponse MapToCaretaker(
         Caretaker c, IReadOnlyDictionary<string, (double Average, int Count)> ratings)
     {

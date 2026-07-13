@@ -206,6 +206,7 @@ Agreements expire with the stay: `ExpiryDate` = the booking's checkout, and a Si
 |---|---|---|
 | GET | `/?serviceType=&area=&page=&pageSize=` | 🌐 (paged; Active directory profiles with rating aggregates — see PUT `/me`) |
 | GET | `/me` | 🔒 `[Caretaker]` own directory profile (404 until created) |
+| PATCH | `/me/availability` | 🔒 `[Caretaker]` self-toggle availability (`{status}` Active/Inactive; Suspended is admin-only → 400) across the caller's engagements |
 | PUT | `/me` | 🔒 `[Caretaker]` 🛡️ create/update own directory profile (responsibilities, bio, area, rate) — required to appear in the list / be assignable |
 | GET | `/{id}` | 🌐 (includes `averageRating`/`reviewCount` from service-request reviews) |
 | POST | `/assign` | 🔒 `[Landlord]` 🛡️ (owner only; creates an active `PropertyCaretakerAssignment` — a caretaker can hold several; 409 if already assigned) |
@@ -409,7 +410,7 @@ From a match: start a chat (`POST api/chat/conversations`) and later book togeth
 | GET | `/api/personaldashboard/tenant` | 🔒 `[Tenant]` |
 | GET | `/api/personaldashboard/landlord` | 🔒 `[Landlord]` |
 | GET | `/api/personaldashboard/agent` | 🔒 `[Agent]` |
-| GET | `/api/personaldashboard/caretaker` | 🔒 `[Caretaker]` |
+| GET | `/api/personaldashboard/caretaker` | 🔒 `[Caretaker]` real metrics: service-request counts (total/pending/active/completed/this-month), average rating + review count, monthly compensation, active engagements, recent requests |
 | GET | `/api/landlord/stats` | 🔒 `[Landlord]` |
 | GET | `/api/landlord/earnings` | 🔒 `[Landlord]` |
 | GET | `/api/landlord/properties/performance` | 🔒 `[Landlord]` |
