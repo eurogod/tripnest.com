@@ -40,6 +40,26 @@ public class AssistantController : ControllerBase
         return Ok(ApiResponse<AssistantReplyResponse>.Ok("Assistant replied", reply));
     }
 
+    public record ContactSupportRequest(string? Message);
+
+    /// <summary>
+    /// Reach a human directly — files a support ticket and opens a live admin chat. Uses NO AI,
+    /// so it works even when the assistant is unconfigured, rate-limited, or down (that's exactly
+    /// when a user asking for customer care must not hit a dead end).
+    /// </summary>
+    [HttpPost("contact-support")]
+    [ProducesResponseType(typeof(ApiResponse<AssistantReplyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<AssistantReplyResponse>>> ContactSupport([FromBody] ContactSupportRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var reply = await _assistantService.ContactSupportAsync(userId, request.Message);
+        return Ok(ApiResponse<AssistantReplyResponse>.Ok("Connected to customer care", reply));
+    }
+
     /// <summary>The caller's conversation with the assistant, oldest first.</summary>
     [HttpGet("history")]
     [ProducesResponseType(typeof(ApiResponse<List<AssistantHistoryItem>>), StatusCodes.Status200OK)]

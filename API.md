@@ -199,6 +199,7 @@ Agreements expire with the stay: `ExpiryDate` = the booking's checkout, and a Si
 | Method | Path | Access |
 |---|---|---|
 | POST | `/ask` | 🔒 (AI Q&A grounded in platform rules + the caller's own bookings/escrow/verification, answered in their `preferredLanguage`; when a human is needed it opens a **live chat with an admin** — response returns `supportConversationId` — and files a support ticket; 400 when AI unconfigured; rate-limited `ai`) |
+| POST | `/contact-support` | 🔒 `{message?}` — reach a human directly: files a support ticket + opens a live admin chat. **Uses no AI**, so it works when the assistant is unconfigured/rate-limited/down |
 | GET | `/history?limit=` | 🔒 (the caller's assistant conversation, oldest first) |
 
 ### Caretakers — `api/caretakers`
