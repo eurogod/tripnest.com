@@ -231,6 +231,16 @@ public class EscrowController : ControllerBase
         return Ok(ApiResponse<PagedResult<EscrowResponse>>.Ok("Escrows retrieved", escrows));
     }
 
+    /// <summary>Admin dispute queue — every escrow currently in the Disputed state, newest first.</summary>
+    [HttpGet("disputes")]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(ApiResponse<IEnumerable<EscrowResponse>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<IEnumerable<EscrowResponse>>>> GetDisputedEscrows()
+    {
+        var disputes = await _escrowService.GetDisputedEscrowsAsync();
+        return Ok(ApiResponse<IEnumerable<EscrowResponse>>.Ok("Dispute queue retrieved", disputes));
+    }
+
     /// <summary>
     /// Get escrow transaction details
     /// </summary>

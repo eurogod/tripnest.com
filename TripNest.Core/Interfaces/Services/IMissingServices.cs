@@ -27,6 +27,8 @@ public interface IEscrowService
     Task<EscrowResponse?> GetEscrowByBookingAsync(string bookingId, string userId);
     // All escrows for the caller's own bookings (as the paying tenant), newest first.
     Task<PagedResult<EscrowResponse>> GetMyEscrowsAsync(string userId, int page, int pageSize);
+    // Admin dispute queue: every escrow currently in the Disputed state, newest first.
+    Task<List<EscrowResponse>> GetDisputedEscrowsAsync();
     Task ReleaseEscrowAsync(string escrowId, string userId);
     Task RaiseDisputeAsync(string escrowId, string userId, string reason);
     Task ResolveDisputeAsync(string escrowId, bool approved);

@@ -21,6 +21,8 @@ public class EscrowService : IEscrowService
     private readonly IPayoutService _payoutService;
     private readonly IRepository<EscrowEvent> _escrowEventRepository;
     private readonly IRepository<BookingShare> _shareRepository;
+    private readonly INotificationService _notificationService;
+    private readonly IAgreementService _agreementService;
     private readonly PlatformOptions _platform;
     private readonly ILogger<EscrowService> _logger;
 
@@ -32,6 +34,8 @@ public class EscrowService : IEscrowService
         IPayoutService payoutService,
         IRepository<EscrowEvent> escrowEventRepository,
         IRepository<BookingShare> shareRepository,
+        INotificationService notificationService,
+        IAgreementService agreementService,
         IOptions<PlatformOptions> platformOptions,
         ILogger<EscrowService> logger)
     {
@@ -42,8 +46,38 @@ public class EscrowService : IEscrowService
         _payoutService = payoutService;
         _escrowEventRepository = escrowEventRepository;
         _shareRepository = shareRepository;
+        _notificationService = notificationService;
+        _agreementService = agreementService;
         _platform = platformOptions.Value;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// On escrow release: make sure a rental agreement exists for the booking, then prompt BOTH the
+    /// tenant and the landlord to sign it. Best-effort — a notification/agreement hiccup must never
+    /// undo the release that already happened.
+    /// </summary>
+    private async Task EnsureAgreementAndNotifyPartiesAsync(Booking? booking)
+    {
+        if (booking is null) return;
+        try
+        {
+            // Idempotent: CreateAgreement throws ConflictException if one already exists.
+            try { await _agreementService.CreateAgreementAsync(booking.Id, booking.TenantId); }
+            catch (ConflictException) { /* agreement already exists — fine */ }
+
+            const string title = "Sign your rental agreement";
+            const string body = "The stay's funds have been released. Please review and sign the rental agreement.";
+            await _notificationService.NotifyAsync(booking.TenantId, NotificationType.AgreementReady, title, body);
+
+            var landlordId = booking.Property?.UserId;
+            if (!string.IsNullOrEmpty(landlordId))
+                await _notificationService.NotifyAsync(landlordId, NotificationType.AgreementReady, title, body);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not ensure/notify agreement for booking {BookingId}", booking.Id);
+        }
     }
 
     public async Task<EscrowResponse> InitiatePaymentAsync(string bookingId, string userId)
@@ -214,8 +248,9 @@ public class EscrowService : IEscrowService
         // (and arm the Postgres no-overlap exclusion constraint) and only Confirmed bookings
         // can get an agreement — so this transition must land in the same save as the hold.
         var booking = await _bookingRepository.GetByIdWithDetailsAsync(bookingId);
-        if (booking is { Status: BookingStatus.Pending })
-            booking.Status = BookingStatus.Confirmed;
+        var justConfirmed = booking is { Status: BookingStatus.Pending };
+        if (justConfirmed)
+            booking!.Status = BookingStatus.Confirmed;
 
         await _escrowRepository.UpdateAsync(escrow);
         try
@@ -236,6 +271,24 @@ public class EscrowService : IEscrowService
 
         _logger.LogInformation("Escrow {EscrowId} held for booking {BookingId} (reference: {Reference}); booking confirmed",
             escrow.Id, bookingId, reference);
+
+        // A confirmed booking needs a signed rental agreement — prompt the tenant to sign it.
+        // Best-effort: a notification failure must never fail the payment/confirmation.
+        if (justConfirmed && booking is not null)
+        {
+            try
+            {
+                await _notificationService.NotifyAsync(
+                    booking.TenantId,
+                    NotificationType.AgreementReady,
+                    "Sign your rental agreement",
+                    "Your booking is confirmed. Please review and sign your rental agreement to finalise your stay.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not send sign-agreement notification for booking {BookingId}", bookingId);
+            }
+        }
     }
 
     /// <summary>
@@ -326,6 +379,15 @@ public class EscrowService : IEscrowService
             .OrderByDescending(e => e.CreatedAt)
             .Select(e => MapToResponse(e))
             .ToList(), page, pageSize);
+    }
+
+    public async Task<List<EscrowResponse>> GetDisputedEscrowsAsync()
+    {
+        var disputed = await _escrowRepository.FindAsync(e => e.Status == EscrowStatus.Disputed);
+        return disputed
+            .OrderByDescending(e => e.CreatedAt)
+            .Select(e => MapToResponse(e))
+            .ToList();
     }
 
     public async Task<EscrowResponse?> GetEscrowAsync(string escrowId, string userId)

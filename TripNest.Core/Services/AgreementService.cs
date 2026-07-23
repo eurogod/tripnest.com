@@ -43,7 +43,9 @@ public class AgreementService : IAgreementService
             if (booking == null)
                 throw new NotFoundException("Booking");
 
-            if (booking.Status != BookingStatus.Confirmed)
+            // Confirmed (the normal case) or Completed (an agreement generated at escrow release,
+            // for records + both-party signing).
+            if (booking.Status is not (BookingStatus.Confirmed or BookingStatus.Completed))
                 throw new ValidationException("Agreement can only be created for confirmed bookings");
 
             var existing = await _agreementRepository.GetByBookingIdAsync(bookingId);

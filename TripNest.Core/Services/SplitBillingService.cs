@@ -290,6 +290,20 @@ public class SplitBillingService : ISplitBillingService
 
         _logger.LogInformation("Escrow {EscrowId} held for group booking {BookingId} ({Members} members); booking confirmed",
             escrow.Id, booking.Id, allShares.Count);
+
+        // Prompt the lead tenant to sign the rental agreement now the group booking is confirmed.
+        try
+        {
+            await _notificationService.NotifyAsync(
+                booking.TenantId,
+                NotificationType.AgreementReady,
+                "Sign your rental agreement",
+                "Your group booking is confirmed. Please review and sign your rental agreement to finalise the stay.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not send sign-agreement notification for group booking {BookingId}", booking.Id);
+        }
     }
 
     private async Task ResolveLostRaceAsync(Booking booking, Escrow escrow, List<BookingShare> allShares)

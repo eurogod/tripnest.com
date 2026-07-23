@@ -258,6 +258,59 @@ public class PropertiesController : ControllerBase
         return Ok(ApiResponse<TripNest.Core.DTOs.Properties.ListingCopySuggestion>.Ok("Listing copy generated", suggestion));
     }
 
+    /// <summary>
+    /// Publish a listing (Active) or take it offline (Inactive) / back to Draft — applied
+    /// immediately, owner only, with no admin-approval step.
+    /// </summary>
+    [HttpPatch("{propertyId}/status")]
+    [Authorize]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<PropertyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<PropertyResponse>>> UpdateStatus(
+        string propertyId, [FromBody] UpdatePropertyStatusRequest request)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var response = await _propertyService.SetStatusAsync(propertyId, userId, User.IsInRole("Admin"), request.Status);
+        return Ok(ApiResponse<PropertyResponse>.Ok("Listing status updated", response));
+    }
+
+    /// <summary>Sets which uploaded photo is the listing's cover (primary), owner only.</summary>
+    [HttpPatch("{propertyId}/cover/{photoId}")]
+    [Authorize]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<PropertyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<PropertyResponse>>> SetCover(string propertyId, string photoId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var response = await _propertyService.SetCoverPhotoAsync(propertyId, userId, User.IsInRole("Admin"), photoId);
+        return Ok(ApiResponse<PropertyResponse>.Ok("Cover photo updated", response));
+    }
+
+    /// <summary>Removes one uploaded photo (owner only); promotes another to cover if needed.</summary>
+    [HttpDelete("{propertyId}/photos/{photoId}")]
+    [Authorize]
+    [RequireVerified]
+    [ProducesResponseType(typeof(ApiResponse<PropertyResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ApiResponse<PropertyResponse>>> RemovePhoto(string propertyId, string photoId)
+    {
+        var userId = User.GetUserId();
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized(ApiResponse<object>.UnAuthorized());
+
+        var response = await _propertyService.RemovePhotoAsync(propertyId, userId, User.IsInRole("Admin"), photoId);
+        return Ok(ApiResponse<PropertyResponse>.Ok("Photo removed", response));
+    }
+
     /// <summary>Uploads one or more photos for a property (owner only, multipart/form-data).</summary>
     [HttpPost("{propertyId}/photos")]
     [Authorize]

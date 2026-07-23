@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using TripNest.Core.DTOs.Properties;
 using TripNest.Core.DTOs.Shared;
+using TripNest.Core.Enums;
 
 namespace TripNest.Core.Interfaces.Services;
 
@@ -22,4 +23,11 @@ public interface IPropertyService
     /// <summary>Owner/admin only. Hard-deletes a never-booked listing; archives one with booking
     /// history (escrow audit events are delete-restricted). Returns true when hard-deleted.</summary>
     Task<bool> DeletePropertyAsync(string propertyId, string userId, bool isAdmin);
+    /// <summary>Owner/admin only. Publishes a listing (Active) or takes it offline (Inactive) /
+    /// back to Draft, instantly — no admin approval or walkthrough gate.</summary>
+    Task<PropertyResponse> SetStatusAsync(string propertyId, string userId, bool isAdmin, PropertyStatus status);
+    /// <summary>Owner/admin only. Marks one uploaded photo as the listing's cover (primary).</summary>
+    Task<PropertyResponse> SetCoverPhotoAsync(string propertyId, string userId, bool isAdmin, string photoId);
+    /// <summary>Owner/admin only. Removes one uploaded photo; promotes another to cover if needed.</summary>
+    Task<PropertyResponse> RemovePhotoAsync(string propertyId, string userId, bool isAdmin, string photoId);
 }

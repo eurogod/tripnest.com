@@ -21,6 +21,7 @@ public class PropertyService : IPropertyService
     private readonly IFileStorage _fileStorage;
     private readonly IAiClient _aiClient;
     private readonly IUserRepository _userRepository;
+    private readonly IAuditService _auditService;
     private readonly ILogger<PropertyService> _logger;
 
     public PropertyService(
@@ -34,6 +35,7 @@ public class PropertyService : IPropertyService
         IFileStorage fileStorage,
         IAiClient aiClient,
         IUserRepository userRepository,
+        IAuditService auditService,
         ILogger<PropertyService> logger)
     {
         _propertyRepository = propertyRepository;
@@ -46,6 +48,7 @@ public class PropertyService : IPropertyService
         _fileStorage = fileStorage;
         _aiClient = aiClient;
         _userRepository = userRepository;
+        _auditService = auditService;
         _logger = logger;
     }
 
@@ -177,6 +180,7 @@ public class PropertyService : IPropertyService
             await _propertyRepository.SaveChangesAsync();
 
             _logger.LogInformation("Property created: {PropertyId} for user {UserId}", property.Id, userId);
+            await SafeAuditAsync(userId, "PropertyCreated", "Property", property.Id, newValue: property.Title);
 
             return MapToResponse(property);
         }
@@ -341,10 +345,123 @@ public class PropertyService : IPropertyService
         return true;
     }
 
+    /// <summary>
+    /// Publish (Active) / take offline (Inactive) / unpublish to Draft — applied straight away.
+    /// TripNest lets hosts self-publish: there is no admin-approval or walkthrough gate here.
+    /// </summary>
+    public async Task<PropertyResponse> SetStatusAsync(string propertyId, string userId, bool isAdmin, PropertyStatus status)
+    {
+        if (status is not (PropertyStatus.Active or PropertyStatus.Inactive or PropertyStatus.Draft))
+            throw new ValidationException("Status must be Active, Inactive, or Draft");
+
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        if (property.UserId != userId && !isAdmin)
+            throw new ForbiddenException("This property is not yours");
+
+        var previous = property.Status;
+        property.Status = status;
+        property.UpdatedAt = DateTime.UtcNow;
+        await _propertyRepository.UpdateAsync(property);
+        await _propertyRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Property {PropertyId} status set to {Status}", propertyId, status);
+        var action = status == PropertyStatus.Active ? "PropertyPublished"
+            : status == PropertyStatus.Inactive ? "PropertyTakenOffline"
+            : "PropertyUnpublished";
+        await SafeAuditAsync(userId, action, "Property", propertyId,
+            oldValue: previous.ToString(), newValue: status.ToString());
+        return MapToResponse(property);
+    }
+
+    /// <summary>Sets one photo as the cover (primary); clears the flag on the property's others.</summary>
+    public async Task<PropertyResponse> SetCoverPhotoAsync(string propertyId, string userId, bool isAdmin, string photoId)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        if (property.UserId != userId && !isAdmin)
+            throw new ForbiddenException("This property is not yours");
+
+        // Mutate the property's already-tracked photos (loaded via Include). Re-reading them
+        // no-tracking and calling Update would collide with these tracked instances (EF forbids
+        // two tracked entities with the same key) — the bug that made "Set as cover" fail.
+        var target = property.Photos.FirstOrDefault(p => p.Id == photoId)
+            ?? throw new NotFoundException("Photo");
+
+        foreach (var photo in property.Photos)
+            photo.IsPrimary = photo.Id == target.Id;
+
+        await _propertyRepository.SaveChangesAsync();
+
+        _logger.LogInformation("Property {PropertyId} cover set to photo {PhotoId}", propertyId, photoId);
+        return MapToResponse(property);
+    }
+
+    /// <summary>Removes a photo (DB row + stored file). If it was the cover, the next photo
+    /// by sort order becomes the new cover so a listing is never left cover-less with photos.</summary>
+    public async Task<PropertyResponse> RemovePhotoAsync(string propertyId, string userId, bool isAdmin, string photoId)
+    {
+        var property = await _propertyRepository.GetByIdAsync(propertyId)
+            ?? throw new NotFoundException("Property");
+        if (property.UserId != userId && !isAdmin)
+            throw new ForbiddenException("This property is not yours");
+
+        // Operate on the tracked navigation collection (same reason as SetCoverPhotoAsync).
+        var target = property.Photos.FirstOrDefault(p => p.Id == photoId)
+            ?? throw new NotFoundException("Photo");
+        var wasPrimary = target.IsPrimary;
+        var storedPath = target.PhotoPath;
+
+        await _photoRepository.DeleteAsync(target);
+
+        // If the cover was removed, promote the next remaining photo by sort order.
+        if (wasPrimary)
+        {
+            var next = property.Photos
+                .Where(p => p.Id != target.Id)
+                .OrderBy(p => p.SortOrder)
+                .FirstOrDefault();
+            if (next != null) next.IsPrimary = true;
+        }
+        await _propertyRepository.SaveChangesAsync();
+
+        // Best-effort file cleanup — the DB row is already gone.
+        try { await _fileStorage.DeleteAsync(storedPath); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Could not delete photo file {Path}", storedPath); }
+
+        var refreshed = await _propertyRepository.GetByIdAsync(propertyId) ?? property;
+        _logger.LogInformation("Removed photo {PhotoId} from property {PropertyId}", photoId, propertyId);
+        return MapToResponse(refreshed);
+    }
+
+    /// <summary>Records an audit entry, swallowing any failure — auditing must never break the action.</summary>
+    private async Task SafeAuditAsync(string userId, string action, string entityType, string entityId,
+        string? oldValue = null, string? newValue = null)
+    {
+        try { await _auditService.LogActionAsync(userId, action, entityType, entityId, oldValue, newValue); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Audit log write failed for {Action} {EntityId}", action, entityId); }
+    }
+
     private PropertyResponse MapToResponse(Property property)
     {
+        // Cover (primary) first, then the landlord's sort order.
+        var photos = (property.Photos ?? new List<PropertyPhoto>())
+            .OrderByDescending(p => p.IsPrimary)
+            .ThenBy(p => p.SortOrder)
+            .Select(p => new PropertyPhotoResponse
+            {
+                Id = p.Id,
+                Url = p.PhotoPath,
+                IsCover = p.IsPrimary,
+                SortOrder = p.SortOrder,
+            })
+            .ToList();
+        var cover = photos.FirstOrDefault(p => p.IsCover)?.Url ?? photos.FirstOrDefault()?.Url;
+
         return new PropertyResponse
         {
+            Photos = photos,
+            CoverPhoto = cover,
             PropertyId = property.Id,
             OwnerId = property.UserId,
             Title = property.Title,

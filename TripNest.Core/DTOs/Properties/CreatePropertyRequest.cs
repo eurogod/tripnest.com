@@ -18,3 +18,9 @@ public class CreatePropertyRequest
     public CancellationPolicy CancellationPolicy { get; set; } = CancellationPolicy.Moderate;
     public string? Amenities { get; set; }
 }
+
+/// <summary>Body for publishing / taking a listing offline (Active, Inactive, or Draft).</summary>
+public class UpdatePropertyStatusRequest
+{
+    public PropertyStatus Status { get; set; }
+}

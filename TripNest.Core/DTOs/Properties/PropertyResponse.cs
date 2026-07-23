@@ -21,6 +21,10 @@ public class PropertyResponse
     public CancellationPolicy CancellationPolicy { get; set; }
     public string? Amenities { get; set; }
     public string? PhotoPaths { get; set; }
+    /// <summary>Uploaded photos (web paths under /uploads), cover first then sort order.</summary>
+    public List<PropertyPhotoResponse> Photos { get; set; } = new();
+    /// <summary>The landlord's chosen cover photo URL (the primary photo), if any.</summary>
+    public string? CoverPhoto { get; set; }
     public PropertyStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -31,4 +35,13 @@ public class PropertyResponse
     /// <summary>True while the approval is within Walkthrough:BadgeValidityDays (365) — clients
     /// should show the "Verified" badge only while fresh and prompt hosts to re-verify after.</summary>
     public bool WalkthroughBadgeFresh { get; set; }
+}
+
+public class PropertyPhotoResponse
+{
+    public required string Id { get; set; }
+    /// <summary>Web path served by the static-file middleware, e.g. /uploads/properties/abc.jpg.</summary>
+    public required string Url { get; set; }
+    public bool IsCover { get; set; }
+    public int SortOrder { get; set; }
 }

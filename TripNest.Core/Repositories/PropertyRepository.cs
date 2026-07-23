@@ -13,17 +13,30 @@ public class PropertyRepository : Repository<Property>, IPropertyRepository
     {
     }
 
+    // Photos travel with the property everywhere a listing is shown (cards, gallery,
+    // cover). FindAsync can't Include, so read by key with the navigation loaded.
+    public override async Task<Property?> GetByIdAsync(string id)
+    {
+        return await _context.Set<Property>()
+            .Include(p => p.Photos)
+            .FirstOrDefaultAsync(p => p.Id == id);
+    }
+
     public async Task<IEnumerable<Property>> GetByUserIdAsync(string userId)
     {
         return await _context.Set<Property>()
+            .Include(p => p.Photos)
             .Where(p => p.UserId == userId)
+            .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
     }
 
     public async Task<IEnumerable<Property>> GetAllActiveAsync()
     {
         return await _context.Set<Property>()
+            .Include(p => p.Photos)
             .Where(p => p.Status == Enums.PropertyStatus.Active)
+            .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
     }
 
@@ -32,6 +45,7 @@ public class PropertyRepository : Repository<Property>, IPropertyRepository
     {
         var query = _context.Set<Property>()
             .AsNoTracking()
+            .Include(p => p.Photos)
             .Where(p => p.Status == Enums.PropertyStatus.Active);
 
         // ToLower().Contains translates to a case-insensitive LIKE on Postgres, served by the

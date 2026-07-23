@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using TripNest.Core.Enums;
 using TripNest.Core.Interfaces.Repositories;
+using TripNest.Core.Models;
 using TripNest.Core.Response;
 using TripNest.Core.Extensions;
 
@@ -17,17 +18,20 @@ public class LandlordDashboardController : ControllerBase
     private readonly IPropertyRepository _propertyRepository;
     private readonly IBookingRepository _bookingRepository;
     private readonly IReceiptRepository _receiptRepository;
+    private readonly IRepository<Payout> _payoutRepository;
     private readonly ILogger<LandlordDashboardController> _logger;
 
     public LandlordDashboardController(
         IPropertyRepository propertyRepository,
         IBookingRepository bookingRepository,
         IReceiptRepository receiptRepository,
+        IRepository<Payout> payoutRepository,
         ILogger<LandlordDashboardController> logger)
     {
         _propertyRepository = propertyRepository;
         _bookingRepository = bookingRepository;
         _receiptRepository = receiptRepository;
+        _payoutRepository = payoutRepository;
         _logger = logger;
     }
 
@@ -72,15 +76,6 @@ public class LandlordDashboardController : ControllerBase
         if (string.IsNullOrEmpty(landlordId))
             return Unauthorized(ApiResponse<object>.UnAuthorized());
 
-        var properties = await _propertyRepository.GetByUserIdAsync(landlordId);
-        var propertyIds = properties.Select(p => p.Id).ToList();
-
-        // One query for all bookings, then the completed ones — not a query per property.
-        var completedBookingIds = (await _bookingRepository.FindAsync(b =>
-                propertyIds.Contains(b.PropertyId) && b.Status == BookingStatus.Completed))
-            .Select(b => b.Id)
-            .ToHashSet();
-
         var now = DateTime.UtcNow;
         var startOfThisMonth = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var startOfLastMonth = startOfThisMonth.AddMonths(-1);
@@ -90,17 +85,20 @@ public class LandlordDashboardController : ControllerBase
         decimal thisMonthEarnings = 0m;
         decimal lastMonthEarnings = 0m;
 
-        // All receipts for the completed bookings in one query rather than per booking.
-        var receipts = await _receiptRepository.GetByBookingIdsAsync(completedBookingIds);
-        foreach (var receipt in receipts)
+        // Earnings track the landlord's payouts — one is created for every released escrow (and paid
+        // rent invoice). Gross is the booking revenue the host earned; the platform fee is a separate
+        // line in the transactions table. (Receipts are a tenant-side artefact and aren't produced
+        // here, which is why this used to always read zero.)
+        var payouts = await _payoutRepository.FindAsync(p => p.LandlordId == landlordId);
+        foreach (var payout in payouts)
         {
-            totalEarnings += receipt.Amount;
+            totalEarnings += payout.GrossAmount;
 
-            if (receipt.CreatedAt >= startOfThisMonth)
-                thisMonthEarnings += receipt.Amount;
+            if (payout.CreatedAt >= startOfThisMonth)
+                thisMonthEarnings += payout.GrossAmount;
 
-            if (receipt.CreatedAt >= startOfLastMonth && receipt.CreatedAt < endOfLastMonth)
-                lastMonthEarnings += receipt.Amount;
+            if (payout.CreatedAt >= startOfLastMonth && payout.CreatedAt < endOfLastMonth)
+                lastMonthEarnings += payout.GrossAmount;
         }
 
         var earnings = new
