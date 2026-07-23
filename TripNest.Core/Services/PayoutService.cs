@@ -14,6 +14,7 @@ public class PayoutService : IPayoutService
 {
     private readonly IRepository<Payout> _payoutRepository;
     private readonly IRepository<PayoutAccount> _accountRepository;
+    private readonly IReceiptRepository _receiptRepository;
     private readonly IPaymentGateway _paymentGateway;
     private readonly INotificationService _notificationService;
     private readonly PlatformOptions _platform;
@@ -22,6 +23,7 @@ public class PayoutService : IPayoutService
     public PayoutService(
         IRepository<Payout> payoutRepository,
         IRepository<PayoutAccount> accountRepository,
+        IReceiptRepository receiptRepository,
         IPaymentGateway paymentGateway,
         INotificationService notificationService,
         IOptions<PlatformOptions> platformOptions,
@@ -29,6 +31,7 @@ public class PayoutService : IPayoutService
     {
         _payoutRepository = payoutRepository;
         _accountRepository = accountRepository;
+        _receiptRepository = receiptRepository;
         _paymentGateway = paymentGateway;
         _notificationService = notificationService;
         _platform = platformOptions.Value;
@@ -126,6 +129,19 @@ public class PayoutService : IPayoutService
             };
             await _payoutRepository.AddAsync(payout);
             await _payoutRepository.SaveChangesAsync();
+
+            // Record the landlord's earning so it surfaces in /api/landlord/earnings (which sums
+            // receipts for completed bookings). One receipt per escrow — guarded by the payout
+            // idempotency check above, so a repeated release never double-counts.
+            await _receiptRepository.AddAsync(new Receipt
+            {
+                BookingId = escrow.BookingId,
+                UserId = landlordId,
+                Amount = payout.Amount,
+                Description = "Escrow released to landlord",
+                PaymentMethod = "Escrow",
+            });
+            await _receiptRepository.SaveChangesAsync();
 
             await AttemptTransferAsync(payout);
         }

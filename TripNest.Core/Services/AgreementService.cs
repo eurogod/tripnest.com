@@ -14,6 +14,7 @@ public class AgreementService : IAgreementService
     private readonly IBookingRepository _bookingRepository;
     private readonly IUserRepository _userRepository;
     private readonly IFileStorage _fileStorage;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<AgreementService> _logger;
 
     public AgreementService(
@@ -21,12 +22,14 @@ public class AgreementService : IAgreementService
         IBookingRepository bookingRepository,
         IUserRepository userRepository,
         IFileStorage fileStorage,
+        INotificationService notificationService,
         ILogger<AgreementService> logger)
     {
         _agreementRepository = agreementRepository;
         _bookingRepository = bookingRepository;
         _userRepository = userRepository;
         _fileStorage = fileStorage;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -216,6 +219,24 @@ public class AgreementService : IAgreementService
             await _agreementRepository.SaveChangesAsync();
 
             _logger.LogInformation("Agreement {AgreementId} signed by user {UserId}", agreementId, userId);
+
+            // When the second signature lands, tell both parties the signed PDF is ready to download.
+            // Best-effort — a notification hiccup must never undo a completed signature.
+            if (agreement.Status == AgreementStatus.Signed)
+            {
+                try
+                {
+                    const string title = "Rental agreement fully signed";
+                    const string body = "Both parties have signed. You can now download the signed agreement PDF.";
+                    await _notificationService.NotifyAsync(booking.TenantId, NotificationType.AgreementReady, title, body);
+                    if (!string.IsNullOrEmpty(landlordId))
+                        await _notificationService.NotifyAsync(landlordId, NotificationType.AgreementReady, title, body);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not send agreement-signed notification for {AgreementId}", agreementId);
+                }
+            }
         }
         catch (Exception ex)
         {

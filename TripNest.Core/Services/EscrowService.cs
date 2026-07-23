@@ -458,6 +458,9 @@ public class EscrowService : IEscrowService
         // Kick off the actual disbursement (Paystack Transfer). Idempotent, and a payout
         // hiccup never undoes the release — the payout stays visible for retry.
         await _payoutService.CreateForReleasedEscrowAsync(escrow, userId);
+
+        // Now that funds are released, make sure the agreement exists and prompt both parties to sign.
+        await EnsureAgreementAndNotifyPartiesAsync(booking);
     }
 
     public async Task RaiseDisputeAsync(string escrowId, string userId, string reason)
@@ -517,6 +520,7 @@ public class EscrowService : IEscrowService
                 await _escrowRepository.UpdateAsync(escrow);
                 await _escrowRepository.SaveChangesAsync();
                 await _payoutService.CreateForReleasedEscrowAsync(escrow, landlordId);
+                await EnsureAgreementAndNotifyPartiesAsync(booking);
                 _logger.LogInformation("Dispute resolved for escrow {EscrowId}: approved=True, new status={Status}",
                     escrowId, escrow.Status);
                 return;

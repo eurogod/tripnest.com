@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'TripNest Frontend (5173)'
 
 $root   = Split-Path -Parent $MyInvocation.MyCommand.Path
-$app    = Join-Path $root 'Frontend\Tripnest\Frontend'
+$app    = Join-Path $root 'Frontend\Frontend'
 $logDir = Join-Path $root 'logs'
 $log    = Join-Path $logDir 'frontend.log'
 $vite   = Join-Path $app 'node_modules\vite\bin\vite.js'
